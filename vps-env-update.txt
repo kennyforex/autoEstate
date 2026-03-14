@@ -1,0 +1,6 @@
+# Backend Environment Variables for VPS
+# Add or update these lines in /var/www/ffcs/backend/.env
+
+BACKEND_PUBLIC_URL=https://api.ffcs.hkfinch.com
+CORS_ORIGIN=https://ffcs.hkfinch.com
+APP_URL=https://ffcs.hkfinch.com

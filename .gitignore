@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# Cursor / IDE
+.cursor/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Coverage / temp
+coverage/
+tmp/
+temp/

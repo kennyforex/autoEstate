@@ -1,0 +1,52 @@
+{
+  "name": "ffcs-backend",
+  "version": "1.0.0",
+  "description": "FFCS - AI Customer Support Platform Backend",
+  "main": "dist/app.js",
+  "scripts": {
+    "dev": "tsx watch src/app.ts",
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "lint": "eslint src/**/*.ts",
+    "migrate:lid": "tsx src/scripts/migrate-lid-contacts.ts",
+    "migrate:countries": "tsx src/scripts/migrate-contact-countries.ts",
+    "cleanup:videos": "tsx src/scripts/cleanup-orphaned-videos.ts",
+    "fix:logo": "tsx src/scripts/fix-logo-url.ts"
+  },
+  "keywords": [
+    "customer-support",
+    "ai",
+    "whatsapp",
+    "pinecone"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@pinecone-database/pinecone": "^5.0.0",
+    "axios": "^1.6.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "libphonenumber-js": "^1.12.36",
+    "mongoose": "^8.0.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^7.0.13",
+    "socket.io": "^4.7.2",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^20.10.0",
+    "@types/nodemailer": "^6.4.16",
+    "@types/uuid": "^9.0.7",
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.2"
+  }
+}
