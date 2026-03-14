@@ -168,10 +168,20 @@ export interface ServerToClientEvents {
   ) => void;
   "channel:status": (data: { channelId: string; status: string; phoneNumber?: string }) => void;
   "ai:typing": (data: { conversationId: string; isTyping: boolean }) => void;
-  "ai:status": (data: { 
-    conversationId: string; 
-    status: 'analyzing_image' | 'analyzing_audio' | 'image_analyzed' | 'thinking' | 'done'; 
+  "ai:status": (data: {
+    conversationId: string;
+    status: 'analyzing_image' | 'analyzing_audio' | 'image_analyzed' | 'thinking' | 'agent_step' | 'done';
     result?: string;
+    step?: {
+      number: number;
+      total: number;
+      thought: string;
+      action?: {
+        tool: string;
+        args: Record<string, unknown>;
+      };
+      observation?: string;
+    };
   }) => void;
 }
 

@@ -176,8 +176,8 @@ class VideoService {
           headers: {
             Authorization: `Bearer ${openRouterConfig.apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://ffcs.ai",
-            "X-Title": "FFCS AI",
+            "HTTP-Referer": "https://autoestate.ai",
+            "X-Title": "AutoEstate AI",
           },
           timeout: openRouterConfig.videoTimeout,
           maxBodyLength: Infinity,

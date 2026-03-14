@@ -75,7 +75,7 @@ export const SetPassword: React.FC = () => {
             <div className="w-12 h-12 bg-primary rounded-xl flex items-center justify-center">
               <Zap className="w-7 h-7 text-white" />
             </div>
-            <span className="text-2xl font-bold text-text-primary">FFCS</span>
+            <span className="text-2xl font-bold text-text-primary">AutoEstate</span>
           </div>
 
           <h1 className="text-2xl font-semibold text-text-primary mb-2">

@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { fileURLToPath } from "url";
 import cors from "cors";
 import http from "http";
 import { Server } from "socket.io";
@@ -24,7 +23,6 @@ const server = http.createServer(app);
 
 // Serve uploaded videos so DashScope can fetch them by URL (no auth for GET)
 // Resolve path from app root so it works regardless of process.cwd()
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = process.env.UPLOAD_PATH || path.resolve(__dirname, "..", "uploads");
 app.use(
   "/uploads",
@@ -42,7 +40,7 @@ app.use(
 // CORS: allow dev origins when CORS_ORIGIN not set (3000 and 5173)
 const corsOrigin = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(",").map((o) => o.trim())
-  : ["http://localhost:3000", "http://localhost:5173"];
+  : ["http://localhost:3000", "http://localhost:5173", "http://localhost:5174"];
 
 // Initialize Socket.IO
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {

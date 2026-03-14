@@ -89,7 +89,7 @@ export const Login: React.FC = () => {
                   <Zap className="w-7 h-7 text-white" />
                 </div>
                 <span className="text-2xl font-bold text-text-primary">
-                  {branding.name || "FFCS"}
+                  {branding.name || "AutoEstate"}
                 </span>
               </>
             )}

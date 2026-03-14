@@ -13,6 +13,8 @@ export const openRouterConfig = {
     audio: process.env.OPENROUTER_AUDIO_MODEL || "google/gemini-2.0-flash-001",
     // Fast text (classification, simple reply)
     fast: "google/gemini-2.0-flash-001",
+    // Reasoning model for the ReAct agent engine (configured via env, independent of Pinecone's chat model)
+    agent: process.env.OPENROUTER_AGENT_MODEL || "deepseek/deepseek-chat",
   },
   // Max tokens for video analysis response
   videoMaxTokens: 16384,

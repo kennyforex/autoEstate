@@ -7,6 +7,7 @@ import type {
   Channel,
   Conversation,
   Message,
+  Skill,
   DashboardMetrics,
   AIInsights,
   ChannelStats,
@@ -222,6 +223,122 @@ export const tagsApi = {
 };
 
 // Assistants API
+// Agent chat SSE types
+export interface AgentStepEvent {
+  type: 'agent_step';
+  step: {
+    number: number;
+    total: number;
+    thought: string;
+    action?: { tool: string; args: Record<string, unknown> };
+    observation?: string;
+  };
+}
+
+export interface AgentStatusEvent {
+  type: 'status';
+  status: 'analyzing_image' | 'analyzing_audio' | 'thinking';
+}
+
+export interface AgentDoneEvent {
+  type: 'done';
+  message: { role: string; content: string };
+  resultType: 'final_answer' | 'clarification';
+  citations?: unknown[];
+  model?: string;
+  usage?: unknown;
+  steps?: unknown[];
+}
+
+export type AgentStreamEvent = AgentStepEvent | AgentStatusEvent | AgentDoneEvent;
+
+export interface AgentChatResult {
+  message: { role: string; content: string };
+  type: 'final_answer' | 'clarification';
+  citations?: unknown[];
+  model?: string;
+  steps?: unknown[];
+}
+
+async function streamAgentChat(
+  id: string,
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  file?: File,
+  onProgress?: (event: AgentStreamEvent) => void,
+): Promise<AgentChatResult> {
+  const token = localStorage.getItem('token');
+
+  let body: FormData | string;
+  const headers: Record<string, string> = {};
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  if (file) {
+    const formData = new FormData();
+    formData.append('messages', JSON.stringify(messages));
+    formData.append('file', file);
+    body = formData;
+  } else {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify({ messages });
+  }
+
+  const response = await fetch(`${API_BASE_URL}/assistants/${id}/agent-chat`, {
+    method: 'POST',
+    headers,
+    body,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Agent chat failed: ${response.status}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response body');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalResult: AgentChatResult | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const event = JSON.parse(line.slice(6)) as AgentStreamEvent;
+          if (onProgress) onProgress(event);
+          if (event.type === 'done') {
+            finalResult = {
+              message: event.message,
+              type: event.resultType,
+              citations: event.citations,
+              model: event.model,
+              steps: event.steps,
+            };
+          }
+        } catch {
+          // skip malformed events
+        }
+      }
+    }
+  }
+
+  if (!finalResult) {
+    throw new Error('No final result received from agent');
+  }
+
+  return finalResult;
+}
+
 export const assistantsApi = {
   list: async (status?: "active" | "inactive"): Promise<Assistant[]> => {
     const params = status ? { status } : {};
@@ -361,6 +478,23 @@ export const assistantsApi = {
   }> => {
     const { data } = await api.post(`/assistants/${id}/chat`, { messages });
     return data;
+  },
+
+  agentChat: async (
+    id: string,
+    messages: { role: "user" | "assistant"; content: string }[],
+    onProgress?: (event: AgentStreamEvent) => void,
+  ): Promise<AgentChatResult> => {
+    return streamAgentChat(id, messages, undefined, onProgress);
+  },
+
+  agentChatWithFile: async (
+    id: string,
+    messages: { role: "user" | "assistant"; content: string }[],
+    file: File,
+    onProgress?: (event: AgentStreamEvent) => void,
+  ): Promise<AgentChatResult> => {
+    return streamAgentChat(id, messages, file, onProgress);
   },
 };
 
@@ -681,6 +815,74 @@ export const aiLogsApi = {
 
   clearLogs: async (): Promise<void> => {
     await api.delete("/ai-logs");
+  },
+};
+
+// Skills API
+export const skillsApi = {
+  list: async (status?: string): Promise<Skill[]> => {
+    const params = status ? { status } : {};
+    const { data } = await api.get("/skills", { params });
+    return data.skills || data;
+  },
+
+  get: async (id: string): Promise<Skill> => {
+    const { data } = await api.get(`/skills/${id}`);
+    return data.skill || data;
+  },
+
+  create: async (skill: {
+    name: string;
+    slug: string;
+    description: string;
+    triggerHints?: string[];
+    storagePath: string;
+    hasReferences?: boolean;
+    hasExamples?: boolean;
+    scripts?: string[];
+  }): Promise<Skill> => {
+    const { data } = await api.post("/skills", skill);
+    return data.skill || data;
+  },
+
+  update: async (
+    id: string,
+    updates: Partial<Pick<Skill, "name" | "description" | "triggerHints" | "status">> & { instructions?: string },
+  ): Promise<Skill> => {
+    const { data } = await api.put(`/skills/${id}`, updates);
+    return data.skill || data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/skills/${id}`);
+  },
+
+  // Legacy: single file upload
+  install: async (file: File): Promise<Skill> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await api.post("/skills/install", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data.skill || data;
+  },
+
+  // New: zip directory upload
+  installZip: async (zipFile: File): Promise<Skill> => {
+    const formData = new FormData();
+    formData.append("file", zipFile);
+    const { data } = await api.post("/skills/install-zip", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data.skill || data;
+  },
+
+  bind: async (skillId: string, assistantId: string): Promise<void> => {
+    await api.post("/skills/bind", { skillId, assistantId });
+  },
+
+  unbind: async (skillId: string, assistantId: string): Promise<void> => {
+    await api.post("/skills/unbind", { skillId, assistantId });
   },
 };
 

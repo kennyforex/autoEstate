@@ -1,13 +1,11 @@
 import { Router, Response } from "express";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import type { AuthRequest } from "../types/index.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadsDir = process.env.UPLOAD_PATH || path.resolve(__dirname, "..", "..", "uploads");
+const uploadsDir = process.env.UPLOAD_PATH || path.resolve(process.cwd(), "uploads");
 const logosDir = path.join(uploadsDir, "logos");
 
 const router = Router();

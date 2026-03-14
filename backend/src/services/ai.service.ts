@@ -6,9 +6,12 @@ import { conversationService } from "./conversation.service.js";
 import { messageService } from "./message.service.js";
 import { aiLogger } from "./aiLogger.service.js";
 import { Conversation, Channel, Contact, Message, Assistant } from "../models/index.js";
+import { AgentSession } from "../models/AgentSession.js";
 import { delay } from "../utils/helpers.js";
 import { openRouterConfig } from "../config/openrouter.js";
 import { getEvolutionClient } from "../config/evolution.js";
+import { agentEngine } from "../agent/index.js";
+import { buildAgentContext } from "../agent/context.js";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -72,12 +75,23 @@ class AIService {
       | "analyzing_audio"
       | "image_analyzed"
       | "thinking"
+      | "agent_step"
       | "done",
     result?: string,
+    step?: {
+      number: number;
+      total: number;
+      thought: string;
+      action?: {
+        tool: string;
+        args: Record<string, unknown>;
+      };
+      observation?: string;
+    },
   ): void {
     if (this.io) {
       console.log(
-        `[AI:STATUS] Emitting status "${status}" for conversation ${conversationId}`,
+        `[AI:STATUS] Emitting status "${status}" for conversation ${conversationId}${step ? ` (step ${step.number}/${step.total})` : ''}`,
       );
       (
         this.io.to(`conversation:${conversationId}`) as unknown as {
@@ -87,6 +101,7 @@ class AIService {
         conversationId,
         status,
         result,
+        step,
       });
     }
   }
@@ -354,8 +369,8 @@ IMPORTANT RULES:
             headers: {
               Authorization: `Bearer ${openRouterConfig.apiKey}`,
               "Content-Type": "application/json",
-              "HTTP-Referer": "https://ffcs.ai",
-              "X-Title": "FFCS AI",
+              "HTTP-Referer": "https://autoestate.ai",
+              "X-Title": "AutoEstate AI",
             },
           },
         );
@@ -429,8 +444,8 @@ IMPORTANT RULES:
           headers: {
             Authorization: `Bearer ${openRouterConfig.apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://ffcs.ai",
-            "X-Title": "FFCS AI",
+            "HTTP-Referer": "https://autoestate.ai",
+            "X-Title": "AutoEstate AI",
           },
         },
       );
@@ -492,8 +507,8 @@ IMPORTANT RULES:
           headers: {
             Authorization: `Bearer ${openRouterConfig.apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://ffcs.ai",
-            "X-Title": "FFCS AI",
+            "HTTP-Referer": "https://autoestate.ai",
+            "X-Title": "AutoEstate AI",
           },
         },
       );
@@ -763,12 +778,79 @@ IMPORTANT RULES:
         let citations: any[] = [];
         let classification: "SIMPLE" | "COMPLEX" = "COMPLEX";
 
-        if (detectBadWording && hasBadWording) {
+        // Check for a pending agent session (clarification follow-up)
+        const pendingSession = await AgentSession.findOne({
+          conversationId,
+          status: "awaiting_clarification",
+        }).lean();
+
+        if (pendingSession) {
+          // Resume agent from saved session — skip classification
+          aiLogger.logInfo({
+            conversationId,
+            message: "Resuming agent session from clarification",
+          });
+          this.emitAIStatus(conversationId, "thinking");
+
+          const agentContext = await buildAgentContext(
+            conversationId,
+            channel._id.toString(),
+            contact._id.toString(),
+            channel.assistantId.toString(),
+            {
+              conversationId: pendingSession.conversationId.toString(),
+              assistantId: pendingSession.assistantId.toString(),
+              status: pendingSession.status,
+              originalMessage: pendingSession.originalMessage,
+              steps: pendingSession.steps as any,
+              messages: pendingSession.messages as any,
+              pendingClarification: pendingSession.pendingClarification,
+              expiresAt: pendingSession.expiresAt,
+            },
+          );
+
+          // Create progress callback to emit agent steps in real-time
+          const onAgentProgress = (step: {
+            number: number;
+            total: number;
+            thought: string;
+            action?: {
+              tool: string;
+              args: Record<string, unknown>;
+            };
+            observation?: string;
+          }) => {
+            this.emitAIStatus(conversationId, "agent_step", undefined, step);
+          };
+
+          const agentResult = await agentEngine.run(effectiveContent, agentContext, onAgentProgress);
+
+          // Clean up old session
+          await AgentSession.deleteOne({ _id: pendingSession._id });
+
+          if (agentResult.type === "clarification" && agentResult.session) {
+            await AgentSession.create(agentResult.session);
+          }
+
+          aiResponseContent = agentResult.content;
+          citations = agentResult.citations || [];
+          classification = "COMPLEX";
+
+          aiLogger.logComplexReply({
+            conversationId,
+            assistantId: channel.assistantId.toString(),
+            input: effectiveContent,
+            output: aiResponseContent,
+            duration: Date.now() - Date.now(),
+            citations,
+            model: agentResult.model,
+          });
+        } else if (detectBadWording && hasBadWording) {
           // Use custom bad wording response
           aiResponseContent =
             channel.aiSettings.badWordingResponse ||
             "We will help you as best as possible. Please let us know how we can assist you.";
-          classification = "SIMPLE"; // Treat as simple for confidence calculation
+          classification = "SIMPLE";
 
           aiLogger.logInfo({
             conversationId,
@@ -795,81 +877,49 @@ IMPORTANT RULES:
               simpleSystemPrompt,
             );
           } else {
-            // 3b. Complex Reply (Pinecone)
+            // 3b. Complex Reply — ReAct Agent Engine
             const complexStartTime = Date.now();
 
-            // Apply response delay if configured
             if (channel.aiSettings.responseDelay > 0) {
               await delay(channel.aiSettings.responseDelay * 1000);
             }
 
-            // Get conversation history for context
-            const messages = await messageService.findByConversation(
-              conversationId,
-              {
-                limit: 10,
-              },
-            );
-
-            // Build chat messages for Pinecone (text only)
-            const chatMessages = messages
-              .reverse()
-              .filter(
-                (msg) =>
-                  (msg.content && msg.content.trim().length > 0) ||
-                  msg.mediaDescription,
-              )
-              .slice(-10)
-              .map((msg) => {
-                let messageContent = msg.content;
-
-                // If message has media description, use text format that Pinecone can understand
-                if (msg.mediaDescription) {
-                  if (msg.contentType === "image") {
-                    const hasCaption = msg.content && msg.content !== "[Image]";
-                    const caption = hasCaption
-                      ? ` User's message: "${msg.content}"`
-                      : "";
-                    messageContent = `The user shared an image.${caption} Image description: ${msg.mediaDescription}`;
-                  } else if (msg.contentType === "audio") {
-                    messageContent = `The user sent an audio message. Transcription: ${msg.mediaDescription}`;
-                  } else {
-                    messageContent =
-                      `${msg.mediaDescription} ${msg.content || ""}`.trim();
-                  }
-                }
-
-                return {
-                  role:
-                    msg.sender === "customer"
-                      ? ("user" as const)
-                      : ("assistant" as const),
-                  content: messageContent,
-                };
-              });
-
-            // Add current message (if not already in history)
-            if (!chatMessages.find((m) => m.content === effectiveContent)) {
-              chatMessages.push({
-                role: "user" as const,
-                content: effectiveContent,
-              });
-            }
-
-            // Get AI response from Pinecone Assistant
             try {
-              const aiResponse = await assistantService.chat(
+              const agentContext = await buildAgentContext(
+                conversationId,
+                channel._id.toString(),
+                contact._id.toString(),
                 channel.assistantId.toString(),
-                chatMessages,
               );
 
-              aiResponseContent = aiResponse.message.content;
-              citations = aiResponse.citations || [];
+              // Create progress callback to emit agent steps in real-time
+              const onAgentProgress = (step: {
+                number: number;
+                total: number;
+                thought: string;
+                action?: {
+                  tool: string;
+                  args: Record<string, unknown>;
+                };
+                observation?: string;
+              }) => {
+                this.emitAIStatus(conversationId, "agent_step", undefined, step);
+              };
+
+              const agentResult = await agentEngine.run(effectiveContent, agentContext, onAgentProgress);
               const complexDuration = Date.now() - complexStartTime;
 
-              // If Pinecone returned empty content, treat it as a failure and use fallback
+              if (agentResult.type === "clarification" && agentResult.session) {
+                // Agent needs clarification — save session and send the question
+                await AgentSession.create(agentResult.session);
+                aiResponseContent = agentResult.content;
+              } else {
+                aiResponseContent = agentResult.content;
+                citations = agentResult.citations || [];
+              }
+
               if (!aiResponseContent || !aiResponseContent.trim()) {
-                console.warn(`[AI:Assistant] Pinecone returned empty response, falling back to direct reply`);
+                console.warn("[AI:Agent] Agent returned empty response, using fallback");
                 const fallbackSystemPrompt = await this.buildAssistantSystemPrompt(
                   channel.assistantId.toString(),
                 );
@@ -887,20 +937,18 @@ IMPORTANT RULES:
                 output: aiResponseContent,
                 duration: complexDuration,
                 citations,
-                model: aiResponse.model,
+                model: agentResult.model,
               });
-            } catch (assistantError: any) {
+            } catch (agentError: any) {
               console.error(
-                `[AI:Assistant] Pinecone assistant failed, falling back to direct reply:`,
-                assistantError.message,
+                "[AI:Agent] Agent engine failed, falling back to direct reply:",
+                agentError.message,
               );
               aiLogger.logError({
                 conversationId,
-                error: assistantError,
-                context: "assistantChat_fallback",
+                error: agentError,
+                context: "agentEngine_fallback",
               });
-              // Fall back using the assistant's own language/tone/instructions so the
-              // reply is contextually correct instead of a generic greeting response.
               try {
                 const fallbackSystemPrompt = await this.buildAssistantSystemPrompt(
                   channel.assistantId.toString(),
@@ -912,10 +960,9 @@ IMPORTANT RULES:
                 );
               } catch (fallbackError: any) {
                 console.error(
-                  `[AI:Assistant] Direct reply fallback also failed:`,
+                  "[AI:Agent] Direct reply fallback also failed:",
                   fallbackError.message,
                 );
-                // Last resort: use a hardcoded polite response
                 aiResponseContent =
                   "Thank you for your message. We've received it and will get back to you shortly.";
               }

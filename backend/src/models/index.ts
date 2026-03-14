@@ -29,3 +29,5 @@ export {
 export { Tag, type ITagDocument } from "./Tag.js";
 export { Company, type ICompanyDocument } from "./Company.js";
 export { AILog, type IAILogDocument, type ITokens } from "./AILog.js";
+export { Skill, type ISkillDocument } from "./Skill.js";
+export { AgentSession, type IAgentSessionDocument } from "./AgentSession.js";

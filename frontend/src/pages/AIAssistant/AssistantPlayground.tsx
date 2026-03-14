@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
@@ -11,6 +13,7 @@ import {
   Loader2,
   Upload,
   Trash2,
+  Pencil,
   ExternalLink,
   Video,
   AlertCircle,
@@ -24,6 +27,10 @@ import {
   MoreVertical,
   FolderInput,
   X,
+  Paperclip,
+  Image as ImageIcon,
+  Zap,
+  UploadCloud,
 } from "lucide-react";
 import {
   Button,
@@ -32,11 +39,19 @@ import {
   Select,
   Toggle,
   StatusDot,
+  Modal,
   ToastContainer,
   useToasts,
 } from "../../components/common";
-import { assistantsApi } from "../../lib/api";
-import type { Assistant, AssistantFile, AssistantLanguage, AssistantTone } from "../../lib/types";
+import { assistantsApi, skillsApi } from "../../lib/api";
+import type { AgentStreamEvent } from "../../lib/api";
+import type {
+  Assistant,
+  AssistantFile,
+  AssistantLanguage,
+  AssistantTone,
+  Skill,
+} from "../../lib/types";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -48,8 +63,10 @@ const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 
 // Helper to get display name from folder path
 const getFolderDisplayName = (folderPath: string): string => {
-  const lastSlashIndex = folderPath.lastIndexOf('/');
-  return lastSlashIndex === -1 ? folderPath : folderPath.substring(lastSlashIndex + 1);
+  const lastSlashIndex = folderPath.lastIndexOf("/");
+  return lastSlashIndex === -1
+    ? folderPath
+    : folderPath.substring(lastSlashIndex + 1);
 };
 
 // File item component for rendering individual files
@@ -194,7 +211,7 @@ const FileItem: React.FC<FileItemProps> = ({
               try {
                 const { signedUrl } = await assistantsApi.getFileUrl(
                   assistantId,
-                  file.fileId
+                  file.fileId,
                 );
                 window.open(signedUrl, "_blank");
               } catch (error) {
@@ -222,7 +239,9 @@ const FileItem: React.FC<FileItemProps> = ({
             className="p-1 text-text-secondary hover:text-error hover:bg-red-50 rounded"
             disabled={file.processingStatus === "pending"}
             title={
-              file.processingStatus === "pending" ? "Uploading..." : "Delete file"
+              file.processingStatus === "pending"
+                ? "Uploading..."
+                : "Delete file"
             }
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -357,9 +376,13 @@ const FolderTreeItem: React.FC<FolderTreeItemProps> = ({
             <span className="w-4" />
           )}
           {isExpanded ? (
-            <FolderOpen className={`w-4 h-4 ${isSelected ? "text-primary" : "text-amber-500"}`} />
+            <FolderOpen
+              className={`w-4 h-4 ${isSelected ? "text-primary" : "text-amber-500"}`}
+            />
           ) : (
-            <Folder className={`w-4 h-4 ${isSelected ? "text-primary" : "text-amber-500"}`} />
+            <Folder
+              className={`w-4 h-4 ${isSelected ? "text-primary" : "text-amber-500"}`}
+            />
           )}
           {renamingFolder === folderName ? (
             <input
@@ -395,9 +418,7 @@ const FolderTreeItem: React.FC<FolderTreeItemProps> = ({
               ({filesInFolder.length})
             </span>
           ) : childFolders.length === 0 ? (
-            <span className="text-xs text-text-secondary italic">
-              Empty
-            </span>
+            <span className="text-xs text-text-secondary italic">Empty</span>
           ) : null}
         </div>
         <button
@@ -479,18 +500,34 @@ export const AssistantPlayground: React.FC = () => {
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"settings" | "files">("settings");
+  const [activeTab, setActiveTab] = useState<"settings" | "files" | "skills">(
+    "settings",
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [agentStatus, setAgentStatus] = useState<string | null>(null);
+  const [agentSteps, setAgentSteps] = useState<
+    Array<{
+      number: number;
+      tool: string;
+      status: "running" | "completed";
+    }>
+  >([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const { toasts, dismissToast, showSuccess, showError } = useToasts();
 
+  // Chat file upload state
+  const [selectedChatFile, setSelectedChatFile] = useState<File | null>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+
   // Folder management state
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    new Set(),
+  );
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null); // Selected folder for uploads
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -516,11 +553,35 @@ export const AssistantPlayground: React.FC = () => {
 
   // Form state
   const [name, setName] = useState("");
-  const [primaryLanguage, setPrimaryLanguage] = useState<AssistantLanguage>("auto");
+  const [primaryLanguage, setPrimaryLanguage] =
+    useState<AssistantLanguage>("auto");
   const [tone, setTone] = useState<AssistantTone>("professional");
   const [instructions, setInstructions] = useState("");
   const [model, setModel] = useState("gpt-4o");
   const [isActive, setIsActive] = useState(true);
+
+  // Skills state
+  const [allSkills, setAllSkills] = useState<Skill[]>([]);
+  const [isLoadingSkills, setIsLoadingSkills] = useState(false);
+  const [showCreateSkillModal, setShowCreateSkillModal] = useState(false);
+  const [skillFormMode, setSkillFormMode] = useState<"form" | "upload">("form");
+  const [isCreatingSkill, setIsCreatingSkill] = useState(false);
+  const [skillForm, setSkillForm] = useState({
+    name: "",
+    description: "",
+    instructions: "",
+    triggerHints: "",
+    requiredTools: "",
+  });
+  const [skillUploadFile, setSkillUploadFile] = useState<File | null>(null);
+  const skillFileInputRef = useRef<HTMLInputElement>(null);
+  const zipFileInputRef = useRef<HTMLInputElement>(null);
+  const [bindingSkillId, setBindingSkillId] = useState<string | null>(null);
+  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
+
+  // Edit skill state
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
+  const [isUpdatingSkill, setIsUpdatingSkill] = useState(false);
 
   useEffect(() => {
     const fetchAssistant = async () => {
@@ -545,9 +606,27 @@ export const AssistantPlayground: React.FC = () => {
     fetchAssistant();
   }, [id, navigate]);
 
+  const fetchSkills = async () => {
+    setIsLoadingSkills(true);
+    try {
+      const skills = await skillsApi.list();
+      setAllSkills(skills);
+    } catch (error) {
+      console.error("Failed to fetch skills:", error);
+    } finally {
+      setIsLoadingSkills(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "skills") {
+      fetchSkills();
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, agentSteps]);
 
   // Poll for file status updates when there are pending/analyzing files
   useEffect(() => {
@@ -617,18 +696,64 @@ export const AssistantPlayground: React.FC = () => {
   }, [isTyping]);
 
   const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isTyping || !id) return;
+    if ((!inputMessage.trim() && !selectedChatFile) || isTyping || !id) return;
 
+    const content = inputMessage.trim();
     const userMessage: ChatMessage = {
       role: "user",
-      content: inputMessage.trim(),
+      content:
+        content || (selectedChatFile ? `[File: ${selectedChatFile.name}]` : ""),
     };
     setMessages((prev) => [...prev, userMessage]);
     setInputMessage("");
     setIsTyping(true);
+    setAgentStatus(null);
+    setAgentSteps([]);
+
+    const handleProgress = (event: AgentStreamEvent) => {
+      if (event.type === "status") {
+        setAgentStatus(event.status);
+      } else if (event.type === "agent_step") {
+        setAgentStatus("working");
+        setAgentSteps((prev) => {
+          const toolName = event.step.action?.tool || "thinking";
+          const newStep = {
+            number: event.step.number,
+            tool: toolName,
+            status: event.step.observation
+              ? ("completed" as const)
+              : ("running" as const),
+          };
+          const existingIndex = prev.findIndex(
+            (s) => s.number === event.step.number && s.tool === toolName,
+          );
+          if (existingIndex >= 0) {
+            const updated = [...prev];
+            updated[existingIndex] = newStep;
+            return updated;
+          }
+          return [...prev, newStep];
+        });
+      }
+    };
 
     try {
-      const response = await assistantsApi.chat(id, [...messages, userMessage]);
+      let response;
+      if (selectedChatFile) {
+        response = await assistantsApi.agentChatWithFile(
+          id,
+          [...messages, userMessage],
+          selectedChatFile,
+          handleProgress,
+        );
+        setSelectedChatFile(null);
+      } else {
+        response = await assistantsApi.agentChat(
+          id,
+          [...messages, userMessage],
+          handleProgress,
+        );
+      }
       const assistantMessage: ChatMessage = {
         role: "assistant",
         content: response.message?.content || "",
@@ -645,7 +770,52 @@ export const AssistantPlayground: React.FC = () => {
       ]);
     } finally {
       setIsTyping(false);
+      setAgentStatus(null);
+      setAgentSteps([]);
     }
+  };
+
+  const handleChatFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type (images for now)
+      const validTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "audio/mpeg",
+        "audio/wav",
+        "audio/ogg",
+        "audio/mp4",
+      ];
+      if (
+        !validTypes.includes(file.type) &&
+        !file.type.startsWith("image/") &&
+        !file.type.startsWith("audio/")
+      ) {
+        showError("Invalid file type", "Please select an image or audio file.");
+        return;
+      }
+      // Max 10MB for chat files
+      if (file.size > 10 * 1024 * 1024) {
+        showError("File too large", "Maximum file size is 10MB.");
+        return;
+      }
+      setSelectedChatFile(file);
+    }
+    // Reset input so same file can be selected again
+    if (chatFileInputRef.current) {
+      chatFileInputRef.current.value = "";
+    }
+  };
+
+  const handleChatFileButtonClick = () => {
+    chatFileInputRef.current?.click();
+  };
+
+  const removeSelectedChatFile = () => {
+    setSelectedChatFile(null);
   };
 
   const handleSaveSettings = async () => {
@@ -662,12 +832,200 @@ export const AssistantPlayground: React.FC = () => {
         status: isActive ? "active" : "inactive",
       });
       setAssistant(updated);
-      showSuccess("Settings saved", "Assistant settings have been updated successfully.");
+      showSuccess(
+        "Settings saved",
+        "Assistant settings have been updated successfully.",
+      );
     } catch (error) {
       console.error("Failed to save settings:", error);
-      showError("Failed to save", "An error occurred while saving settings. Please try again.");
+      showError(
+        "Failed to save",
+        "An error occurred while saving settings. Please try again.",
+      );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // ── Skill handlers ──
+
+  const isSkillBound = (skillId: string): boolean => {
+    return assistant?.skills?.includes(skillId) ?? false;
+  };
+
+  const toggleSkillExpanded = (skillId: string) => {
+    setExpandedSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(skillId)) {
+        next.delete(skillId);
+      } else {
+        next.add(skillId);
+      }
+      return next;
+    });
+  };
+
+  const openEditModal = (skill: Skill) => {
+    setEditingSkill(skill);
+    setSkillForm({
+      name: skill.name,
+      description: skill.description || "",
+      instructions: skill.instructions || "",
+      triggerHints: (skill.triggerHints || []).join(", "),
+      requiredTools: "",
+    });
+  };
+
+  const handleUpdateSkill = async () => {
+    if (!editingSkill || isUpdatingSkill) return;
+    setIsUpdatingSkill(true);
+    try {
+      const updated = await skillsApi.update(editingSkill._id, {
+        name: skillForm.name,
+        description: skillForm.description,
+        instructions: skillForm.instructions || undefined,
+        triggerHints: skillForm.triggerHints
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      });
+      setAllSkills((prev) =>
+        prev.map((s) => (s._id === updated._id ? updated : s)),
+      );
+      setEditingSkill(null);
+      setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "" });
+      showSuccess("Skill updated", `"${updated.name}" has been updated.`);
+    } catch (error: any) {
+      const msg = error.response?.data?.error || error.message || "Failed to update skill";
+      showError("Failed", msg);
+    } finally {
+      setIsUpdatingSkill(false);
+    }
+  };
+
+  const handleToggleSkill = async (skillId: string) => {
+    if (!id || bindingSkillId) return;
+    setBindingSkillId(skillId);
+    try {
+      if (isSkillBound(skillId)) {
+        await skillsApi.unbind(skillId, id);
+        setAssistant((prev) =>
+          prev
+            ? {
+                ...prev,
+                skills: (prev.skills || []).filter((s) => s !== skillId),
+              }
+            : prev,
+        );
+        showSuccess(
+          "Skill removed",
+          "Skill has been unbound from this assistant.",
+        );
+      } else {
+        await skillsApi.bind(skillId, id);
+        setAssistant((prev) =>
+          prev ? { ...prev, skills: [...(prev.skills || []), skillId] } : prev,
+        );
+        showSuccess("Skill added", "Skill has been bound to this assistant.");
+      }
+    } catch (error) {
+      console.error("Failed to toggle skill:", error);
+      showError("Failed", "Could not update skill binding.");
+    } finally {
+      setBindingSkillId(null);
+    }
+  };
+
+  const handleCreateSkill = async () => {
+    if (isCreatingSkill) return;
+    setIsCreatingSkill(true);
+    try {
+      if (skillFormMode === "upload" && skillUploadFile) {
+        const skill = await skillsApi.install(skillUploadFile);
+        if (id) {
+          await skillsApi.bind(skill._id, id);
+          setAssistant((prev) =>
+            prev
+              ? { ...prev, skills: [...(prev.skills || []), skill._id] }
+              : prev,
+          );
+        }
+        showSuccess(
+          "Skill installed",
+          `"${skill.name}" has been installed and bound.`,
+        );
+      } else {
+        // Create skill from form - build markdown content and use install
+        const triggerHintsStr = skillForm.triggerHints
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .join(", ");
+
+        // Build SKILL.md content
+        const skillMdContent = `---
+name: ${skillForm.name}
+description: ${skillForm.description}
+triggerHints: ${triggerHintsStr}
+---
+
+${skillForm.instructions}
+`;
+
+        // Create as markdown file
+        const file = new File([skillMdContent], "SKILL.md", { type: "text/markdown" });
+        const skill = await skillsApi.install(file);
+
+        if (id) {
+          await skillsApi.bind(skill._id, id);
+          setAssistant((prev) =>
+            prev
+              ? { ...prev, skills: [...(prev.skills || []), skill._id] }
+              : prev,
+          );
+        }
+        showSuccess(
+          "Skill created",
+          `"${skill.name}" has been created and bound.`,
+        );
+      }
+      setShowCreateSkillModal(false);
+      setSkillForm({
+        name: "",
+        description: "",
+        instructions: "",
+        triggerHints: "",
+        requiredTools: "",
+      });
+      setSkillUploadFile(null);
+      fetchSkills();
+    } catch (error: any) {
+      const msg =
+        error.response?.data?.error ||
+        error.message ||
+        "Failed to create skill";
+      showError("Failed", msg);
+    } finally {
+      setIsCreatingSkill(false);
+    }
+  };
+
+  const handleDeleteSkill = async (skillId: string) => {
+    try {
+      await skillsApi.delete(skillId);
+      setAllSkills((prev) => prev.filter((s) => s._id !== skillId));
+      setAssistant((prev) =>
+        prev
+          ? {
+              ...prev,
+              skills: (prev.skills || []).filter((s) => s !== skillId),
+            }
+          : prev,
+      );
+      showSuccess("Skill deleted", "Skill has been removed.");
+    } catch (error) {
+      console.error("Failed to delete skill:", error);
+      showError("Failed", "Could not delete skill.");
     }
   };
 
@@ -686,7 +1044,11 @@ export const AssistantPlayground: React.FC = () => {
     setIsUploading(true);
     try {
       // Pass selected folder if any
-      const updated = await assistantsApi.uploadFile(id, file, selectedFolder || undefined);
+      const updated = await assistantsApi.uploadFile(
+        id,
+        file,
+        selectedFolder || undefined,
+      );
       setAssistant(updated);
     } catch (error: unknown) {
       const message =
@@ -845,13 +1207,13 @@ export const AssistantPlayground: React.FC = () => {
     // Use folders from assistant (persisted in database)
     // Build hierarchical structure for nested folders
     const allFolders = assistant.folders || [];
-    
+
     // Separate top-level folders from child folders
     const topLevelFolders: string[] = [];
     const childFoldersMap: Record<string, string[]> = {}; // parent -> children
-    
+
     for (const folder of allFolders) {
-      const lastSlashIndex = folder.lastIndexOf('/');
+      const lastSlashIndex = folder.lastIndexOf("/");
       if (lastSlashIndex === -1) {
         // Top-level folder
         topLevelFolders.push(folder);
@@ -895,14 +1257,17 @@ export const AssistantPlayground: React.FC = () => {
       setNewFolderName("");
       return;
     }
-    
+
     try {
       const updated = await assistantsApi.createFolder(id, trimmedName);
       setAssistant(updated);
       setExpandedFolders((prev) => new Set(prev).add(trimmedName));
     } catch (error) {
       console.error("Failed to create folder:", error);
-      showError("Failed to create folder", "An error occurred while creating the folder.");
+      showError(
+        "Failed to create folder",
+        "An error occurred while creating the folder.",
+      );
     } finally {
       setNewFolderName("");
       setIsCreatingFolder(false);
@@ -919,7 +1284,10 @@ export const AssistantPlayground: React.FC = () => {
       setContextMenu(null);
     } catch (error) {
       console.error("Failed to move file:", error);
-      showError("Failed to move file", "An error occurred while moving the file.");
+      showError(
+        "Failed to move file",
+        "An error occurred while moving the file.",
+      );
     }
   };
 
@@ -927,11 +1295,13 @@ export const AssistantPlayground: React.FC = () => {
   const handleDeleteFolder = async (folderName: string) => {
     if (!id || !assistant) return;
 
-    const filesInFolder = assistant.files.filter((f) => f.folder === folderName);
-    
+    const filesInFolder = assistant.files.filter(
+      (f) => f.folder === folderName,
+    );
+
     if (filesInFolder.length > 0) {
       const confirmed = window.confirm(
-        `Move ${filesInFolder.length} file(s) from "${folderName}" to root and delete the folder?`
+        `Move ${filesInFolder.length} file(s) from "${folderName}" to root and delete the folder?`,
       );
       if (!confirmed) return;
     }
@@ -947,15 +1317,15 @@ export const AssistantPlayground: React.FC = () => {
       });
     } catch (error) {
       console.error("Failed to delete folder:", error);
-      showError("Failed to delete folder", "An error occurred while deleting the folder.");
+      showError(
+        "Failed to delete folder",
+        "An error occurred while deleting the folder.",
+      );
     }
   };
 
   // Handle right-click context menu
-  const handleFileContextMenu = (
-    e: React.MouseEvent,
-    file: AssistantFile
-  ) => {
+  const handleFileContextMenu = (e: React.MouseEvent, file: AssistantFile) => {
     e.preventDefault();
     setContextMenu({
       x: e.clientX,
@@ -1012,7 +1382,11 @@ export const AssistantPlayground: React.FC = () => {
     }
 
     try {
-      const updated = await assistantsApi.renameFolder(id, renamingFolder, trimmedName);
+      const updated = await assistantsApi.renameFolder(
+        id,
+        renamingFolder,
+        trimmedName,
+      );
       setAssistant(updated);
       // Update expanded folders if the renamed folder was expanded
       if (expandedFolders.has(renamingFolder)) {
@@ -1029,7 +1403,10 @@ export const AssistantPlayground: React.FC = () => {
       }
     } catch (error) {
       console.error("Failed to rename folder:", error);
-      showError("Failed to rename folder", "An error occurred while renaming the folder.");
+      showError(
+        "Failed to rename folder",
+        "An error occurred while renaming the folder.",
+      );
     } finally {
       setRenamingFolder(null);
       setRenameFolderValue("");
@@ -1052,11 +1429,17 @@ export const AssistantPlayground: React.FC = () => {
     e.dataTransfer.setData("text/plain", `folder:${folderName}`);
   };
 
-  const handleFolderDragOver = (e: React.DragEvent, folderName: string | null) => {
+  const handleFolderDragOver = (
+    e: React.DragEvent,
+    folderName: string | null,
+  ) => {
     // Handle file drag
     if (draggedFile) {
       // Don't allow dropping on the same folder
-      if (draggedFile.folder === folderName || (!draggedFile.folder && folderName === null)) {
+      if (
+        draggedFile.folder === folderName ||
+        (!draggedFile.folder && folderName === null)
+      ) {
         return;
       }
       e.preventDefault();
@@ -1090,24 +1473,37 @@ export const AssistantPlayground: React.FC = () => {
     setDropTargetFolder(null);
   };
 
-  const handleFolderDrop = async (e: React.DragEvent, targetFolder: string | null) => {
+  const handleFolderDrop = async (
+    e: React.DragEvent,
+    targetFolder: string | null,
+  ) => {
     e.preventDefault();
     setDropTargetFolder(null);
-    
+
     // Handle file drop
     if (draggedFile && id) {
       // Don't move if dropping on the same folder
-      if (draggedFile.folder === targetFolder || (!draggedFile.folder && targetFolder === null)) {
+      if (
+        draggedFile.folder === targetFolder ||
+        (!draggedFile.folder && targetFolder === null)
+      ) {
         setDraggedFile(null);
         return;
       }
 
       try {
-        const updated = await assistantsApi.updateFileFolder(id, draggedFile.fileId, targetFolder);
+        const updated = await assistantsApi.updateFileFolder(
+          id,
+          draggedFile.fileId,
+          targetFolder,
+        );
         setAssistant(updated);
       } catch (error) {
         console.error("Failed to move file:", error);
-        showError("Failed to move file", "An error occurred while moving the file.");
+        showError(
+          "Failed to move file",
+          "An error occurred while moving the file.",
+        );
       } finally {
         setDraggedFile(null);
       }
@@ -1118,12 +1514,16 @@ export const AssistantPlayground: React.FC = () => {
     if (draggedFolder && targetFolder && id) {
       // Create nested folder name
       const newFolderName = `${targetFolder}/${draggedFolder.split("/").pop()}`;
-      
+
       try {
         // Rename the folder to create nesting
-        const updated = await assistantsApi.renameFolder(id, draggedFolder, newFolderName);
+        const updated = await assistantsApi.renameFolder(
+          id,
+          draggedFolder,
+          newFolderName,
+        );
         setAssistant(updated);
-        
+
         // Update expanded folders
         setExpandedFolders((prev) => {
           const next = new Set(prev);
@@ -1132,14 +1532,17 @@ export const AssistantPlayground: React.FC = () => {
           next.add(targetFolder); // Expand parent folder
           return next;
         });
-        
+
         // Update selected folder if needed
         if (selectedFolder === draggedFolder) {
           setSelectedFolder(newFolderName);
         }
       } catch (error) {
         console.error("Failed to nest folder:", error);
-        showError("Failed to move folder", "An error occurred while moving the folder.");
+        showError(
+          "Failed to move folder",
+          "An error occurred while moving the folder.",
+        );
       } finally {
         setDraggedFolder(null);
       }
@@ -1181,7 +1584,9 @@ export const AssistantPlayground: React.FC = () => {
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">{t('assistants.playground.title')}</h1>
+            <h1 className="text-lg font-semibold text-gray-900">
+              {t("assistants.playground.title")}
+            </h1>
             <p className="text-sm text-gray-500">{assistant.name}</p>
           </div>
         </div>
@@ -1199,10 +1604,10 @@ export const AssistantPlayground: React.FC = () => {
                     <Bot className="w-8 h-8 text-gray-400" />
                   </div>
                   <h3 className="text-base font-semibold text-gray-900 mb-1">
-                    {t('assistants.playground.startConversation')}
+                    {t("assistants.playground.startConversation")}
                   </h3>
                   <p className="text-sm text-gray-500">
-                    {t('assistants.playground.testMessage')}
+                    {t("assistants.playground.testMessage")}
                   </p>
                 </div>
               </div>
@@ -1226,11 +1631,85 @@ export const AssistantPlayground: React.FC = () => {
                       </div>
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-900 mb-1">
-                          {message.role === "user" ? t('assistants.playground.you') : assistant.name}
+                          {message.role === "user"
+                            ? t("assistants.playground.you")
+                            : assistant.name}
                         </p>
-                        <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                          {message.content}
-                        </p>
+                        {message.role === "assistant" ? (
+                          <div
+                            className="text-sm text-gray-700 prose prose-sm max-w-none
+                            prose-p:my-2 prose-p:leading-relaxed
+                            prose-headings:font-semibold prose-headings:text-gray-900 prose-headings:mt-4 prose-headings:mb-1
+                            prose-h1:text-base prose-h2:text-sm prose-h3:text-sm
+                            prose-strong:text-gray-900 prose-strong:font-semibold
+                            prose-a:text-blue-600 prose-a:underline
+                            prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-code:font-mono prose-code:text-gray-800
+                            prose-pre:bg-gray-100 prose-pre:p-3 prose-pre:rounded-lg prose-pre:text-xs prose-pre:overflow-x-auto
+                            prose-ul:my-2 prose-ul:pl-4 prose-ol:my-2 prose-ol:pl-4
+                            prose-li:my-1 prose-li:leading-relaxed
+                            prose-blockquote:border-l-2 prose-blockquote:border-gray-300 prose-blockquote:pl-3 prose-blockquote:text-gray-600 prose-blockquote:italic
+                            prose-hr:my-3 prose-hr:border-gray-200"
+                          >
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                p: ({ children }) => (
+                                  <p className="my-2 leading-relaxed">
+                                    {children}
+                                  </p>
+                                ),
+                                ul: ({ children }) => (
+                                  <ul className="my-2 space-y-1 list-disc pl-4">
+                                    {children}
+                                  </ul>
+                                ),
+                                ol: ({ children }) => (
+                                  <ol className="my-2 space-y-1 list-decimal pl-4">
+                                    {children}
+                                  </ol>
+                                ),
+                                li: ({ children }) => (
+                                  <li className="leading-relaxed">
+                                    {children}
+                                  </li>
+                                ),
+                                strong: ({ children }) => (
+                                  <strong className="font-semibold text-gray-900">
+                                    {children}
+                                  </strong>
+                                ),
+                                hr: () => (
+                                  <hr className="my-4 border-gray-200" />
+                                ),
+                                code: ({ className, children, ...props }) => {
+                                  const isBlock =
+                                    className?.includes("language-");
+                                  return isBlock ? (
+                                    <code
+                                      className={`block bg-gray-100 p-3 rounded-lg text-xs font-mono overflow-x-auto ${className}`}
+                                      {...props}
+                                    >
+                                      {children}
+                                    </code>
+                                  ) : (
+                                    <code
+                                      className="bg-gray-100 px-1 py-0.5 rounded text-xs font-mono text-gray-800"
+                                      {...props}
+                                    >
+                                      {children}
+                                    </code>
+                                  );
+                                },
+                              }}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                            {message.content}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1241,11 +1720,42 @@ export const AssistantPlayground: React.FC = () => {
                       <div className="w-8 h-8 rounded-full bg-dark text-white flex items-center justify-center">
                         <Bot className="w-4 h-4" />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                        <span className="text-sm text-gray-500">
-                          {assistant.name} {t('assistants.playground.typing')}
-                        </span>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                          <span className="text-sm text-gray-500">
+                            {agentStatus === "analyzing_image"
+                              ? "Analyzing image..."
+                              : agentStatus === "analyzing_audio"
+                                ? "Analyzing audio..."
+                                : agentSteps.length > 0
+                                  ? `${assistant.name} is working...`
+                                  : `${assistant.name} is thinking...`}
+                          </span>
+                        </div>
+                        {agentSteps.length > 0 && (
+                          <div className="ml-6 space-y-1 border-l-2 border-gray-200 pl-3">
+                            {agentSteps.slice(-5).map((step, i) => (
+                              <div
+                                key={`${step.number}-${step.tool}-${i}`}
+                                className="flex items-center gap-2 text-xs"
+                              >
+                                {step.status === "running" ? (
+                                  <Loader2 className="w-3 h-3 animate-spin text-blue-500 flex-shrink-0" />
+                                ) : (
+                                  <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />
+                                )}
+                                <span className="text-gray-500">
+                                  {step.tool === "thinking"
+                                    ? "Analyzing request..."
+                                    : step.status === "running"
+                                      ? `Using ${step.tool}...`
+                                      : `Used ${step.tool}`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1257,11 +1767,34 @@ export const AssistantPlayground: React.FC = () => {
 
           {/* Input */}
           <div className="p-4 bg-white border-t border-gray-200">
+            {/* Selected file preview */}
+            {selectedChatFile && (
+              <div className="mb-3 flex items-center gap-2 p-2 bg-primary/5 border border-primary/20 rounded-lg">
+                {selectedChatFile.type.startsWith("image/") ? (
+                  <ImageIcon className="w-4 h-4 text-primary" />
+                ) : (
+                  <FileText className="w-4 h-4 text-primary" />
+                )}
+                <span className="text-sm text-text-primary flex-1 truncate">
+                  {selectedChatFile.name}
+                </span>
+                <span className="text-xs text-text-secondary">
+                  ({(selectedChatFile.size / 1024).toFixed(1)} KB)
+                </span>
+                <button
+                  onClick={removeSelectedChatFile}
+                  className="p-1 text-text-secondary hover:text-error hover:bg-red-50 rounded"
+                  title="Remove file"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
             <div className="flex items-end gap-3">
               <div className="flex-1">
                 <textarea
                   ref={chatInputRef}
-                  placeholder={t('assistants.playground.typePlaceholder')}
+                  placeholder={t("assistants.playground.typePlaceholder")}
                   className="w-full resize-none border border-gray-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary"
                   rows={2}
                   value={inputMessage}
@@ -1270,9 +1803,27 @@ export const AssistantPlayground: React.FC = () => {
                   disabled={isTyping}
                 />
               </div>
+              {/* File attachment button */}
+              <input
+                ref={chatFileInputRef}
+                type="file"
+                className="hidden"
+                onChange={handleChatFileSelect}
+                accept="image/*,audio/*"
+              />
+              <Button
+                variant="secondary"
+                onClick={handleChatFileButtonClick}
+                disabled={isTyping || !!selectedChatFile}
+                title="Attach image or audio"
+              >
+                <Paperclip className="w-4 h-4" />
+              </Button>
               <Button
                 onClick={handleSendMessage}
-                disabled={!inputMessage.trim() || isTyping}
+                disabled={
+                  (!inputMessage.trim() && !selectedChatFile) || isTyping
+                }
               >
                 <Send className="w-4 h-4" />
               </Button>
@@ -1281,7 +1832,7 @@ export const AssistantPlayground: React.FC = () => {
         </div>
 
         {/* Settings Panel */}
-        <div className="w-[400px] bg-white border-l border-gray-200 flex flex-col">
+        <div className="w-[520px] bg-white border-l border-gray-200 flex flex-col">
           {/* Tabs */}
           <div className="flex border-b border-gray-200">
             <button
@@ -1292,7 +1843,7 @@ export const AssistantPlayground: React.FC = () => {
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {t('assistants.playground.settings')}
+              {t("assistants.playground.settings")}
             </button>
             <button
               onClick={() => setActiveTab("files")}
@@ -1302,7 +1853,17 @@ export const AssistantPlayground: React.FC = () => {
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {t('assistants.playground.files')}
+              {t("assistants.playground.files")}
+            </button>
+            <button
+              onClick={() => setActiveTab("skills")}
+              className={`flex-1 px-4 py-3 text-sm font-medium ${
+                activeTab === "skills"
+                  ? "text-gray-900 border-b-2 border-gray-900"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Skills
             </button>
           </div>
 
@@ -1313,22 +1874,30 @@ export const AssistantPlayground: React.FC = () => {
                 {/* Status Info */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">{t('assistants.status')}</span>
+                    <span className="text-sm text-gray-500">
+                      {t("assistants.status")}
+                    </span>
                     <div className="flex items-center gap-1.5">
                       <StatusDot status={isActive ? "active" : "inactive"} />
                       <span className="text-sm text-gray-900">
-                        {isActive ? t('assistants.active') : t('assistants.inactive')}
+                        {isActive
+                          ? t("assistants.active")
+                          : t("assistants.inactive")}
                       </span>
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">{t('assistants.created')}</span>
+                    <span className="text-sm text-gray-500">
+                      {t("assistants.created")}
+                    </span>
                     <span className="text-sm text-gray-900">
                       {format(new Date(assistant.createdAt), "MMM d, yyyy")}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">{t('assistants.updated')}</span>
+                    <span className="text-sm text-gray-500">
+                      {t("assistants.updated")}
+                    </span>
                     <span className="text-sm text-gray-900">
                       {format(new Date(assistant.updatedAt), "MMM d, yyyy")}
                     </span>
@@ -1339,7 +1908,7 @@ export const AssistantPlayground: React.FC = () => {
 
                 {/* Assistant Name */}
                 <Input
-                  label={t('assistants.assistantName')}
+                  label={t("assistants.assistantName")}
                   placeholder="My AI Assistant"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -1347,35 +1916,46 @@ export const AssistantPlayground: React.FC = () => {
 
                 {/* Primary Language */}
                 <Select
-                  label={t('assistants.primaryLanguage')}
+                  label={t("assistants.primaryLanguage")}
                   value={primaryLanguage}
-                  onChange={(value) => setPrimaryLanguage(value as AssistantLanguage)}
+                  onChange={(value) =>
+                    setPrimaryLanguage(value as AssistantLanguage)
+                  }
                   options={[
-                    { value: "auto", label: t('assistants.dependsOnInput') },
-                    { value: "en", label: t('assistants.english') },
-                    { value: "zh-TW", label: t('assistants.traditionalChinese') },
-                    { value: "zh-CN", label: t('assistants.simplifiedChinese') },
+                    { value: "auto", label: t("assistants.dependsOnInput") },
+                    { value: "en", label: t("assistants.english") },
+                    {
+                      value: "zh-TW",
+                      label: t("assistants.traditionalChinese"),
+                    },
+                    {
+                      value: "zh-CN",
+                      label: t("assistants.simplifiedChinese"),
+                    },
                   ]}
                 />
 
                 {/* Tone */}
                 <Select
-                  label={t('assistants.tone')}
+                  label={t("assistants.tone")}
                   value={tone}
                   onChange={(value) => setTone(value as AssistantTone)}
                   options={[
-                    { value: "professional", label: t('assistants.professional') },
-                    { value: "friendly", label: t('assistants.friendly') },
-                    { value: "casual", label: t('assistants.casual') },
-                    { value: "formal", label: t('assistants.formal') },
-                    { value: "empathetic", label: t('assistants.empathetic') },
+                    {
+                      value: "professional",
+                      label: t("assistants.professional"),
+                    },
+                    { value: "friendly", label: t("assistants.friendly") },
+                    { value: "casual", label: t("assistants.casual") },
+                    { value: "formal", label: t("assistants.formal") },
+                    { value: "empathetic", label: t("assistants.empathetic") },
                   ]}
                 />
 
                 {/* Instructions */}
                 <div>
                   <Textarea
-                    label={t('assistants.instructions')}
+                    label={t("assistants.instructions")}
                     placeholder="Outline the assistant's behavior or any additional context. Applies to every conversation."
                     rows={6}
                     value={instructions}
@@ -1388,7 +1968,7 @@ export const AssistantPlayground: React.FC = () => {
 
                 {/* Model */}
                 <Select
-                  label={t('assistants.chatModel')}
+                  label={t("assistants.chatModel")}
                   value={model}
                   onChange={setModel}
                   options={[
@@ -1402,8 +1982,8 @@ export const AssistantPlayground: React.FC = () => {
                 <Toggle
                   checked={isActive}
                   onChange={setIsActive}
-                  label={t('assistants.active')}
-                  description={t('assistants.enableAssistant')}
+                  label={t("assistants.active")}
+                  description={t("assistants.enableAssistant")}
                 />
 
                 {/* Save Button */}
@@ -1412,10 +1992,10 @@ export const AssistantPlayground: React.FC = () => {
                   onClick={handleSaveSettings}
                   isLoading={isSaving}
                 >
-                  {t('common.save')}
+                  {t("common.save")}
                 </Button>
               </div>
-            ) : (
+            ) : activeTab === "files" ? (
               <div className="space-y-4">
                 {/* Upload Area */}
                 <div
@@ -1437,25 +2017,30 @@ export const AssistantPlayground: React.FC = () => {
                     <>
                       <Loader2 className="w-8 h-8 text-primary mx-auto mb-2 animate-spin" />
                       <p className="text-sm text-primary font-medium">
-                        {t('assistants.playground.uploading')}{selectedFolder ? ` ${t('assistants.playground.uploadingTo')} "${selectedFolder}"` : ""}...
+                        {t("assistants.playground.uploading")}
+                        {selectedFolder
+                          ? ` ${t("assistants.playground.uploadingTo")} "${selectedFolder}"`
+                          : ""}
+                        ...
                       </p>
                       <p className="text-xs text-text-secondary mt-1">
-                        {t('assistants.playground.videoProcessing')}
+                        {t("assistants.playground.videoProcessing")}
                       </p>
                     </>
                   ) : (
                     <>
                       <Upload className="w-8 h-8 text-text-secondary mx-auto mb-2" />
                       <p className="text-sm text-text-secondary">
-                        {t('assistants.playground.dragFiles')}
+                        {t("assistants.playground.dragFiles")}
                       </p>
                       {selectedFolder ? (
                         <p className="text-xs text-primary mt-1 font-medium">
-                          {t('assistants.playground.uploadTo')}: {selectedFolder}
+                          {t("assistants.playground.uploadTo")}:{" "}
+                          {selectedFolder}
                         </p>
                       ) : (
                         <p className="text-xs text-text-secondary mt-1">
-                          {t('assistants.playground.fileSupport')}
+                          {t("assistants.playground.fileSupport")}
                         </p>
                       )}
                     </>
@@ -1488,7 +2073,7 @@ export const AssistantPlayground: React.FC = () => {
                 {/* Folder Actions */}
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-text-secondary font-medium uppercase tracking-wider">
-                    {t('assistants.playground.filesAndFolders')}
+                    {t("assistants.playground.filesAndFolders")}
                   </span>
                   {isCreatingFolder ? (
                     <div className="flex items-center gap-1">
@@ -1516,23 +2101,26 @@ export const AssistantPlayground: React.FC = () => {
                       title="Create new folder"
                     >
                       <FolderPlus className="w-3.5 h-3.5" />
-                      <span>{t('assistants.playground.newFolder')}</span>
+                      <span>{t("assistants.playground.newFolder")}</span>
                     </button>
                   )}
                 </div>
 
                 {/* File & Folder List */}
                 <div className="space-y-1" onDragEnd={handleDragEnd}>
-                  {assistant.files.length === 0 && folderStructure.folders.length === 0 ? (
+                  {assistant.files.length === 0 &&
+                  folderStructure.folders.length === 0 ? (
                     <p className="text-sm text-text-secondary text-center py-4">
-                      {t('assistants.playground.noFiles')}
+                      {t("assistants.playground.noFiles")}
                     </p>
                   ) : (
                     <>
                       {/* Root (no folder) - clickable to deselect folder, also drop target */}
                       <div
                         className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
-                          dropTargetFolder === null && draggedFile && draggedFile.folder
+                          dropTargetFolder === null &&
+                          draggedFile &&
+                          draggedFile.folder
                             ? "bg-green-100 border-2 border-dashed border-green-500"
                             : selectedFolder === null
                               ? "bg-primary/10 border border-primary"
@@ -1547,7 +2135,7 @@ export const AssistantPlayground: React.FC = () => {
                           <span className="w-4" />
                           <FileText className="w-4 h-4 text-text-secondary" />
                           <span className="text-sm font-medium text-text-primary">
-                            {t('assistants.playground.home')}
+                            {t("assistants.playground.home")}
                           </span>
                           <span className="text-xs text-text-secondary">
                             ({folderStructure.rootFiles.length})
@@ -1632,7 +2220,9 @@ export const AssistantPlayground: React.FC = () => {
                     </button>
                     {contextMenu.currentFolder && (
                       <button
-                        onClick={() => handleMoveToFolder(contextMenu.fileId, null)}
+                        onClick={() =>
+                          handleMoveToFolder(contextMenu.fileId, null)
+                        }
                         className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-gray-50"
                       >
                         <FolderInput className="w-4 h-4" />
@@ -1647,7 +2237,9 @@ export const AssistantPlayground: React.FC = () => {
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
                     <div className="bg-white rounded-lg shadow-xl w-80 max-h-[80vh] overflow-hidden">
                       <div className="flex items-center justify-between p-4 border-b border-border">
-                        <h3 className="font-medium text-text-primary">Move to folder</h3>
+                        <h3 className="font-medium text-text-primary">
+                          Move to folder
+                        </h3>
                         <button
                           onClick={() => setMoveToFolderModal(null)}
                           className="p-1 text-text-secondary hover:text-text-primary"
@@ -1657,13 +2249,20 @@ export const AssistantPlayground: React.FC = () => {
                       </div>
                       <div className="p-4 space-y-2 max-h-60 overflow-y-auto">
                         <p className="text-xs text-text-secondary mb-2">
-                          Moving: <span className="font-medium">{moveToFolderModal.fileName}</span>
+                          Moving:{" "}
+                          <span className="font-medium">
+                            {moveToFolderModal.fileName}
+                          </span>
                         </p>
                         {/* Root option */}
                         <button
-                          onClick={() => handleMoveToFolder(moveToFolderModal.fileId, null)}
+                          onClick={() =>
+                            handleMoveToFolder(moveToFolderModal.fileId, null)
+                          }
                           className={`w-full flex items-center gap-2 p-2 rounded-lg text-sm text-left hover:bg-gray-50 ${
-                            !moveToFolderModal.currentFolder ? "bg-primary/10 text-primary" : ""
+                            !moveToFolderModal.currentFolder
+                              ? "bg-primary/10 text-primary"
+                              : ""
                           }`}
                         >
                           <FileText className="w-4 h-4" />
@@ -1673,7 +2272,12 @@ export const AssistantPlayground: React.FC = () => {
                         {folderStructure.folders.map((folderName) => (
                           <button
                             key={folderName}
-                            onClick={() => handleMoveToFolder(moveToFolderModal.fileId, folderName)}
+                            onClick={() =>
+                              handleMoveToFolder(
+                                moveToFolderModal.fileId,
+                                folderName,
+                              )
+                            }
                             className={`w-full flex items-center gap-2 p-2 rounded-lg text-sm text-left hover:bg-gray-50 ${
                               moveToFolderModal.currentFolder === folderName
                                 ? "bg-primary/10 text-primary"
@@ -1691,16 +2295,32 @@ export const AssistantPlayground: React.FC = () => {
                             placeholder="Create new folder..."
                             className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary"
                             onKeyDown={async (e) => {
-                              if (e.key === "Enter" && e.currentTarget.value.trim() && id) {
+                              if (
+                                e.key === "Enter" &&
+                                e.currentTarget.value.trim() &&
+                                id
+                              ) {
                                 const newFolder = e.currentTarget.value.trim();
                                 try {
                                   // First create the folder
-                                  await assistantsApi.createFolder(id, newFolder);
+                                  await assistantsApi.createFolder(
+                                    id,
+                                    newFolder,
+                                  );
                                   // Then move the file to it
-                                  await handleMoveToFolder(moveToFolderModal.fileId, newFolder);
+                                  await handleMoveToFolder(
+                                    moveToFolderModal.fileId,
+                                    newFolder,
+                                  );
                                 } catch (error) {
-                                  console.error("Failed to create folder and move file:", error);
-                                  showError("Failed", "Could not create folder and move file.");
+                                  console.error(
+                                    "Failed to create folder and move file:",
+                                    error,
+                                  );
+                                  showError(
+                                    "Failed",
+                                    "Could not create folder and move file.",
+                                  );
                                 }
                               }
                             }}
@@ -1709,6 +2329,466 @@ export const AssistantPlayground: React.FC = () => {
                       </div>
                     </div>
                   </div>
+                )}
+              </div>
+            ) : (
+              /* ── Skills Tab ── */
+              <div className="space-y-5">
+                {/* Header */}
+
+                {/* <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-text-primary">
+                      Installed Skills
+                    </h3>
+                    <p className="text-xs text-text-secondary mt-0.5">
+                      Toggle skills on to let the AI agent use them at runtime.
+                    </p>
+                  </div>
+                </div> */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setSkillFormMode("upload");
+                      setShowCreateSkillModal(true);
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium text-text-secondary border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
+                  >
+                    Upload .md
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Trigger zip file input
+                      zipFileInputRef.current?.click();
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium text-text-secondary border border-gray-200 rounded-md hover:bg-gray-50 transition-colors"
+                  >
+                    Upload Zip
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSkillFormMode("form");
+                      setShowCreateSkillModal(true);
+                    }}
+                    className="px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded-md hover:bg-gray-800 transition-colors"
+                  >
+                    + Create
+                  </button>
+                </div>
+
+                {/* Hidden zip file input */}
+                <input
+                  ref={zipFileInputRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+
+                    setIsCreatingSkill(true);
+                    try {
+                      const skill = await skillsApi.installZip(file);
+                      if (id) {
+                        await skillsApi.bind(skill._id, id);
+                        setAssistant((prev) =>
+                          prev ? { ...prev, skills: [...(prev.skills || []), skill._id] } : prev,
+                        );
+                      }
+                      await fetchSkills();
+                      showSuccess("Skill installed", `"${skill.name}" has been installed and bound.`);
+                    } catch (error: any) {
+                      const msg = error.response?.data?.error || error.message || "Failed to install skill";
+                      showError("Failed", msg);
+                    } finally {
+                      setIsCreatingSkill(false);
+                      e.target.value = "";
+                    }
+                  }}
+                />
+
+                {/* Divider */}
+                <div className="border-t border-gray-100" />
+
+                {/* Skills List */}
+                {isLoadingSkills ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="animate-pulse bg-gray-50 rounded-lg h-14"
+                      />
+                    ))}
+                  </div>
+                ) : allSkills.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Zap className="w-6 h-6 text-gray-400" />
+                    </div>
+                    <p className="text-sm font-medium text-text-primary">
+                      No skills yet
+                    </p>
+                    <p className="text-xs text-text-secondary mt-1 max-w-[280px] mx-auto">
+                      Upload a skill directory (zip) with SKILL.md, reference.md, examples/, and scripts/.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {allSkills.map((skill) => {
+                      const bound = isSkillBound(skill._id);
+                      const isExpanded = expandedSkills.has(skill._id);
+                      return (
+                        <div
+                          key={skill._id}
+                          className={`rounded-lg transition-all ${
+                            bound
+                              ? " ring-1 ring-primary/10"
+                              : "bg-white border border-gray-100 hover:border-gray-200"
+                          }`}
+                        >
+                          {/* Header row: expandable */}
+                          <button
+                            onClick={() => toggleSkillExpanded(skill._id)}
+                            className="w-full flex items-center justify-between p-3 text-left"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm font-medium text-text-primary truncate">
+                                {skill.name}
+                              </span>
+                              <span className="text-[10px] text-text-secondary bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                                {skill.slug}
+                              </span>
+                              {bound && (
+                                <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                                  Active
+                                </span>
+                              )}
+                              {/* Structure badges */}
+                              {skill.hasReferences && (
+                                <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded flex-shrink-0" title="Has reference documentation">
+                                  ref
+                                </span>
+                              )}
+                              {skill.hasExamples && (
+                                <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded flex-shrink-0" title="Has examples">
+                                  ex
+                                </span>
+                              )}
+                              {(skill.scripts || []).length > 0 && (
+                                <span className="text-[10px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded flex-shrink-0" title={`Scripts: ${(skill.scripts || []).join(', ')}`}>
+                                  {(skill.scripts || []).length} script{(skill.scripts || []).length > 1 ? 's' : ''}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                              <Toggle
+                                checked={bound}
+                                onChange={() => handleToggleSkill(skill._id)}
+                                disabled={bindingSkillId === skill._id}
+                              />
+                              <span className="text-gray-400">
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4" />
+                                )}
+                              </span>
+                            </div>
+                          </button>
+
+                          {/* Expanded content */}
+                          {isExpanded && (
+                            <div className="px-3 pb-3 pt-0">
+                              <div className="pt-2 border-t border-gray-100/60">
+                                {/* Description */}
+                                <p className="text-xs text-text-secondary leading-relaxed mb-3">
+                                  {skill.description}
+                                </p>
+
+                                {/* Trigger hints */}
+                                {(skill.triggerHints || []).length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mb-3">
+                                    {(skill.triggerHints || []).map((hint, i) => (
+                                      <span
+                                        key={i}
+                                        className="inline-block px-2 py-0.5 text-[11px] text-text-secondary bg-gray-50 rounded-full"
+                                      >
+                                        {hint}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Actions */}
+                                {!skill.isBuiltIn && (
+                                  <div className="flex justify-end gap-3">
+                                    <button
+                                      onClick={() => openEditModal(skill)}
+                                      className="text-xs text-gray-400 hover:text-primary transition-colors flex items-center gap-1"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        handleDeleteSkill(skill._id)
+                                      }
+                                      className="text-xs text-gray-400 hover:text-error transition-colors flex items-center gap-1"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      Delete
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Create Skill Modal */}
+                {showCreateSkillModal && (
+                  <Modal
+                    isOpen={showCreateSkillModal}
+                    onClose={() => {
+                      setShowCreateSkillModal(false);
+                      setSkillForm({
+                        name: "",
+                        description: "",
+                        instructions: "",
+                        triggerHints: "",
+                        requiredTools: "",
+                      });
+                      setSkillUploadFile(null);
+                    }}
+                    title={
+                      skillFormMode === "upload"
+                        ? "Install Skill from File"
+                        : "Create Skill"
+                    }
+                    size="lg"
+                    footer={
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setShowCreateSkillModal(false);
+                            setSkillForm({
+                              name: "",
+                              description: "",
+                              instructions: "",
+                              triggerHints: "",
+                              requiredTools: "",
+                            });
+                            setSkillUploadFile(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleCreateSkill}
+                          isLoading={isCreatingSkill}
+                          disabled={
+                            skillFormMode === "upload"
+                              ? !skillUploadFile
+                              : !skillForm.name ||
+                                !skillForm.description ||
+                                !skillForm.instructions
+                          }
+                        >
+                          {skillFormMode === "upload" ? "Install" : "Create"}
+                        </Button>
+                      </div>
+                    }
+                  >
+                    {/* Mode Toggle */}
+                    <div className="flex gap-2 mb-4">
+                      <button
+                        onClick={() => setSkillFormMode("form")}
+                        className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                          skillFormMode === "form"
+                            ? "bg-gray-900 text-white"
+                            : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+                        }`}
+                      >
+                        Form
+                      </button>
+                      <button
+                        onClick={() => setSkillFormMode("upload")}
+                        className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                          skillFormMode === "upload"
+                            ? "bg-gray-900 text-white"
+                            : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+                        }`}
+                      >
+                        Upload .md
+                      </button>
+                    </div>
+
+                    {skillFormMode === "form" ? (
+                      <div className="space-y-4">
+                        <Input
+                          label="Name"
+                          value={skillForm.name}
+                          onChange={(e) =>
+                            setSkillForm({ ...skillForm, name: e.target.value })
+                          }
+                          placeholder="e.g. Greeting Handler"
+                        />
+                        <Textarea
+                          label="Description"
+                          value={skillForm.description}
+                          onChange={(e) =>
+                            setSkillForm({
+                              ...skillForm,
+                              description: e.target.value,
+                            })
+                          }
+                          placeholder="When should the AI use this skill?"
+                          rows={2}
+                        />
+                        <Textarea
+                          label="Instructions"
+                          value={skillForm.instructions}
+                          onChange={(e) =>
+                            setSkillForm({
+                              ...skillForm,
+                              instructions: e.target.value,
+                            })
+                          }
+                          placeholder="Step-by-step instructions for the AI to follow..."
+                          rows={6}
+                        />
+                        <Input
+                          label="Trigger Hints (comma-separated)"
+                          value={skillForm.triggerHints}
+                          onChange={(e) =>
+                            setSkillForm({
+                              ...skillForm,
+                              triggerHints: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. hello, greet, welcome, 你好"
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <p className="text-sm text-text-secondary">
+                          Upload a skill markdown file with YAML frontmatter
+                          (name, description, triggerHints).
+                        </p>
+                        <div
+                          onClick={() => skillFileInputRef.current?.click()}
+                          className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                            skillUploadFile
+                              ? "border-primary bg-primary/5"
+                              : "border-gray-300 hover:border-primary hover:bg-gray-50"
+                          }`}
+                        >
+                          {skillUploadFile ? (
+                            <div className="flex items-center justify-center gap-2">
+                              <FileText className="w-5 h-5 text-primary" />
+                              <span className="text-sm font-medium text-primary">
+                                {skillUploadFile.name}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSkillUploadFile(null);
+                                }}
+                                className="p-0.5 text-gray-400 hover:text-error"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <UploadCloud className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                              <p className="text-sm text-text-secondary">
+                                Click to select a .md file
+                              </p>
+                            </>
+                          )}
+                        </div>
+                        <input
+                          ref={skillFileInputRef}
+                          type="file"
+                          accept=".md"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) setSkillUploadFile(file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </div>
+                    )}
+                  </Modal>
+                )}
+
+                {/* Edit Skill Modal */}
+                {editingSkill && (
+                  <Modal
+                    isOpen={!!editingSkill}
+                    onClose={() => {
+                      setEditingSkill(null);
+                      setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "" });
+                    }}
+                    title="Edit Skill"
+                    size="lg"
+                    footer={
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setEditingSkill(null);
+                            setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "" });
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleUpdateSkill}
+                          isLoading={isUpdatingSkill}
+                          disabled={!skillForm.name || !skillForm.description}
+                        >
+                          Save Changes
+                        </Button>
+                      </div>
+                    }
+                  >
+                    <div className="space-y-4">
+                      <Input
+                        label="Name"
+                        value={skillForm.name}
+                        onChange={(e) => setSkillForm({ ...skillForm, name: e.target.value })}
+                        placeholder="e.g. Booking Handler"
+                      />
+                      <Textarea
+                        label="Description"
+                        value={skillForm.description}
+                        onChange={(e) => setSkillForm({ ...skillForm, description: e.target.value })}
+                        placeholder="When should the AI use this skill? (e.g. Use when customer says hello)"
+                        rows={2}
+                      />
+                      <Textarea
+                        label="Instructions"
+                        value={skillForm.instructions}
+                        onChange={(e) => setSkillForm({ ...skillForm, instructions: e.target.value })}
+                        placeholder="Step-by-step instructions for the AI to follow when this skill runs..."
+                        rows={8}
+                      />
+                      <Input
+                        label="Trigger Hints (comma-separated)"
+                        value={skillForm.triggerHints}
+                        onChange={(e) => setSkillForm({ ...skillForm, triggerHints: e.target.value })}
+                        placeholder="e.g. hello, greet, welcome, 你好"
+                      />
+                    </div>
+                  </Modal>
                 )}
               </div>
             )}

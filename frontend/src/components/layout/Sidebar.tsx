@@ -150,7 +150,7 @@ export const Sidebar: React.FC = () => {
       >
         <img
           src="/favicon.png"
-          alt="FFCS"
+          alt="AutoEstate"
           className="w-10 h-10 object-contain"
         />
       </NavLink>

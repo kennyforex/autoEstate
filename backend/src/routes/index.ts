@@ -12,6 +12,7 @@ import uploadRoutes from "./upload.routes.js";
 import aiLogsRoutes from "./aiLogs.routes.js";
 import companyRoutes from "./company.routes.js";
 import userRoutes from "./user.routes.js";
+import skillRoutes from "./skill.routes.js";
 import { notFoundHandler } from "../middleware/error.middleware.js";
 
 const router = Router();
@@ -30,6 +31,7 @@ router.use("/upload", uploadRoutes);
 router.use("/ai-logs", aiLogsRoutes);
 router.use("/company", companyRoutes);
 router.use("/users", userRoutes);
+router.use("/skills", skillRoutes);
 
 // 404 handler for API routes
 router.use(notFoundHandler);

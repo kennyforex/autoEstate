@@ -189,7 +189,7 @@ router.patch(
   assistantController.renameFolder,
 );
 
-// Chat with assistant
+// Chat with assistant (direct Pinecone)
 router.post(
   "/:id/chat",
   validate([
@@ -206,6 +206,15 @@ router.post(
     body("model").optional().isString(),
   ]),
   assistantController.chatWithAssistant,
+);
+
+// Chat via ReAct Agent Engine (Playground agent mode)
+// Supports optional file upload for media analysis
+// Note: validation is handled in controller due to multipart/form-data
+router.post(
+  "/:id/agent-chat",
+  upload.single("file"),
+  assistantController.agentChat,
 );
 
 export default router;

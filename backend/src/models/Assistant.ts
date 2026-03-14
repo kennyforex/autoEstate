@@ -42,7 +42,8 @@ export interface IAssistantDocument extends Document {
   status: "active" | "inactive";
   metadata?: Record<string, unknown>;
   files: IAssistantFile[];
-  folders: string[]; // Folder names for organizing files (FFCS only, not synced to Pinecone)
+  folders: string[];
+  skills: mongoose.Types.ObjectId[];
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -147,6 +148,10 @@ const assistantSchema = new Schema<IAssistantDocument>(
     },
     folders: {
       type: [String],
+      default: [],
+    },
+    skills: {
+      type: [{ type: Schema.Types.ObjectId, ref: "Skill" }],
       default: [],
     },
     createdBy: {

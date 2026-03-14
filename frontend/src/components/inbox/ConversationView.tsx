@@ -231,9 +231,25 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   const [isSending, setIsSending] = useState(false);
   const [isAITyping, setIsAITyping] = useState(false);
   const [aiStatus, setAiStatus] = useState<{
-    status: "analyzing_image" | "analyzing_audio" | "image_analyzed" | "thinking" | "done" | null;
+    status: "analyzing_image" | "analyzing_audio" | "image_analyzed" | "thinking" | "agent_step" | "done" | null;
     result?: string;
+    step?: {
+      number: number;
+      total: number;
+      thought: string;
+      action?: {
+        tool: string;
+        args: Record<string, unknown>;
+      };
+      observation?: string;
+    };
   }>({ status: null });
+  // Track agent steps for showing progress like Cursor
+  const [agentSteps, setAgentSteps] = useState<Array<{
+    number: number;
+    tool: string;
+    status: 'running' | 'completed' | 'error';
+  }>>([]);
   const [pendingFile, setPendingFile] = useState<{
     preview: string;
     base64: string;
@@ -306,15 +322,50 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
 
     const handleAIStatus = (data: {
       conversationId: string;
-      status: "analyzing_image" | "analyzing_audio" | "image_analyzed" | "thinking" | "done";
+      status: "analyzing_image" | "analyzing_audio" | "image_analyzed" | "thinking" | "agent_step" | "done";
       result?: string;
+      step?: {
+        number: number;
+        total: number;
+        thought: string;
+        action?: {
+          tool: string;
+          args: Record<string, unknown>;
+        };
+        observation?: string;
+      };
     }) => {
       if (data.conversationId === conversation._id) {
-        console.log("[AI Status]", data.status);
+        console.log("[AI Status]", data.status, data.step);
         if (data.status === "done") {
           setAiStatus({ status: null });
+          setAgentSteps([]); // Clear steps when done
+        } else if (data.status === "agent_step" && data.step) {
+          setAiStatus({ status: data.status, step: data.step });
+          // Update agent steps list
+          setAgentSteps(prev => {
+            const existingIndex = prev.findIndex(s => s.number === data.step!.number);
+            const toolName = data.step?.action?.tool || 'thinking';
+            const newStep = {
+              number: data.step!.number,
+              tool: toolName,
+              status: data.step?.observation ? 'completed' : 'running' as 'running' | 'completed' | 'error'
+            };
+            if (existingIndex >= 0) {
+              // Update existing step
+              const updated = [...prev];
+              updated[existingIndex] = newStep;
+              return updated;
+            } else {
+              // Add new step
+              return [...prev, newStep];
+            }
+          });
         } else {
           setAiStatus({ status: data.status, result: data.result });
+          if (data.status !== "thinking") {
+            setAgentSteps([]); // Clear steps when starting new phase
+          }
         }
       }
     };
@@ -325,6 +376,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     // Reset typing indicator and status when conversation changes
     setIsAITyping(false);
     setAiStatus({ status: null });
+    setAgentSteps([]);
 
     return () => {
       socket.off("ai:typing", handleAITyping);
@@ -974,41 +1026,74 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                 </React.Fragment>
               );
             })}
-            {/* AI Status Indicator - Single dark bubble with changing text */}
+            {/* AI Status Indicator - Shows progress like Cursor */}
             {(isAITyping ||
               aiStatus.status === "analyzing_image" ||
               aiStatus.status === "analyzing_audio" ||
-              aiStatus.status === "thinking") && (
+              aiStatus.status === "thinking" ||
+              (agentSteps.length > 0)) && (
               <div className="flex justify-end mb-4">
-                <div className="flex flex-col items-end">
+                <div className="flex flex-col items-end max-w-[80%]">
                   <div className="flex items-center gap-1.5 mb-1">
                     <Sparkles className="w-3 h-3 text-text-secondary" />
                     <span className="text-xs text-text-secondary">
                       {assistantName || "AI Agent"}
                     </span>
                   </div>
-                  <div className="bg-dark-surface text-white rounded-lg p-4 flex items-center gap-2">
-                    <span className="text-sm">
-                      {aiStatus.status === "analyzing_image"
-                        ? "Analyzing image"
-                        : aiStatus.status === "analyzing_audio"
-                          ? "Analyzing audio"
-                          : "Thinking"}
-                    </span>
-                    <div className="flex gap-1">
-                      <span
-                        className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                        style={{ animationDelay: "0ms" }}
-                      />
-                      <span
-                        className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                        style={{ animationDelay: "150ms" }}
-                      />
-                      <span
-                        className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                        style={{ animationDelay: "300ms" }}
-                      />
+                  <div className="bg-dark-surface text-white rounded-lg p-4">
+                    {/* Current status text */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm">
+                        {aiStatus.status === "analyzing_image"
+                          ? "Analyzing image"
+                          : aiStatus.status === "analyzing_audio"
+                            ? "Analyzing audio"
+                            : agentSteps.length > 0
+                              ? `Step ${agentSteps.length} of 10`
+                              : "Thinking"}
+                      </span>
+                      <div className="flex gap-1">
+                        <span
+                          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                          style={{ animationDelay: "0ms" }}
+                        />
+                        <span
+                          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                          style={{ animationDelay: "150ms" }}
+                        />
+                        <span
+                          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                          style={{ animationDelay: "300ms" }}
+                        />
+                      </div>
                     </div>
+                    {/* Agent steps - like Cursor's progress */}
+                    {agentSteps.length > 0 && (
+                      <div className="mt-3 space-y-1.5 border-t border-gray-700 pt-2">
+                        {agentSteps.slice(-5).map((step) => (
+                          <div key={step.number} className="flex items-center gap-2 text-xs">
+                            <span className={
+                              step.status === 'running'
+                                ? 'text-yellow-400'
+                                : step.status === 'completed'
+                                  ? 'text-green-400'
+                                  : 'text-red-400'
+                            }>
+                              {step.status === 'running' && '○'}
+                              {step.status === 'completed' && '✓'}
+                              {step.status === 'error' && '✗'}
+                            </span>
+                            <span className="text-gray-300">
+                              {step.tool === 'thinking'
+                                ? 'Analyzing request...'
+                                : step.status === 'running'
+                                  ? `Using ${step.tool}...`
+                                  : `Used ${step.tool}`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

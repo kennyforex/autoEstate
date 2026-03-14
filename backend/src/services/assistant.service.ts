@@ -739,7 +739,7 @@ class AssistantService {
   }
 
   /**
-   * Update file folder (FFCS only, not synced to Pinecone)
+   * Update file folder (AutoEstate only, not synced to Pinecone)
    */
   async updateFileFolder(
     assistantId: string,

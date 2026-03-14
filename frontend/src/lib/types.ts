@@ -97,7 +97,29 @@ export interface Assistant {
   status: "active" | "inactive";
   metadata?: Record<string, unknown>;
   files: AssistantFile[];
-  folders: string[]; // Folder names for organizing files
+  folders: string[];
+  skills?: string[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Skill types
+export interface Skill {
+  _id: string;
+  name: string;
+  slug: string;
+  description: string;
+  instructions?: string; // stored in DB for easy editing; also saved to SKILL.md
+  triggerHints: string[];
+  isBuiltIn: boolean;
+  status: "active" | "inactive";
+
+  // Directory structure flags
+  hasReferences: boolean;
+  hasExamples: boolean;
+  scripts: string[];
+
   createdBy: string;
   createdAt: string;
   updatedAt: string;
