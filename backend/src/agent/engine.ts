@@ -15,6 +15,8 @@ import type {
   OpenAITool,
   ToolResult,
   ChatMessage,
+  SkillGoal,
+  GoalStack,
 } from './types.js';
 
 
@@ -49,15 +51,21 @@ export class AgentEngine {
     console.log(`[Agent] Context has ${context.skills.length} skill(s): ${context.skills.map(s => s.slug).join(', ') || 'none'}`);
     this.registry.updateSkillContext(context.skills);
 
+    // Build goal stack from conversation history markers
+    context.goalStack = this.buildGoalStack(context);
+    console.log(`[Agent] Goal stack: ${JSON.stringify(context.goalStack.goals.map(g => `${g.skillSlug}(${g.status})`))}`);
+
     const tools = this.registry.toOpenAIFormat();
     const startTime = Date.now();
     const totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
     const messages = this.buildMessages(userMessage, context);
 
-    const shouldForceSkill = this.shouldForceSkillExecution(userMessage, context);
-    if (shouldForceSkill) {
-      console.log(`[Agent] Skill trigger match detected — forcing execute_skill on first call`);
+    const skillDetection = this.detectForcedSkill(userMessage, context);
+    const forcedSkillSlug = skillDetection?.slug || null;
+    const shouldForceSkill = !!skillDetection;
+    if (skillDetection) {
+      console.log(`[Agent] Skill detected: ${skillDetection.slug} (${skillDetection.type}) — forcing tool_choice`);
     }
 
     onEvent?.({ type: 'agent_start' });
@@ -90,14 +98,29 @@ export class AgentEngine {
 
       // ── Final Answer: no tool calls ──
       if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
-        steps.push({ thought: assistantMsg.content || '', timestamp: new Date() });
-        console.log(`[Agent] Final answer after ${iteration + 1} iteration(s) (${Date.now() - startTime}ms)`);
-        onEvent?.({ type: 'turn_end', iteration });
-        return makeResult({
-          type: 'final_answer',
-          content: assistantMsg.content || '',
-          citations: this.extractCitations(steps),
-        });
+        // Fallback: if we hard-forced a skill but the LLM ignored tool_choice, manually invoke it
+        if (iteration === 0 && shouldForceSkill && forcedSkillSlug) {
+          console.log(`[Agent] LLM ignored tool_choice — manually invoking execute_skill(${forcedSkillSlug})`);
+          const syntheticToolCall = {
+            id: `forced-${Date.now()}`,
+            type: 'function' as const,
+            function: {
+              name: 'execute_skill',
+              arguments: JSON.stringify({ slug: forcedSkillSlug, userRequest: userMessage }),
+            },
+          };
+          assistantMsg.tool_calls = [syntheticToolCall];
+          assistantMsg.content = assistantMsg.content || null;
+        } else {
+          steps.push({ thought: assistantMsg.content || '', timestamp: new Date() });
+          console.log(`[Agent] Final answer after ${iteration + 1} iteration(s) (${Date.now() - startTime}ms)`);
+          onEvent?.({ type: 'turn_end', iteration });
+          return makeResult({
+            type: 'final_answer',
+            content: assistantMsg.content || '',
+            citations: this.extractCitations(steps),
+          });
+        }
       }
 
       // ── Tool Calls ──
@@ -362,22 +385,151 @@ export class AgentEngine {
     return msgs;
   }
 
-  private shouldForceSkillExecution(userMessage: string, context: AgentContext): boolean {
-    if (context.skills.length === 0) return false;
+  private detectForcedSkill(
+    userMessage: string,
+    context: AgentContext,
+  ): { slug: string; type: 'trigger' | 'continuation' | 'resume' } | null {
+    if (context.skills.length === 0) return null;
 
     const msgLower = userMessage.toLowerCase();
+    const goalStack = context.goalStack;
 
+    // 1. Check trigger word match first — explicit intent overrides continuation
     for (const skill of context.skills) {
       const hints = skill.triggerHints || [];
       for (const hint of hints) {
         if (hint && msgLower.includes(hint.toLowerCase())) {
           console.log(`[Agent] Trigger match: "${hint}" from skill "${skill.slug}"`);
-          return true;
+          return { slug: skill.slug, type: 'trigger' };
         }
       }
     }
 
-    return false;
+    // 2. Check if the last skill just completed and there are suspended goals to resume
+    if (goalStack) {
+      const lastAssistantMsg = context.messageHistory
+        .filter(m => m.role === 'assistant')
+        .slice(-1)[0];
+
+      if (lastAssistantMsg?.content?.includes(':complete')) {
+        // Find which skill just completed
+        const completedMatch = lastAssistantMsg.content.match(/<!-- skill:(\S+?):complete\s+(\{.*?\}) -->/);
+        const completedSlug = completedMatch?.[1];
+        let completedObs: Record<string, string> = {};
+        if (completedMatch?.[2]) {
+          try { completedObs = JSON.parse(completedMatch[2]); } catch { /* ignore */ }
+        }
+
+        const suspended = goalStack.goals.filter(g => g.status === 'suspended');
+        if (suspended.length > 0) {
+          const toResume = suspended[0];
+
+          // Same-skill auto-completion: if the completed skill is the same as the
+          // suspended one, the suspended goal is already achieved — skip it
+          if (completedSlug && toResume.skillSlug === completedSlug) {
+            console.log(`[Agent] Suspended goal "${toResume.skillSlug}" is same skill as completed — auto-completing`);
+            toResume.status = 'completed';
+            toResume.observations = { ...toResume.observations, ...completedObs };
+            toResume.completedAt = Date.now();
+            // Check next suspended goal
+            const nextSuspended = goalStack.goals.filter(g => g.status === 'suspended');
+            if (nextSuspended.length > 0) {
+              console.log(`[Agent] Moving to next suspended goal: "${nextSuspended[0].skillSlug}"`);
+              return { slug: nextSuspended[0].skillSlug, type: 'resume' };
+            }
+            return null; // All goals resolved
+          }
+
+          console.log(`[Agent] Previous skill completed — resuming suspended goal "${toResume.skillSlug}"`);
+          return { slug: toResume.skillSlug, type: 'resume' };
+        }
+      }
+    }
+
+    // 3. Fall back to multi-turn continuation (soft — LLM can override)
+    const recent = context.messageHistory.slice(-4);
+    for (let i = recent.length - 1; i >= 0; i--) {
+      const msg = recent[i];
+      if (msg.role === 'assistant' && msg.content) {
+        // Skip completed skill markers
+        const completeMatch = msg.content.match(/<!-- skill:(\S+?):complete/);
+        if (completeMatch) {
+          console.log(`[Agent] Last skill "${completeMatch[1]}" was completed — no continuation`);
+          break;
+        }
+        const skillMatch = msg.content.match(/<!-- skill:(\S+) -->/);
+        if (skillMatch) {
+          console.log(`[Agent] Multi-turn continuation available — last response from skill "${skillMatch[1]}"`);
+          return { slug: skillMatch[1], type: 'continuation' };
+        }
+        break;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse conversation history markers to reconstruct the goal stack.
+   * Markers: <!-- skill:slug --> (in-progress) or <!-- skill:slug:complete obs_json --> (completed)
+   */
+  private buildGoalStack(context: AgentContext): GoalStack {
+    const goals: SkillGoal[] = [];
+    const seen = new Map<string, SkillGoal>();
+    let counter = 0;
+
+    for (const msg of context.messageHistory) {
+      if (msg.role !== 'assistant') continue;
+
+      // Match enhanced markers: <!-- skill:slug --> or <!-- skill:slug:complete {...} -->
+      const markers = msg.content.matchAll(/<!-- skill:(\S+?)(?::complete\s+(\{.*?\}))? -->/g);
+      for (const m of markers) {
+        const slug = m[1];
+        const isComplete = !!m[2];
+        let observations: Record<string, string> = {};
+        if (m[2]) {
+          try { observations = JSON.parse(m[2]); } catch { /* ignore */ }
+        }
+
+        if (seen.has(slug)) {
+          const existing = seen.get(slug)!;
+          if (isComplete) {
+            existing.status = 'completed';
+            existing.observations = { ...existing.observations, ...observations };
+            existing.completedAt = Date.now();
+          }
+        } else {
+          const goal: SkillGoal = {
+            id: `goal-${++counter}`,
+            skillSlug: slug,
+            status: isComplete ? 'completed' : 'active',
+            observations,
+            createdAt: Date.now(),
+            ...(isComplete ? { completedAt: Date.now() } : {}),
+          };
+          goals.push(goal);
+          seen.set(slug, goal);
+        }
+      }
+    }
+
+    // Determine active goal — the most recent non-completed goal
+    // If a new skill triggered, old active goals become suspended
+    const activeGoals = goals.filter(g => g.status === 'active');
+    let activeGoalId: string | null = null;
+
+    if (activeGoals.length > 1) {
+      // Multiple active = the latest one is truly active; rest are suspended
+      for (let i = 0; i < activeGoals.length - 1; i++) {
+        activeGoals[i].status = 'suspended';
+        activeGoals[i].suspendedAt = Date.now();
+      }
+      activeGoalId = activeGoals[activeGoals.length - 1].id;
+    } else if (activeGoals.length === 1) {
+      activeGoalId = activeGoals[0].id;
+    }
+
+    return { goals, activeGoalId };
   }
 
   private async callLLM(

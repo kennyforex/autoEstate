@@ -127,6 +127,25 @@ export interface ChatMessage {
   content: string;
 }
 
+// ── Goal Stack (multi-goal management) ──
+
+export type GoalStatus = 'active' | 'suspended' | 'completed';
+
+export interface SkillGoal {
+  id: string;
+  skillSlug: string;
+  status: GoalStatus;
+  observations: Record<string, string>;
+  createdAt: number;
+  suspendedAt?: number;
+  completedAt?: number;
+}
+
+export interface GoalStack {
+  goals: SkillGoal[];
+  activeGoalId: string | null;
+}
+
 export interface AgentContext {
   conversationId: string;
   assistantId: string;
@@ -137,6 +156,7 @@ export interface AgentContext {
   messageHistory: ChatMessage[];
   session?: AgentSessionData;
   markdownEnabled?: boolean;
+  goalStack?: GoalStack;
 }
 
 // ── Agent Result ──

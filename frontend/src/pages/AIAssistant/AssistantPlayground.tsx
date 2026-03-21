@@ -31,6 +31,11 @@ import {
   Image as ImageIcon,
   Zap,
   UploadCloud,
+  Code,
+  BookOpen,
+  Plus,
+  Eye,
+  Save,
 } from "lucide-react";
 import {
   Button,
@@ -583,6 +588,20 @@ export const AssistantPlayground: React.FC = () => {
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [isUpdatingSkill, setIsUpdatingSkill] = useState(false);
 
+  // Skill assets state (reference & scripts)
+  const [managingSkillId, setManagingSkillId] = useState<string | null>(null);
+  const [refContent, setRefContent] = useState("");
+  const [refLoading, setRefLoading] = useState(false);
+  const [refSaving, setRefSaving] = useState(false);
+  const [scriptList, setScriptList] = useState<string[]>([]);
+  const [viewingScript, setViewingScript] = useState<{ filename: string; content: string } | null>(null);
+  const [newScriptName, setNewScriptName] = useState("");
+  const [newScriptContent, setNewScriptContent] = useState("");
+  const [showNewScriptForm, setShowNewScriptForm] = useState(false);
+  const [scriptSaving, setScriptSaving] = useState(false);
+  const scriptUploadRef = useRef<HTMLInputElement>(null);
+  const refUploadRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const fetchAssistant = async () => {
       if (!id) return;
@@ -1026,6 +1045,128 @@ ${skillForm.instructions}
     } catch (error) {
       console.error("Failed to delete skill:", error);
       showError("Failed", "Could not delete skill.");
+    }
+  };
+
+  // ── Skill asset management ──
+
+  const openSkillAssets = async (skillId: string) => {
+    if (managingSkillId === skillId) {
+      setManagingSkillId(null);
+      return;
+    }
+    setManagingSkillId(skillId);
+    setRefLoading(true);
+    setShowNewScriptForm(false);
+    setViewingScript(null);
+    try {
+      const [ref, scripts] = await Promise.all([
+        skillsApi.getReference(skillId),
+        skillsApi.listScripts(skillId),
+      ]);
+      setRefContent(ref || "");
+      setScriptList(scripts);
+    } catch {
+      setRefContent("");
+      setScriptList([]);
+    } finally {
+      setRefLoading(false);
+    }
+  };
+
+  const handleSaveReference = async (skillId: string) => {
+    setRefSaving(true);
+    try {
+      const updated = await skillsApi.saveReference(skillId, refContent);
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      showSuccess("Saved", "Reference document updated.");
+    } catch (error: any) {
+      showError("Failed", error.response?.data?.error || "Could not save reference.");
+    } finally {
+      setRefSaving(false);
+    }
+  };
+
+  const handleDeleteReference = async (skillId: string) => {
+    try {
+      const updated = await skillsApi.deleteReference(skillId);
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      setRefContent("");
+      showSuccess("Deleted", "Reference document removed.");
+    } catch (error: any) {
+      showError("Failed", error.response?.data?.error || "Could not delete reference.");
+    }
+  };
+
+  const handleUploadReference = async (skillId: string, file: File) => {
+    setRefSaving(true);
+    try {
+      const updated = await skillsApi.uploadReference(skillId, file);
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      const content = await skillsApi.getReference(skillId);
+      setRefContent(content || "");
+      showSuccess("Uploaded", "Reference file uploaded.");
+    } catch (error: any) {
+      showError("Failed", error.response?.data?.error || "Could not upload reference.");
+    } finally {
+      setRefSaving(false);
+    }
+  };
+
+  const handleCreateScript = async (skillId: string) => {
+    if (!newScriptName || !newScriptContent) return;
+    setScriptSaving(true);
+    try {
+      const updated = await skillsApi.createScript(skillId, newScriptName, newScriptContent);
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      setScriptList(updated.scripts || []);
+      setNewScriptName("");
+      setNewScriptContent("");
+      setShowNewScriptForm(false);
+      showSuccess("Created", `Script "${newScriptName}" added.`);
+    } catch (error: any) {
+      showError("Failed", error.response?.data?.error || "Could not create script.");
+    } finally {
+      setScriptSaving(false);
+    }
+  };
+
+  const handleUploadScript = async (skillId: string, file: File) => {
+    setScriptSaving(true);
+    try {
+      const updated = await skillsApi.uploadScript(skillId, file);
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      setScriptList(updated.scripts || []);
+      showSuccess("Uploaded", `Script "${file.name}" added.`);
+    } catch (error: any) {
+      showError("Failed", error.response?.data?.error || "Could not upload script.");
+    } finally {
+      setScriptSaving(false);
+    }
+  };
+
+  const handleDeleteScript = async (skillId: string, filename: string) => {
+    try {
+      const updated = await skillsApi.deleteScript(skillId, filename);
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      setScriptList(updated.scripts || []);
+      if (viewingScript?.filename === filename) setViewingScript(null);
+      showSuccess("Deleted", `Script "${filename}" removed.`);
+    } catch (error: any) {
+      showError("Failed", error.response?.data?.error || "Could not delete script.");
+    }
+  };
+
+  const handleViewScript = async (skillId: string, filename: string) => {
+    if (viewingScript?.filename === filename) {
+      setViewingScript(null);
+      return;
+    }
+    try {
+      const data = await skillsApi.getScript(skillId, filename);
+      setViewingScript(data);
+    } catch {
+      showError("Failed", "Could not load script content.");
     }
   };
 
@@ -1630,11 +1771,30 @@ ${skillForm.instructions}
                         )}
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900 mb-1">
-                          {message.role === "user"
-                            ? t("assistants.playground.you")
-                            : assistant.name}
-                        </p>
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-sm font-medium text-gray-900">
+                            {message.role === "user"
+                              ? t("assistants.playground.you")
+                              : assistant.name}
+                          </p>
+                          {(() => {
+                            const skillMatch = message.content.match(/<!-- skill:(\S+?)(?::complete\s+\{.*?\})? -->/);
+                            const isSkillComplete = message.content.includes(':complete');
+                            if (skillMatch && message.role === "assistant") {
+                              return (
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                                  isSkillComplete
+                                    ? 'text-green-700 bg-green-50 border border-green-100'
+                                    : 'text-purple-700 bg-purple-50 border border-purple-100'
+                                }`}>
+                                  <Zap className="w-2.5 h-2.5" />
+                                  {skillMatch[1]}{isSkillComplete ? ' ✓' : ''}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
                         {message.role === "assistant" ? (
                           <div
                             className="text-sm text-gray-700 prose prose-sm max-w-none
@@ -1702,12 +1862,12 @@ ${skillForm.instructions}
                                 },
                               }}
                             >
-                              {message.content}
+                              {message.content.replace(/\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g, '').trim()}
                             </ReactMarkdown>
                           </div>
                         ) : (
                           <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                            {message.content}
+                            {message.content.replace(/\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g, '').trim()}
                           </p>
                         )}
                       </div>
@@ -2523,6 +2683,17 @@ ${skillForm.instructions}
                                 {!skill.isBuiltIn && (
                                   <div className="flex justify-end gap-3">
                                     <button
+                                      onClick={() => openSkillAssets(skill._id)}
+                                      className={`text-xs transition-colors flex items-center gap-1 ${
+                                        managingSkillId === skill._id
+                                          ? "text-primary"
+                                          : "text-gray-400 hover:text-primary"
+                                      }`}
+                                    >
+                                      <Folder className="w-3.5 h-3.5" />
+                                      Assets
+                                    </button>
+                                    <button
                                       onClick={() => openEditModal(skill)}
                                       className="text-xs text-gray-400 hover:text-primary transition-colors flex items-center gap-1"
                                     >
@@ -2538,6 +2709,209 @@ ${skillForm.instructions}
                                       <Trash2 className="w-3.5 h-3.5" />
                                       Delete
                                     </button>
+                                  </div>
+                                )}
+
+                                {/* Assets panel */}
+                                {managingSkillId === skill._id && !skill.isBuiltIn && (
+                                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-4">
+                                    {refLoading ? (
+                                      <div className="flex items-center gap-2 text-xs text-text-secondary">
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        Loading assets...
+                                      </div>
+                                    ) : (
+                                      <>
+                                        {/* ── Reference Document ── */}
+                                        <div>
+                                          <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-1.5">
+                                              <BookOpen className="w-3.5 h-3.5 text-blue-500" />
+                                              <span className="text-xs font-medium text-text-primary">Reference Document</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                              <button
+                                                onClick={() => refUploadRef.current?.click()}
+                                                className="text-[10px] text-text-secondary hover:text-primary transition-colors flex items-center gap-0.5"
+                                              >
+                                                <Upload className="w-3 h-3" />
+                                                Upload
+                                              </button>
+                                              <input
+                                                ref={refUploadRef}
+                                                type="file"
+                                                accept=".md,.txt"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                  const file = e.target.files?.[0];
+                                                  if (file) handleUploadReference(skill._id, file);
+                                                  e.target.value = "";
+                                                }}
+                                              />
+                                              {refContent && (
+                                                <button
+                                                  onClick={() => handleDeleteReference(skill._id)}
+                                                  className="text-[10px] text-text-secondary hover:text-error transition-colors flex items-center gap-0.5"
+                                                >
+                                                  <Trash2 className="w-3 h-3" />
+                                                  Remove
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <textarea
+                                            value={refContent}
+                                            onChange={(e) => setRefContent(e.target.value)}
+                                            placeholder="Paste reference documentation here (loaded on-demand by the AI when needed)..."
+                                            rows={4}
+                                            className="w-full text-xs font-mono bg-gray-50 border border-gray-200 rounded-md p-2 resize-y focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40"
+                                          />
+                                          <div className="flex justify-end mt-1.5">
+                                            <button
+                                              onClick={() => handleSaveReference(skill._id)}
+                                              disabled={refSaving}
+                                              className="text-[11px] font-medium text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 px-3 py-1 rounded-md transition-colors flex items-center gap-1"
+                                            >
+                                              {refSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                              Save Reference
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                        {/* ── Scripts ── */}
+                                        <div>
+                                          <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-1.5">
+                                              <Code className="w-3.5 h-3.5 text-purple-500" />
+                                              <span className="text-xs font-medium text-text-primary">Scripts</span>
+                                              <span className="text-[10px] text-text-secondary">({scriptList.length})</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                              <button
+                                                onClick={() => scriptUploadRef.current?.click()}
+                                                className="text-[10px] text-text-secondary hover:text-primary transition-colors flex items-center gap-0.5"
+                                              >
+                                                <Upload className="w-3 h-3" />
+                                                Upload
+                                              </button>
+                                              <input
+                                                ref={scriptUploadRef}
+                                                type="file"
+                                                accept=".js,.ts,.py,.sh,.bash,.rb,.php"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                  const file = e.target.files?.[0];
+                                                  if (file) handleUploadScript(skill._id, file);
+                                                  e.target.value = "";
+                                                }}
+                                              />
+                                              <button
+                                                onClick={() => setShowNewScriptForm(!showNewScriptForm)}
+                                                className="text-[10px] text-text-secondary hover:text-primary transition-colors flex items-center gap-0.5"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                                New
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          {scriptList.length > 0 && (
+                                            <div className="space-y-1 mb-2">
+                                              {scriptList.map((filename) => (
+                                                <div
+                                                  key={filename}
+                                                  className="flex items-center justify-between bg-gray-50 rounded-md px-2.5 py-1.5 group"
+                                                >
+                                                  <div className="flex items-center gap-1.5">
+                                                    <Code className="w-3 h-3 text-purple-400" />
+                                                    <span className="text-[11px] font-mono text-text-primary">{filename}</span>
+                                                  </div>
+                                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button
+                                                      onClick={() => handleViewScript(skill._id, filename)}
+                                                      className="text-[10px] text-text-secondary hover:text-primary transition-colors p-0.5"
+                                                      title="View"
+                                                    >
+                                                      <Eye className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                      onClick={() => handleDeleteScript(skill._id, filename)}
+                                                      className="text-[10px] text-text-secondary hover:text-error transition-colors p-0.5"
+                                                      title="Delete"
+                                                    >
+                                                      <Trash2 className="w-3 h-3" />
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+
+                                          {/* Viewing script content */}
+                                          {viewingScript && (
+                                            <div className="mb-2">
+                                              <div className="flex items-center justify-between mb-1">
+                                                <span className="text-[10px] font-medium text-text-secondary">{viewingScript.filename}</span>
+                                                <button
+                                                  onClick={() => setViewingScript(null)}
+                                                  className="text-[10px] text-text-secondary hover:text-text-primary"
+                                                >
+                                                  <X className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                              <pre className="text-[11px] font-mono bg-gray-900 text-gray-100 rounded-md p-2.5 overflow-x-auto max-h-48 overflow-y-auto">
+                                                {viewingScript.content}
+                                              </pre>
+                                            </div>
+                                          )}
+
+                                          {/* New script form */}
+                                          {showNewScriptForm && (
+                                            <div className="bg-gray-50 rounded-md p-2.5 space-y-2">
+                                              <input
+                                                value={newScriptName}
+                                                onChange={(e) => setNewScriptName(e.target.value)}
+                                                placeholder="filename.py (e.g. check_availability.py)"
+                                                className="w-full text-xs bg-white border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                              />
+                                              <textarea
+                                                value={newScriptContent}
+                                                onChange={(e) => setNewScriptContent(e.target.value)}
+                                                placeholder="Script content..."
+                                                rows={5}
+                                                className="w-full text-xs font-mono bg-white border border-gray-200 rounded p-2 resize-y focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                              />
+                                              <div className="flex justify-end gap-2">
+                                                <button
+                                                  onClick={() => {
+                                                    setShowNewScriptForm(false);
+                                                    setNewScriptName("");
+                                                    setNewScriptContent("");
+                                                  }}
+                                                  className="text-[11px] text-text-secondary hover:text-text-primary px-2 py-1 rounded transition-colors"
+                                                >
+                                                  Cancel
+                                                </button>
+                                                <button
+                                                  onClick={() => handleCreateScript(skill._id)}
+                                                  disabled={!newScriptName || !newScriptContent || scriptSaving}
+                                                  className="text-[11px] font-medium text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 px-3 py-1 rounded-md transition-colors flex items-center gap-1"
+                                                >
+                                                  {scriptSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                                                  Create Script
+                                                </button>
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {scriptList.length === 0 && !showNewScriptForm && (
+                                            <p className="text-[11px] text-text-secondary italic">
+                                              No scripts yet. Scripts run as subprocesses — code is never sent to the LLM.
+                                            </p>
+                                          )}
+                                        </div>
+                                      </>
+                                    )}
                                   </div>
                                 )}
                               </div>

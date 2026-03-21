@@ -81,9 +81,37 @@ export function buildSystemPrompt(context: AgentContext): string {
     }
     parts.push('');
     parts.push(
-      '⚠️ Rule: If ANY trigger word above appears in the user\'s message, you MUST call execute_skill immediately. ' +
-      'Do not answer directly.',
+      '⚠️ Rules:\n' +
+      '1. If ANY trigger word above appears in the user\'s message, you MUST call execute_skill immediately. Do not answer directly.\n' +
+      '2. MULTI-TURN: If you previously called execute_skill and the skill asked the user a question, ' +
+      'you MUST call execute_skill AGAIN with the user\'s follow-up answer (same slug). ' +
+      'The skill maintains context from conversation history. ' +
+      'Keep calling execute_skill until the skill completes its workflow.\n' +
+      '3. NEVER answer on behalf of a skill. If a conversation was started by a skill, ALL follow-up messages MUST go through that skill.\n' +
+      '4. GOAL MANAGEMENT: Multiple goals can be active. When the user interrupts a skill with a new request ' +
+      '(e.g., asking for a price while mid-booking), the current goal is suspended and a new skill handles the interruption. ' +
+      'When the interrupting skill completes, check for suspended goals and resume them by calling execute_skill again. ' +
+      'Information collected by completed skills is automatically bridged to resumed skills.\n' +
+      '5. SKILL COMPLETION: When a skill response contains the completion marker, that goal is done. ' +
+      'Check if there are suspended goals to resume.',
     );
+
+    // Show current goal state if available
+    if (context.goalStack && context.goalStack.goals.length > 0) {
+      parts.push('');
+      parts.push('## Current Goals');
+      for (const goal of context.goalStack.goals) {
+        const icon = goal.status === 'active' ? '🔵' : goal.status === 'suspended' ? '⏸️' : '✅';
+        const obs = Object.keys(goal.observations).length > 0
+          ? ` (collected: ${Object.entries(goal.observations).map(([k,v]) => `${k}=${v}`).join(', ')})`
+          : '';
+        parts.push(`${icon} ${goal.skillSlug}: ${goal.status}${obs}`);
+      }
+      const suspended = context.goalStack.goals.filter(g => g.status === 'suspended');
+      if (suspended.length > 0) {
+        parts.push(`\n⚠️ There are ${suspended.length} suspended goal(s). After the current skill completes, resume the oldest suspended one.`);
+      }
+    }
   }
 
   // ── Agent behaviour guidelines ──

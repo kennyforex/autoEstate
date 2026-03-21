@@ -12,6 +12,9 @@ export type {
   AgentEventCallback,
   ToolResult,
   ChatMessage,
+  SkillGoal,
+  GoalStack,
+  GoalStatus,
 } from './types.js';
 
 import { AgentEngine } from './engine.js';
@@ -55,10 +58,25 @@ const beforeToolCall: BeforeToolCallHook = async ({ toolName, args, context, loo
 
 const afterToolCall: AfterToolCallHook = async ({ toolName, result, loopState }) => {
   if (toolName === 'execute_skill' && result.success && result.summary) {
+    const data = result.data as any;
+    const slug = data?.skill || '';
+    const isComplete = data?.completed || false;
+    const observations = data?.observations || {};
+
+    let marker = '';
+    if (slug) {
+      if (isComplete) {
+        const obsJson = JSON.stringify(observations);
+        marker = `\n<!-- skill:${slug}:complete ${obsJson} -->`;
+        console.log(`[Agent] Skill "${slug}" COMPLETED — observations: ${obsJson}`);
+      } else {
+        marker = `\n<!-- skill:${slug} -->`;
+      }
+    }
     console.log(`[Agent] Skill returned response — short-circuiting to final answer`);
     const agentResult: AgentResult = {
       type: 'final_answer',
-      content: result.summary,
+      content: result.summary + marker,
       steps: loopState.steps,
       model: loopState.model,
       usage: loopState.usage,

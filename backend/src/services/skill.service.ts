@@ -321,6 +321,104 @@ class SkillService {
     return !!result;
   }
 
+  async saveReference(skillId: string, content: string): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    await fs.mkdir(skill.storagePath, { recursive: true });
+    await fs.writeFile(path.join(skill.storagePath, 'reference.md'), content, 'utf-8');
+
+    skill.hasReferences = true;
+    await skill.save();
+    return skill;
+  }
+
+  async getReference(skillId: string): Promise<string | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    return skillStorage.loadReference(skill.storagePath);
+  }
+
+  async deleteReference(skillId: string): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    try {
+      await fs.unlink(path.join(skill.storagePath, 'reference.md'));
+    } catch { /* file may not exist */ }
+
+    skill.hasReferences = false;
+    await skill.save();
+    return skill;
+  }
+
+  async addScript(skillId: string, filename: string, content: Buffer | string): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const scriptsDir = path.join(skill.storagePath, 'scripts');
+    await fs.mkdir(scriptsDir, { recursive: true });
+    await fs.writeFile(path.join(scriptsDir, filename), content);
+
+    const scriptFiles = await skillStorage.listScripts(skill.storagePath);
+    skill.scripts = scriptFiles;
+    await skill.save();
+    return skill;
+  }
+
+  async getScriptContent(skillId: string, filename: string): Promise<string | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const scriptPath = path.join(skill.storagePath, 'scripts', filename);
+
+    const resolved = path.resolve(scriptPath);
+    const scriptsDir = path.resolve(path.join(skill.storagePath, 'scripts'));
+    if (!resolved.startsWith(scriptsDir)) return null;
+
+    try {
+      return await fs.readFile(scriptPath, 'utf-8');
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteScript(skillId: string, filename: string): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+
+    const fs = await import('fs/promises');
+    const path = await import('path');
+    const scriptPath = path.join(skill.storagePath, 'scripts', filename);
+
+    const resolved = path.resolve(scriptPath);
+    const scriptsDir = path.resolve(path.join(skill.storagePath, 'scripts'));
+    if (!resolved.startsWith(scriptsDir)) return null;
+
+    try {
+      await fs.unlink(scriptPath);
+    } catch { /* file may not exist */ }
+
+    const scriptFiles = await skillStorage.listScripts(skill.storagePath);
+    skill.scripts = scriptFiles;
+    await skill.save();
+    return skill;
+  }
+
+  async listScripts(skillId: string): Promise<string[]> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return [];
+    return skillStorage.listScripts(skill.storagePath);
+  }
+
   /**
    * Load skill content from storage for execution
    */

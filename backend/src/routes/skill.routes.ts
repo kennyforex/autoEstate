@@ -80,4 +80,69 @@ router.post(
   skillController.unbindSkill,
 );
 
+// ── Skill assets: reference & scripts ──
+
+router.get(
+  '/:id/reference',
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.getReference,
+);
+
+router.put(
+  '/:id/reference',
+  validate([
+    param('id').isMongoId().withMessage('Invalid skill ID'),
+    body('content').notEmpty().withMessage('Content is required'),
+  ]),
+  skillController.saveReference,
+);
+
+router.post(
+  '/:id/reference/upload',
+  upload.single('file'),
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.uploadReference,
+);
+
+router.delete(
+  '/:id/reference',
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.deleteReference,
+);
+
+router.get(
+  '/:id/scripts',
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.listScripts,
+);
+
+router.get(
+  '/:id/scripts/:filename',
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.getScript,
+);
+
+router.post(
+  '/:id/scripts/upload',
+  upload.single('file'),
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.uploadScript,
+);
+
+router.post(
+  '/:id/scripts',
+  validate([
+    param('id').isMongoId().withMessage('Invalid skill ID'),
+    body('filename').notEmpty().withMessage('Filename is required'),
+    body('content').notEmpty().withMessage('Content is required'),
+  ]),
+  skillController.createScript,
+);
+
+router.delete(
+  '/:id/scripts/:filename',
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.deleteScript,
+);
+
 export default router;

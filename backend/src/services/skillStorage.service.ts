@@ -214,7 +214,8 @@ class SkillStorageService {
     args: string[] = [],
     timeoutMs: number = 30000,
   ): Promise<ScriptExecutionResult> {
-    const scriptsPath = path.join(skillPath, 'scripts');
+    const resolvedSkillPath = path.resolve(skillPath);
+    const scriptsPath = path.join(resolvedSkillPath, 'scripts');
     const scriptPath = path.join(scriptsPath, scriptName);
 
     // Verify script exists and is within scripts directory (security)
@@ -261,7 +262,7 @@ class SkillStorageService {
 
     return new Promise((resolve, reject) => {
       const child = spawn(command, commandArgs, {
-        cwd: skillPath,
+        cwd: resolvedSkillPath,
         env: {
           // Limited environment - no access to full process env
           PATH: process.env.PATH,

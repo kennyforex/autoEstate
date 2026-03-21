@@ -106,9 +106,15 @@ export class SkillExecutionTool extends BaseTool {
 
     try {
       const result = await this.executeSkillWithScripts(skill, userRequest, context);
+      const isComplete = (this as any)._lastSkillComplete || false;
+      const observations = (this as any)._lastObservations || {};
+      // Clean up transient state
+      (this as any)._lastSkillComplete = false;
+      (this as any)._lastObservations = {};
+
       return {
         success: true,
-        data: { skill: slug, output: result },
+        data: { skill: slug, output: result, completed: isComplete, observations },
         summary: result,
       };
     } catch (error: any) {
@@ -144,6 +150,9 @@ export class SkillExecutionTool extends BaseTool {
     if (!instructions) {
       throw new Error(`No instructions found for skill "${skill.name}"`);
     }
+
+    // Strip YAML frontmatter if present
+    instructions = instructions.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '').trim();
 
     if (instructions.length > MAX_SKILL_INSTRUCTIONS) {
       instructions = instructions.substring(0, MAX_SKILL_INSTRUCTIONS) + '...';
@@ -181,6 +190,29 @@ export class SkillExecutionTool extends BaseTool {
       systemPrompt += `Customer name: ${context.contact.name}\n`;
     }
 
+    // Observation bridge: inject observations from recently completed goals
+    if (context.goalStack) {
+      const completedGoals = context.goalStack.goals.filter(
+        g => g.status === 'completed' && Object.keys(g.observations).length > 0,
+      );
+      if (completedGoals.length > 0) {
+        systemPrompt += '\n## Information from previous interactions\n';
+        systemPrompt += 'The customer already provided this information in earlier skill interactions:\n';
+        for (const goal of completedGoals) {
+          const skillName = context.skills.find(s => s.slug === goal.skillSlug)?.name || goal.skillSlug;
+          systemPrompt += `\nFrom "${skillName}":\n`;
+          for (const [key, value] of Object.entries(goal.observations)) {
+            systemPrompt += `- ${key}: ${value}\n`;
+          }
+        }
+        systemPrompt += '\nUse this information directly — do NOT re-ask for it.\n';
+        systemPrompt +=
+          'IMPORTANT: If the information above already satisfies ALL requirements of your workflow, ' +
+          'skip directly to the final confirmation/summary step and output SKILL_COMPLETE. ' +
+          'Do NOT re-walk steps that are already fulfilled.\n';
+      }
+    }
+
     // Enforce strict step-by-step behaviour with mandatory reasoning
     systemPrompt +=
       '\n## CRITICAL RULES — MANDATORY\n' +
@@ -201,7 +233,18 @@ export class SkillExecutionTool extends BaseTool {
       '- Which step you are currently on\n' +
       '- What is the NEXT missing item in step order\n' +
       'Then, OUTSIDE the <think> tags, write your response to the customer.\n' +
-      'The <think> block will be stripped before showing the response to the customer.\n';
+      'The <think> block will be stripped before showing the response to the customer.\n\n' +
+      '## SKILL COMPLETION\n' +
+      'When your workflow is fully complete (all steps done, final summary given), ' +
+      'add SKILL_COMPLETE on its own line at the very end of your response.\n' +
+      'Also add a SKILL_OBSERVATIONS block listing key facts collected, like:\n' +
+      'SKILL_OBSERVATIONS\n' +
+      'vehicle: SUV\n' +
+      'service: basic wash\n' +
+      'price: HKD 200\n' +
+      'END_OBSERVATIONS\n' +
+      'SKILL_COMPLETE\n' +
+      'Only output SKILL_COMPLETE when the skill\'s purpose is fully fulfilled.\n';
 
     // Add the collected-info analysis
     if (progressSummary) {
@@ -223,7 +266,9 @@ export class SkillExecutionTool extends BaseTool {
       if (msg.role === 'assistant' && /execute_skill|I'll use the|hold on while I process|Booking skill|skill tool/i.test(content)) {
         continue;
       }
-      messages.push({ role: msg.role, content });
+      // Strip skill continuation markers from history
+      const cleaned = content.replace(/\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g, '');
+      messages.push({ role: msg.role, content: cleaned });
     }
 
     // Add the current user request as the latest message
@@ -287,16 +332,18 @@ export class SkillExecutionTool extends BaseTool {
             SCRIPT_TIMEOUT_MS,
           );
 
+          console.log(`[SkillExecution] Script "${scriptName}" exit=${result.exitCode} stdout=${result.stdout.substring(0, 200)}`);
+          if (result.stderr) console.log(`[SkillExecution] Script stderr: ${result.stderr.substring(0, 200)}`);
+
+          const scriptOutput =
+            `Script "${scriptName}" executed successfully.\n` +
+            `Output:\n${result.stdout || '(no output)'}\n` +
+            (result.stderr ? `Warnings: ${result.stderr}\n` : '') +
+            `Exit code: ${result.exitCode}`;
+
           // Add to conversation
           messages.push({ role: 'assistant', content });
-          messages.push({
-            role: 'user',
-            content:
-              `Script "${scriptName}" output:\n` +
-              `stdout: ${result.stdout || '(empty)'}\n` +
-              `stderr: ${result.stderr || '(empty)'}\n` +
-              `exit code: ${result.exitCode}`,
-          });
+          messages.push({ role: 'user', content: scriptOutput });
 
           continue; // Continue conversation with script output
         } catch (error: any) {
@@ -311,9 +358,37 @@ export class SkillExecutionTool extends BaseTool {
       }
 
       // No markers found - this is the final response
-      // Strip <think>...</think> reasoning block before returning to customer
-      const cleaned = content.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+      const isComplete = content.includes('SKILL_COMPLETE');
+
+      // Extract observations if present
+      let observations: Record<string, string> = {};
+      const obsMatch = content.match(/SKILL_OBSERVATIONS\n([\s\S]*?)\nEND_OBSERVATIONS/);
+      if (obsMatch) {
+        const lines = obsMatch[1].trim().split('\n');
+        for (const line of lines) {
+          const colonIdx = line.indexOf(':');
+          if (colonIdx > 0) {
+            observations[line.substring(0, colonIdx).trim()] = line.substring(colonIdx + 1).trim();
+          }
+        }
+      }
+
+      // Strip <think>, SKILL_COMPLETE, and SKILL_OBSERVATIONS blocks
+      let cleaned = content
+        .replace(/<think>[\s\S]*?<\/think>\s*/g, '')
+        .replace(/SKILL_OBSERVATIONS\n[\s\S]*?\nEND_OBSERVATIONS\s*/g, '')
+        .replace(/SKILL_COMPLETE\s*/g, '')
+        .trim();
+
+      if (isComplete) {
+        console.log(`[SkillTool] Skill COMPLETED. Observations: ${JSON.stringify(observations)}`);
+      }
       console.log(`[SkillTool] Final response (${cleaned.length} chars): ${cleaned.substring(0, 100)}...`);
+
+      // Return enriched data so afterToolCall can encode goal state
+      (this as any)._lastSkillComplete = isComplete;
+      (this as any)._lastObservations = observations;
+
       return cleaned;
     }
 

@@ -884,6 +884,65 @@ export const skillsApi = {
   unbind: async (skillId: string, assistantId: string): Promise<void> => {
     await api.post("/skills/unbind", { skillId, assistantId });
   },
+
+  // ── Reference management ──
+  getReference: async (skillId: string): Promise<string | null> => {
+    try {
+      const { data } = await api.get(`/skills/${skillId}/reference`);
+      return data.content;
+    } catch {
+      return null;
+    }
+  },
+
+  saveReference: async (skillId: string, content: string): Promise<Skill> => {
+    const { data } = await api.put(`/skills/${skillId}/reference`, { content });
+    return data.skill || data;
+  },
+
+  uploadReference: async (skillId: string, file: File): Promise<Skill> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await api.post(`/skills/${skillId}/reference/upload`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data.skill || data;
+  },
+
+  deleteReference: async (skillId: string): Promise<Skill> => {
+    const { data } = await api.delete(`/skills/${skillId}/reference`);
+    return data.skill || data;
+  },
+
+  // ── Script management ──
+  listScripts: async (skillId: string): Promise<string[]> => {
+    const { data } = await api.get(`/skills/${skillId}/scripts`);
+    return data.scripts || [];
+  },
+
+  getScript: async (skillId: string, filename: string): Promise<{ filename: string; content: string }> => {
+    const { data } = await api.get(`/skills/${skillId}/scripts/${filename}`);
+    return data;
+  },
+
+  createScript: async (skillId: string, filename: string, content: string): Promise<Skill> => {
+    const { data } = await api.post(`/skills/${skillId}/scripts`, { filename, content });
+    return data.skill || data;
+  },
+
+  uploadScript: async (skillId: string, file: File): Promise<Skill> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await api.post(`/skills/${skillId}/scripts/upload`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data.skill || data;
+  },
+
+  deleteScript: async (skillId: string, filename: string): Promise<Skill> => {
+    const { data } = await api.delete(`/skills/${skillId}/scripts/${filename}`);
+    return data.skill || data;
+  },
 };
 
 export default api;
