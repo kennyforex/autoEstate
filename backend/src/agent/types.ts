@@ -161,6 +161,55 @@ export interface AgentResult {
   };
 }
 
+// ── Agent Events ──
+
+export type AgentEvent =
+  | { type: 'agent_start' }
+  | { type: 'agent_end'; result: AgentResult }
+  | { type: 'turn_start'; iteration: number }
+  | { type: 'turn_end'; iteration: number }
+  | { type: 'tool_start'; toolName: string; args: Record<string, unknown> }
+  | { type: 'tool_end'; toolName: string; result: ToolResult }
+  | { type: 'tool_error'; toolName: string; error: string }
+  | { type: 'thinking'; content: string };
+
+export type AgentEventCallback = (event: AgentEvent) => void;
+
+// ── Tool Hooks ──
+
+export interface BeforeToolCallContext {
+  toolName: string;
+  args: Record<string, unknown>;
+  context: AgentContext;
+  loopState: AgentLoopState;
+}
+
+export interface AfterToolCallContext {
+  toolName: string;
+  result: ToolResult;
+  context: AgentContext;
+  loopState: AgentLoopState;
+}
+
+export interface AgentLoopState {
+  steps: AgentStep[];
+  messages: OpenRouterMessage[];
+  userMessage: string;
+  model: string;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+export type BeforeToolCallHook = (ctx: BeforeToolCallContext) => Promise<
+  | { block: true; reason: string }
+  | { shortCircuit: true; result: AgentResult }
+  | undefined
+>;
+
+export type AfterToolCallHook = (ctx: AfterToolCallContext) => Promise<
+  | { shortCircuit: true; result: AgentResult }
+  | undefined
+>;
+
 // ── Agent Engine Config ──
 
 export interface AgentEngineConfig {
@@ -168,4 +217,9 @@ export interface AgentEngineConfig {
   requestTimeout: number;
   temperature: number;
   maxTokens: number;
+  maxHistoryTokens: number;
+  llmMaxRetries: number;
+  toolExecution: 'parallel' | 'sequential';
+  beforeToolCall?: BeforeToolCallHook;
+  afterToolCall?: AfterToolCallHook;
 }

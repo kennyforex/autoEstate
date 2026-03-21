@@ -6,12 +6,15 @@ import type {
   AgentContext,
   AgentResult,
   AgentStep,
-  AgentSessionData,
   AgentEngineConfig,
+  AgentEventCallback,
+  AgentLoopState,
   OpenRouterMessage,
   OpenRouterResponse,
+  OpenRouterToolCall,
   OpenAITool,
   ToolResult,
+  ChatMessage,
 } from './types.js';
 
 
@@ -20,20 +23,10 @@ const DEFAULT_CONFIG: AgentEngineConfig = {
   requestTimeout: 60_000,
   temperature: 0.3,
   maxTokens: 4096,
+  maxHistoryTokens: 6000,
+  llmMaxRetries: 3,
+  toolExecution: 'parallel',
 };
-
-export interface AgentProgressCallback {
-  (step: {
-    number: number;
-    total: number;
-    thought: string;
-    action?: {
-      tool: string;
-      args: Record<string, unknown>;
-    };
-    observation?: string;
-  }): void;
-}
 
 export class AgentEngine {
   private registry: ToolRegistry;
@@ -44,44 +37,50 @@ export class AgentEngine {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
-  /**
-   * Main entry point — runs the ReAct loop until a final answer or clarification.
-   */
   async run(
     userMessage: string,
     context: AgentContext,
-    onProgress?: AgentProgressCallback,
+    onEvent?: AgentEventCallback,
+    signal?: AbortSignal,
   ): Promise<AgentResult> {
     const steps: AgentStep[] = [];
     const model = openRouterConfig.models.agent;
 
-    // Broadcast available skills so context-aware tools (e.g. execute_skill)
-    // can build dynamic descriptions before we serialise the tool list.
     console.log(`[Agent] Context has ${context.skills.length} skill(s): ${context.skills.map(s => s.slug).join(', ') || 'none'}`);
     this.registry.updateSkillContext(context.skills);
 
     const tools = this.registry.toOpenAIFormat();
     const startTime = Date.now();
-    let totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    const totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
     const messages = this.buildMessages(userMessage, context);
 
-    // Check if the user message matches any skill trigger hints
     const shouldForceSkill = this.shouldForceSkillExecution(userMessage, context);
     if (shouldForceSkill) {
       console.log(`[Agent] Skill trigger match detected — forcing execute_skill on first call`);
     }
 
+    onEvent?.({ type: 'agent_start' });
+
+    const makeResult = (partial: Omit<AgentResult, 'steps' | 'model' | 'usage'>): AgentResult => {
+      const result: AgentResult = { ...partial, steps, model, usage: totalUsage };
+      onEvent?.({ type: 'agent_end', result });
+      return result;
+    };
+
     for (let iteration = 0; iteration < this.config.maxIterations; iteration++) {
+      if (signal?.aborted) {
+        return makeResult({ type: 'final_answer', content: '' });
+      }
+
+      onEvent?.({ type: 'turn_start', iteration });
       console.log(`[Agent] Iteration ${iteration + 1}/${this.config.maxIterations} (model=${model})`);
 
-      // Force skill execution on first iteration if trigger hints match
       const toolChoice = (iteration === 0 && shouldForceSkill)
         ? { type: 'function' as const, function: { name: 'execute_skill' } }
         : 'auto' as const;
-      const response = await this.callLLM(messages, tools, model, toolChoice);
-      const choice = response.choices[0];
-      const assistantMsg = choice.message;
+      const response = await this.callLLM(messages, tools, model, toolChoice, signal);
+      const assistantMsg = response.choices[0].message;
 
       if (response.usage) {
         totalUsage.prompt_tokens += response.usage.prompt_tokens;
@@ -93,15 +92,12 @@ export class AgentEngine {
       if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
         steps.push({ thought: assistantMsg.content || '', timestamp: new Date() });
         console.log(`[Agent] Final answer after ${iteration + 1} iteration(s) (${Date.now() - startTime}ms)`);
-
-        return {
+        onEvent?.({ type: 'turn_end', iteration });
+        return makeResult({
           type: 'final_answer',
           content: assistantMsg.content || '',
           citations: this.extractCitations(steps),
-          steps,
-          model,
-          usage: totalUsage,
-        };
+        });
       }
 
       // ── Tool Calls ──
@@ -111,145 +107,222 @@ export class AgentEngine {
         tool_calls: assistantMsg.tool_calls,
       });
 
-      for (const toolCall of assistantMsg.tool_calls) {
-        const toolName = toolCall.function.name;
-        let toolArgs: Record<string, unknown> = {};
-        try {
-          toolArgs = JSON.parse(toolCall.function.arguments);
-        } catch {
-          toolArgs = {};
-        }
+      if (assistantMsg.content) {
+        onEvent?.({ type: 'thinking', content: assistantMsg.content });
+      }
 
-        steps.push({
-          thought: assistantMsg.content || `Calling ${toolName}`,
-          action: { tool: toolName, args: toolArgs },
-          timestamp: new Date(),
-        });
+      const loopState: AgentLoopState = {
+        steps,
+        messages,
+        userMessage,
+        model,
+        usage: totalUsage,
+      };
 
-        // Emit progress for tool call start
-        if (onProgress) {
-          onProgress({
-            number: iteration + 1,
-            total: this.config.maxIterations,
-            thought: assistantMsg.content || `Calling ${toolName}`,
-            action: { tool: toolName, args: toolArgs },
-          });
-        }
+      const shortCircuitResult = await this.executeToolCalls(
+        assistantMsg.tool_calls,
+        context,
+        loopState,
+        iteration,
+        onEvent,
+        signal,
+      );
 
-        console.log(`[Agent] Tool call: ${toolName}(${JSON.stringify(toolArgs).substring(0, 200)})`);
+      onEvent?.({ type: 'turn_end', iteration });
 
-        // ── Special case: clarification ──
-        if (toolName === 'ask_clarification') {
-          const question = (toolArgs.question as string) || 'Could you please provide more details?';
-          const session: AgentSessionData = {
-            conversationId: context.conversationId,
-            assistantId: context.assistantId,
-            status: 'awaiting_clarification',
-            originalMessage: userMessage,
-            steps,
-            messages,
-            pendingClarification: question,
-            expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-          };
-
-          console.log(`[Agent] Clarification requested: "${question.substring(0, 100)}"`);
-          return {
-            type: 'clarification',
-            content: question,
-            session,
-            steps,
-            model,
-            usage: totalUsage,
-          };
-        }
-
-        // ── Execute tool ──
-        const tool = this.registry.get(toolName);
-        if (!tool) {
-          const errorMsg = `Unknown tool "${toolName}". Available tools: ${this.registry.names().join(', ')}`;
-          messages.push({ role: 'tool', content: errorMsg, tool_call_id: toolCall.id });
-          steps.push({ thought: `Unknown tool: ${toolName}`, observation: errorMsg, timestamp: new Date() });
-          continue;
-        }
-
-        try {
-          const result = await tool.execute(toolArgs, context);
-
-          steps.push({
-            thought: `Observed result from ${toolName}`,
-            observation: result.summary.substring(0, 2000),
-            timestamp: new Date(),
-          });
-
-          // Emit progress for tool result
-          if (onProgress) {
-            onProgress({
-              number: iteration + 1,
-              total: this.config.maxIterations,
-              thought: `Observed result from ${toolName}`,
-              action: { tool: toolName, args: toolArgs },
-              observation: result.summary.substring(0, 500),
-            });
-          }
-
-          console.log(`[Agent] Tool "${toolName}" result (${result.success ? 'ok' : 'fail'}): ${result.summary.substring(0, 150)}`);
-
-          // Skills manage their own multi-turn flow. When execute_skill
-          // returns, its output IS the final response — relay it directly
-          // to the user instead of letting the main LLM re-interpret it.
-          if (toolName === 'execute_skill' && result.success && result.summary) {
-            console.log(`[Agent] Skill returned response — short-circuiting to final answer`);
-            return {
-              type: 'final_answer',
-              content: result.summary,
-              citations: this.extractCitations(steps),
-              steps,
-              model,
-              usage: totalUsage,
-            };
-          }
-
-          messages.push({
-            role: 'tool',
-            content: result.summary,
-            tool_call_id: toolCall.id,
-          });
-        } catch (error: any) {
-          const errorMsg = `Error: Tool "${toolName}" failed: ${error.message}. Try a different approach.`;
-          messages.push({ role: 'tool', content: errorMsg, tool_call_id: toolCall.id });
-          steps.push({
-            thought: `Tool ${toolName} failed`,
-            observation: `Error: ${error.message}`,
-            timestamp: new Date(),
-          });
-
-          // Emit progress for tool error
-          if (onProgress) {
-            onProgress({
-              number: iteration + 1,
-              total: this.config.maxIterations,
-              thought: `Tool ${toolName} failed`,
-              action: { tool: toolName, args: toolArgs },
-              observation: `Error: ${error.message}`,
-            });
-          }
-
-          console.error(`[Agent] Tool "${toolName}" threw:`, error.message);
-        }
+      if (shortCircuitResult) {
+        return makeResult(shortCircuitResult);
       }
     }
 
     // ── Max iterations reached ──
     console.warn(`[Agent] Max iterations (${this.config.maxIterations}) reached for conversation ${context.conversationId}`);
-    return {
+    return makeResult({
       type: 'final_answer',
       content:
         'I apologize, but I was unable to fully resolve your request. ' +
         'Let me connect you with a team member for assistance.',
-      steps,
-      model,
-      usage: totalUsage,
-    };
+    });
+  }
+
+  // ── Tool Execution Pipeline ──
+
+  private async executeToolCalls(
+    toolCalls: OpenRouterToolCall[],
+    context: AgentContext,
+    loopState: AgentLoopState,
+    iteration: number,
+    onEvent?: AgentEventCallback,
+    signal?: AbortSignal,
+  ): Promise<Omit<AgentResult, 'steps' | 'model' | 'usage'> | null> {
+    const { steps, messages } = loopState;
+
+    // Phase 1: Validate args and resolve tools
+    interface ValidatedCall {
+      toolCall: OpenRouterToolCall;
+      toolName: string;
+      args: Record<string, unknown>;
+      tool: NonNullable<ReturnType<ToolRegistry['get']>>;
+    }
+    const validated: ValidatedCall[] = [];
+
+    for (const toolCall of toolCalls) {
+      const toolName = toolCall.function.name;
+
+      // Parse arguments
+      let args: Record<string, unknown>;
+      try {
+        args = JSON.parse(toolCall.function.arguments);
+      } catch (e: any) {
+        const errorMsg = `Invalid JSON arguments for tool "${toolName}": ${e.message}`;
+        messages.push({ role: 'tool', content: errorMsg, tool_call_id: toolCall.id });
+        steps.push({ thought: `Arg parse failed for ${toolName}`, observation: errorMsg, timestamp: new Date() });
+        onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
+        continue;
+      }
+
+      // Resolve tool
+      const tool = this.registry.get(toolName);
+      if (!tool) {
+        const errorMsg = `Unknown tool "${toolName}". Available tools: ${this.registry.names().join(', ')}`;
+        messages.push({ role: 'tool', content: errorMsg, tool_call_id: toolCall.id });
+        steps.push({ thought: `Unknown tool: ${toolName}`, observation: errorMsg, timestamp: new Date() });
+        onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
+        continue;
+      }
+
+      // Validate required parameters
+      const required = (tool.parameters as any)?.required as string[] | undefined;
+      if (required?.length) {
+        const missing = required.filter((key) => !(key in args));
+        if (missing.length > 0) {
+          const errorMsg = `Missing required parameters for "${toolName}": ${missing.join(', ')}`;
+          messages.push({ role: 'tool', content: errorMsg, tool_call_id: toolCall.id });
+          steps.push({ thought: `Validation failed for ${toolName}`, observation: errorMsg, timestamp: new Date() });
+          onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
+          continue;
+        }
+      }
+
+      validated.push({ toolCall, toolName, args, tool });
+    }
+
+    if (validated.length === 0) return null;
+
+    // Phase 2: beforeToolCall hooks (sequential — order matters for short-circuit)
+    const approved: ValidatedCall[] = [];
+    for (const entry of validated) {
+      if (this.config.beforeToolCall) {
+        const hookResult = await this.config.beforeToolCall({
+          toolName: entry.toolName,
+          args: entry.args,
+          context,
+          loopState,
+        });
+        if (hookResult && 'shortCircuit' in hookResult) {
+          return hookResult.result;
+        }
+        if (hookResult && 'block' in hookResult) {
+          const errorMsg = `Tool "${entry.toolName}" blocked: ${hookResult.reason}`;
+          messages.push({ role: 'tool', content: errorMsg, tool_call_id: entry.toolCall.id });
+          steps.push({ thought: `Blocked: ${entry.toolName}`, observation: errorMsg, timestamp: new Date() });
+          onEvent?.({ type: 'tool_error', toolName: entry.toolName, error: errorMsg });
+          continue;
+        }
+      }
+      approved.push(entry);
+    }
+
+    if (approved.length === 0) return null;
+
+    // Phase 3: Execute tools
+    interface ExecutionResult {
+      entry: ValidatedCall;
+      result?: ToolResult;
+      error?: string;
+    }
+    let execResults: ExecutionResult[];
+
+    if (this.config.toolExecution === 'parallel' && approved.length > 1) {
+      const settled = await Promise.allSettled(
+        approved.map(async (entry) => {
+          if (signal?.aborted) throw new Error('Aborted');
+          onEvent?.({ type: 'tool_start', toolName: entry.toolName, args: entry.args });
+          console.log(`[Agent] Tool call: ${entry.toolName}(${JSON.stringify(entry.args).substring(0, 200)})`);
+          const result = await entry.tool.execute(entry.args, context, signal);
+          return { entry, result };
+        }),
+      );
+
+      execResults = settled.map((s, i) => {
+        if (s.status === 'fulfilled') return s.value;
+        return { entry: approved[i], error: (s.reason as Error).message };
+      });
+    } else {
+      execResults = [];
+      for (const entry of approved) {
+        if (signal?.aborted) {
+          execResults.push({ entry, error: 'Aborted' });
+          break;
+        }
+        onEvent?.({ type: 'tool_start', toolName: entry.toolName, args: entry.args });
+        console.log(`[Agent] Tool call: ${entry.toolName}(${JSON.stringify(entry.args).substring(0, 200)})`);
+        try {
+          const result = await entry.tool.execute(entry.args, context, signal);
+          execResults.push({ entry, result });
+        } catch (error: any) {
+          execResults.push({ entry, error: error.message });
+        }
+      }
+    }
+
+    // Phase 4: Collect results in original order and run afterToolCall hooks
+    for (const exec of execResults) {
+      const { entry, result, error } = exec;
+
+      if (error || !result) {
+        const errorMsg = `Error: Tool "${entry.toolName}" failed: ${error || 'unknown error'}. Try a different approach.`;
+        messages.push({ role: 'tool', content: errorMsg, tool_call_id: entry.toolCall.id });
+        steps.push({
+          thought: `Tool ${entry.toolName} failed`,
+          observation: `Error: ${error}`,
+          timestamp: new Date(),
+        });
+        onEvent?.({ type: 'tool_error', toolName: entry.toolName, error: error || 'unknown error' });
+        console.error(`[Agent] Tool "${entry.toolName}" threw:`, error);
+        continue;
+      }
+
+      steps.push({
+        thought: `Observed result from ${entry.toolName}`,
+        observation: result.summary.substring(0, 2000),
+        timestamp: new Date(),
+      });
+      onEvent?.({ type: 'tool_end', toolName: entry.toolName, result });
+      console.log(`[Agent] Tool "${entry.toolName}" result (${result.success ? 'ok' : 'fail'}): ${result.summary.substring(0, 150)}`);
+
+      // afterToolCall hook
+      if (this.config.afterToolCall) {
+        const hookResult = await this.config.afterToolCall({
+          toolName: entry.toolName,
+          result,
+          context,
+          loopState,
+        });
+        if (hookResult && 'shortCircuit' in hookResult) {
+          messages.push({ role: 'tool', content: result.summary, tool_call_id: entry.toolCall.id });
+          return hookResult.result;
+        }
+      }
+
+      messages.push({
+        role: 'tool',
+        content: result.summary,
+        tool_call_id: entry.toolCall.id,
+      });
+    }
+
+    return null;
   }
 
   // ── Private helpers ──
@@ -261,13 +334,12 @@ export class AgentEngine {
     ];
 
     if (context.session && context.session.messages.length > 0) {
-      // Resuming from a saved session: restore saved messages (skip system — we rebuilt it)
       const savedMessages = context.session.messages.filter((m) => m.role !== 'system');
       messages.push(...savedMessages);
       messages.push({ role: 'user', content: userMessage });
     } else {
-      // Fresh session: inject conversation history then the new message
-      for (const msg of context.messageHistory.slice(-10)) {
+      const trimmed = this.trimHistoryToTokenBudget(context.messageHistory);
+      for (const msg of trimmed) {
         messages.push({ role: msg.role, content: msg.content });
       }
       messages.push({ role: 'user', content: userMessage });
@@ -276,10 +348,20 @@ export class AgentEngine {
     return messages;
   }
 
-  /**
-   * Check if the user message contains any trigger hints from bound skills.
-   * If so, force the agent to call execute_skill instead of answering directly.
-   */
+  private trimHistoryToTokenBudget(history: ChatMessage[]): ChatMessage[] {
+    const budget = this.config.maxHistoryTokens;
+    let msgs = [...history];
+
+    const estimateTokens = (list: ChatMessage[]) =>
+      list.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+
+    while (estimateTokens(msgs) > budget && msgs.length > 2) {
+      msgs = msgs.slice(1);
+    }
+
+    return msgs;
+  }
+
   private shouldForceSkillExecution(userMessage: string, context: AgentContext): boolean {
     if (context.skills.length === 0) return false;
 
@@ -303,33 +385,54 @@ export class AgentEngine {
     tools: OpenAITool[],
     model: string,
     toolChoice: 'auto' | { type: 'function'; function: { name: string } } = 'auto',
+    signal?: AbortSignal,
   ): Promise<OpenRouterResponse> {
-    try {
-      const response = await axios.post(
-        `${openRouterConfig.baseUrl}/chat/completions`,
-        {
-          model,
-          messages,
-          tools: tools.length > 0 ? tools : undefined,
-          tool_choice: tools.length > 0 ? toolChoice : undefined,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${openRouterConfig.apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://autoestate.ai',
-            'X-Title': 'AutoEstate AI Agent',
+    const maxRetries = this.config.llmMaxRetries;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      if (signal?.aborted) {
+        throw new Error('Agent aborted');
+      }
+
+      try {
+        const response = await axios.post(
+          `${openRouterConfig.baseUrl}/chat/completions`,
+          {
+            model,
+            messages,
+            tools: tools.length > 0 ? tools : undefined,
+            tool_choice: tools.length > 0 ? toolChoice : undefined,
+            temperature: this.config.temperature,
+            max_tokens: this.config.maxTokens,
           },
-          timeout: this.config.requestTimeout,
-        },
-      );
-      return response.data;
-    } catch (error: any) {
-      console.error(`[Agent] LLM call failed (${model}):`, error.response?.status, JSON.stringify(error.response?.data || error.message));
-      throw error;
+          {
+            headers: {
+              Authorization: `Bearer ${openRouterConfig.apiKey}`,
+              'Content-Type': 'application/json',
+              'HTTP-Referer': 'https://autoestate.ai',
+              'X-Title': 'AutoEstate AI Agent',
+            },
+            timeout: this.config.requestTimeout,
+            signal,
+          },
+        );
+        return response.data;
+      } catch (error: any) {
+        const status = error.response?.status;
+        const isRetryable = !status || status === 429 || status >= 500;
+
+        if (!isRetryable || attempt === maxRetries - 1) {
+          console.error(`[Agent] LLM call failed (${model}):`, status, JSON.stringify(error.response?.data || error.message));
+          throw error;
+        }
+
+        const delayMs = Math.min(1000 * 2 ** attempt, 10000);
+        console.warn(`[Agent] LLM call failed (status=${status}), retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
     }
+
+    throw new Error('Unreachable');
   }
 
   private extractCitations(steps: AgentStep[]): AgentResult['citations'] {
@@ -337,10 +440,6 @@ export class AgentEngine {
     for (const step of steps) {
       if (!step.action || step.action.tool !== 'knowledge_base') continue;
       if (!step.observation) continue;
-      // Citations are embedded in the knowledge_base tool result data;
-      // we only surface the citation count marker here for traceability.
-      // The actual structured citations come from the tool's data field
-      // and are already included in the final response text.
     }
     return citations.length > 0 ? citations : undefined;
   }

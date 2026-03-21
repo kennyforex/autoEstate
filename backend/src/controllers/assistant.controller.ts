@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import { assistantService } from '../services/assistant.service.js';
 import { agentEngine, buildPlaygroundContext } from '../agent/index.js';
 import type { AuthRequest } from '../types/index.js';
-import type { ChatMessage } from '../agent/types.js';
+import type { ChatMessage, AgentEvent } from '../agent/types.js';
 
 export async function listAssistants(
   req: AuthRequest,
@@ -486,17 +486,38 @@ export async function agentChat(
 
     const context = await buildPlaygroundContext(id, history);
 
-    const onProgress = (step: {
-      number: number;
-      total: number;
-      thought: string;
-      action?: { tool: string; args: Record<string, unknown> };
-      observation?: string;
-    }) => {
-      sendEvent({ type: 'agent_step', step });
+    const onEvent = (event: AgentEvent) => {
+      switch (event.type) {
+        case 'tool_start':
+          sendEvent({ type: 'agent_step', step: {
+            number: 0, total: 0,
+            thought: `Calling ${event.toolName}`,
+            action: { tool: event.toolName, args: event.args },
+          }});
+          break;
+        case 'tool_end':
+          sendEvent({ type: 'agent_step', step: {
+            number: 0, total: 0,
+            thought: `Observed result from ${event.toolName}`,
+            action: { tool: event.toolName, args: {} },
+            observation: event.result.summary.substring(0, 500),
+          }});
+          break;
+        case 'tool_error':
+          sendEvent({ type: 'agent_step', step: {
+            number: 0, total: 0,
+            thought: `Tool ${event.toolName} failed`,
+            action: { tool: event.toolName, args: {} },
+            observation: `Error: ${event.error}`,
+          }});
+          break;
+        case 'thinking':
+          sendEvent({ type: 'status', status: 'thinking' });
+          break;
+      }
     };
 
-    const result = await agentEngine.run(effectiveContent, context, onProgress);
+    const result = await agentEngine.run(effectiveContent, context, onEvent);
 
     sendEvent({
       type: 'done',

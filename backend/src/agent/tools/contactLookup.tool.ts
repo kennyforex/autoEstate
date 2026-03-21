@@ -19,7 +19,7 @@ export class ContactLookupTool extends BaseTool {
     required: ['fields'],
   };
 
-  async execute(args: Record<string, unknown>, context: AgentContext): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, context: AgentContext, _signal?: AbortSignal): Promise<ToolResult> {
     const fields = args.fields as string[];
     const wantAll = fields.includes('all');
 

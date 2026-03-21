@@ -28,7 +28,7 @@ export class MediaAnalysisTool extends BaseTool {
     required: ['mediaType', 'mediaDataUrl'],
   };
 
-  async execute(args: Record<string, unknown>, _context: AgentContext): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, _context: AgentContext, _signal?: AbortSignal): Promise<ToolResult> {
     const mediaType = args.mediaType as 'image' | 'audio';
     const mediaDataUrl = args.mediaDataUrl as string;
     const customPrompt = args.prompt as string | undefined;

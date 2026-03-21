@@ -79,6 +79,7 @@ export class SkillExecutionTool extends BaseTool {
   async execute(
     args: Record<string, unknown>,
     context: AgentContext,
+    _signal?: AbortSignal,
   ): Promise<ToolResult> {
     const slug = args.slug as string;
     const userRequest = args.userRequest as string;

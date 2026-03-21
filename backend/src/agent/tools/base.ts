@@ -5,7 +5,7 @@ export abstract class BaseTool {
   abstract readonly description: string;
   abstract readonly parameters: Record<string, unknown>;
 
-  abstract execute(args: Record<string, unknown>, context: AgentContext): Promise<ToolResult>;
+  abstract execute(args: Record<string, unknown>, context: AgentContext, signal?: AbortSignal): Promise<ToolResult>;
 
   /**
    * Called before tool schema generation so context-aware tools (e.g. skill

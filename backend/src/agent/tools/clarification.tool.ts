@@ -27,7 +27,7 @@ export class ClarificationTool extends BaseTool {
     required: ['question'],
   };
 
-  async execute(args: Record<string, unknown>, _context: AgentContext): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, _context: AgentContext, _signal?: AbortSignal): Promise<ToolResult> {
     const question = args.question as string;
     return {
       success: true,

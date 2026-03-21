@@ -18,7 +18,7 @@ export class KnowledgeBaseTool extends BaseTool {
     required: ['query'],
   };
 
-  async execute(args: Record<string, unknown>, context: AgentContext): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, context: AgentContext, _signal?: AbortSignal): Promise<ToolResult> {
     const query = args.query as string;
 
     if (!query) {

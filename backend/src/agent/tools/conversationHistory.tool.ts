@@ -18,7 +18,7 @@ export class ConversationHistoryTool extends BaseTool {
     required: [],
   };
 
-  async execute(args: Record<string, unknown>, context: AgentContext): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, context: AgentContext, _signal?: AbortSignal): Promise<ToolResult> {
     const limit = Math.min(Number(args.limit) || 10, 30);
 
     try {

@@ -40,7 +40,7 @@ export class CalendarTool extends BaseTool {
     required: ['action'],
   };
 
-  async execute(args: Record<string, unknown>, _context: AgentContext): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, _context: AgentContext, _signal?: AbortSignal): Promise<ToolResult> {
     const action = args.action as string;
 
     return {

@@ -12,6 +12,7 @@ import { openRouterConfig } from "../config/openrouter.js";
 import { getEvolutionClient } from "../config/evolution.js";
 import { agentEngine } from "../agent/index.js";
 import { buildAgentContext } from "../agent/context.js";
+import type { AgentEvent } from "../agent/types.js";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -104,6 +105,42 @@ class AIService {
         step,
       });
     }
+  }
+
+  private createAgentEventHandler(conversationId: string): (event: AgentEvent) => void {
+    return (event: AgentEvent) => {
+      switch (event.type) {
+        case 'tool_start':
+          this.emitAIStatus(conversationId, "agent_step", undefined, {
+            number: 0,
+            total: 0,
+            thought: `Calling ${event.toolName}`,
+            action: { tool: event.toolName, args: event.args },
+          });
+          break;
+        case 'tool_end':
+          this.emitAIStatus(conversationId, "agent_step", undefined, {
+            number: 0,
+            total: 0,
+            thought: `Observed result from ${event.toolName}`,
+            action: { tool: event.toolName, args: {} },
+            observation: event.result.summary.substring(0, 500),
+          });
+          break;
+        case 'tool_error':
+          this.emitAIStatus(conversationId, "agent_step", undefined, {
+            number: 0,
+            total: 0,
+            thought: `Tool ${event.toolName} failed`,
+            action: { tool: event.toolName, args: {} },
+            observation: `Error: ${event.error}`,
+          });
+          break;
+        case 'thinking':
+          this.emitAIStatus(conversationId, "thinking", event.content);
+          break;
+      }
+    };
   }
 
   /**
@@ -809,21 +846,9 @@ IMPORTANT RULES:
             },
           );
 
-          // Create progress callback to emit agent steps in real-time
-          const onAgentProgress = (step: {
-            number: number;
-            total: number;
-            thought: string;
-            action?: {
-              tool: string;
-              args: Record<string, unknown>;
-            };
-            observation?: string;
-          }) => {
-            this.emitAIStatus(conversationId, "agent_step", undefined, step);
-          };
+          const onAgentEvent = this.createAgentEventHandler(conversationId);
 
-          const agentResult = await agentEngine.run(effectiveContent, agentContext, onAgentProgress);
+          const agentResult = await agentEngine.run(effectiveContent, agentContext, onAgentEvent);
 
           // Clean up old session
           await AgentSession.deleteOne({ _id: pendingSession._id });
@@ -892,21 +917,9 @@ IMPORTANT RULES:
                 channel.assistantId.toString(),
               );
 
-              // Create progress callback to emit agent steps in real-time
-              const onAgentProgress = (step: {
-                number: number;
-                total: number;
-                thought: string;
-                action?: {
-                  tool: string;
-                  args: Record<string, unknown>;
-                };
-                observation?: string;
-              }) => {
-                this.emitAIStatus(conversationId, "agent_step", undefined, step);
-              };
+              const onAgentEvent = this.createAgentEventHandler(conversationId);
 
-              const agentResult = await agentEngine.run(effectiveContent, agentContext, onAgentProgress);
+              const agentResult = await agentEngine.run(effectiveContent, agentContext, onAgentEvent);
               const complexDuration = Date.now() - complexStartTime;
 
               if (agentResult.type === "clarification" && agentResult.session) {
