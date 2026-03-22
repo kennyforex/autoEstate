@@ -847,7 +847,7 @@ export const skillsApi = {
 
   update: async (
     id: string,
-    updates: Partial<Pick<Skill, "name" | "description" | "triggerHints" | "status">> & { instructions?: string },
+    updates: Partial<Pick<Skill, "name" | "description" | "triggerHints" | "status" | "requiredTools">> & { instructions?: string },
   ): Promise<Skill> => {
     const { data } = await api.put(`/skills/${id}`, updates);
     return data.skill || data;

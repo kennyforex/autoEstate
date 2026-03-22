@@ -21,6 +21,7 @@ export interface UpdateSkillInput {
   description?: string;
   instructions?: string;
   triggerHints?: string[];
+  requiredTools?: string[];
   status?: 'active' | 'inactive';
 }
 

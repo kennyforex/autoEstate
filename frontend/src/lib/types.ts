@@ -119,6 +119,7 @@ export interface Skill {
   hasReferences: boolean;
   hasExamples: boolean;
   scripts: string[];
+  requiredTools: string[];
 
   createdBy: string;
   createdAt: string;

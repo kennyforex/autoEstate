@@ -18,6 +18,7 @@ import type {
   SkillGoal,
   GoalStack,
 } from './types.js';
+import { routeIntent } from './router.js';
 
 
 const DEFAULT_CONFIG: AgentEngineConfig = {
@@ -51,9 +52,11 @@ export class AgentEngine {
     console.log(`[Agent] Context has ${context.skills.length} skill(s): ${context.skills.map(s => s.slug).join(', ') || 'none'}`);
     this.registry.updateSkillContext(context.skills);
 
-    // Build goal stack from conversation history markers
     context.goalStack = this.buildGoalStack(context);
     console.log(`[Agent] Goal stack: ${JSON.stringify(context.goalStack.goals.map(g => `${g.skillSlug}(${g.status})`))}`);
+
+    const routerDecision = routeIntent(context);
+    console.log(`[Agent] Router: ${JSON.stringify(routerDecision)}`);
 
     const tools = this.registry.toOpenAIFormat();
     const startTime = Date.now();
@@ -61,14 +64,17 @@ export class AgentEngine {
 
     const messages = this.buildMessages(userMessage, context);
 
-    const skillDetection = this.detectForcedSkill(userMessage, context);
-    const forcedSkillSlug = skillDetection?.slug || null;
-    const shouldForceSkill = !!skillDetection;
-    if (skillDetection) {
-      console.log(`[Agent] Skill detected: ${skillDetection.slug} (${skillDetection.type}) — forcing tool_choice`);
-    }
-
     onEvent?.({ type: 'agent_start' });
+
+    let routingRetryUsed = false;
+    const loopState: AgentLoopState = {
+      steps,
+      messages,
+      userMessage,
+      model,
+      usage: totalUsage,
+      unhandledSkillSlugs: new Set<string>(),
+    };
 
     const makeResult = (partial: Omit<AgentResult, 'steps' | 'model' | 'usage'>): AgentResult => {
       const result: AgentResult = { ...partial, steps, model, usage: totalUsage };
@@ -84,7 +90,8 @@ export class AgentEngine {
       onEvent?.({ type: 'turn_start', iteration });
       console.log(`[Agent] Iteration ${iteration + 1}/${this.config.maxIterations} (model=${model})`);
 
-      const toolChoice = (iteration === 0 && shouldForceSkill)
+      const forceSkill = iteration === 0 && routerDecision.action === 'force_skill';
+      const toolChoice = forceSkill
         ? { type: 'function' as const, function: { name: 'execute_skill' } }
         : 'auto' as const;
       const response = await this.callLLM(messages, tools, model, toolChoice, signal);
@@ -98,26 +105,30 @@ export class AgentEngine {
 
       // ── Final Answer: no tool calls ──
       if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
-        // Fallback: if we hard-forced a skill but the LLM ignored tool_choice, manually invoke it
-        if (iteration === 0 && shouldForceSkill && forcedSkillSlug) {
-          console.log(`[Agent] LLM ignored tool_choice — manually invoking execute_skill(${forcedSkillSlug})`);
-          const syntheticToolCall = {
-            id: `forced-${Date.now()}`,
-            type: 'function' as const,
-            function: {
-              name: 'execute_skill',
-              arguments: JSON.stringify({ slug: forcedSkillSlug, userRequest: userMessage }),
-            },
-          };
-          assistantMsg.tool_calls = [syntheticToolCall];
+        if (routerDecision.action === 'force_skill' && iteration === 0) {
+          console.log(`[Agent] Router forced skill "${routerDecision.slug}" — injecting execute_skill`);
+          assistantMsg.tool_calls = [this.createSyntheticSkillCall(routerDecision.slug, userMessage)];
           assistantMsg.content = assistantMsg.content || null;
-        } else {
+        }
+        else if (routerDecision.action === 'suggest_skill' && !routingRetryUsed) {
+          routingRetryUsed = true;
+          console.log(`[Agent] Router suggests skill "${routerDecision.slug}" — injecting execute_skill`);
+          assistantMsg.tool_calls = [this.createSyntheticSkillCall(routerDecision.slug, userMessage)];
+          assistantMsg.content = assistantMsg.content || null;
+        }
+        else {
           steps.push({ thought: assistantMsg.content || '', timestamp: new Date() });
           console.log(`[Agent] Final answer after ${iteration + 1} iteration(s) (${Date.now() - startTime}ms)`);
           onEvent?.({ type: 'turn_end', iteration });
+          let content = assistantMsg.content || '';
+          if (loopState.pendingPartialResult) {
+            content = loopState.pendingPartialResult.content + '\n\n' + content;
+            loopState.pendingPartialResult = undefined;
+            console.log(`[Agent] Combining partial response with direct answer`);
+          }
           return makeResult({
             type: 'final_answer',
-            content: assistantMsg.content || '',
+            content,
             citations: this.extractCitations(steps),
           });
         }
@@ -134,14 +145,6 @@ export class AgentEngine {
         onEvent?.({ type: 'thinking', content: assistantMsg.content });
       }
 
-      const loopState: AgentLoopState = {
-        steps,
-        messages,
-        userMessage,
-        model,
-        usage: totalUsage,
-      };
-
       const shortCircuitResult = await this.executeToolCalls(
         assistantMsg.tool_calls,
         context,
@@ -154,6 +157,12 @@ export class AgentEngine {
       onEvent?.({ type: 'turn_end', iteration });
 
       if (shortCircuitResult) {
+        if (loopState.pendingPartialResult) {
+          const combinedContent = loopState.pendingPartialResult.content + '\n\n' + shortCircuitResult.content;
+          loopState.pendingPartialResult = undefined;
+          console.log(`[Agent] Combining partial response with follow-up skill response`);
+          return makeResult({ ...shortCircuitResult, content: combinedContent });
+        }
         return makeResult(shortCircuitResult);
       }
     }
@@ -336,6 +345,59 @@ export class AgentEngine {
           messages.push({ role: 'tool', content: result.summary, tool_call_id: entry.toolCall.id });
           return hookResult.result;
         }
+        if (hookResult && 'outOfScope' in hookResult) {
+          // Skill couldn't handle the request — inject re-routing directive and let the loop continue
+          const rerouteMsg =
+            `The skill "${hookResult.failedSkillSlug}" cannot handle this request (reason: ${hookResult.reason}). ` +
+            `You MUST now select a DIFFERENT skill that matches the user's intent. ` +
+            `Do NOT re-use "${hookResult.failedSkillSlug}". Call execute_skill with the correct skill slug.`;
+          messages.push({ role: 'tool', content: rerouteMsg, tool_call_id: entry.toolCall.id });
+          steps.push({
+            thought: `Skill "${hookResult.failedSkillSlug}" out of scope — re-routing`,
+            observation: hookResult.reason,
+            timestamp: new Date(),
+          });
+          console.log(`[Agent] OUT_OF_SCOPE from "${hookResult.failedSkillSlug}" — injecting re-route directive`);
+          continue;
+        }
+        if (hookResult && 'unhandledIntent' in hookResult) {
+          const sourceSlug = hookResult.sourceSkillSlug;
+
+          // Ping-pong guard: if this skill already signalled UNHANDLED_INTENT, stop the loop
+          if (loopState.unhandledSkillSlugs.has(sourceSlug)) {
+            console.log(`[Agent] Ping-pong detected: "${sourceSlug}" signalled UNHANDLED_INTENT again — accepting response as-is`);
+            messages.push({ role: 'tool', content: result.summary, tool_call_id: entry.toolCall.id });
+            return hookResult.partialResult;
+          }
+
+          loopState.unhandledSkillSlugs.add(sourceSlug);
+
+          // Skill processed its part but user also asked something outside its scope.
+          // 1. Record the skill's partial response as a tool result
+          messages.push({ role: 'tool', content: result.summary, tool_call_id: entry.toolCall.id });
+
+          // 2. Store the partial response so the engine can emit it later
+          loopState.pendingPartialResult = hookResult.partialResult;
+
+          // 3. Inject directive to route the unhandled intent to a different skill
+          const excludeList = Array.from(loopState.unhandledSkillSlugs).map(s => `"${s}"`).join(', ');
+          messages.push({
+            role: 'user',
+            content:
+              `[SYSTEM] The skill "${sourceSlug}" handled part of the user's message but detected ` +
+              `an additional request it cannot fulfill: "${hookResult.intentDescription}"\n` +
+              `You MUST now call execute_skill with a DIFFERENT skill that can handle this intent. ` +
+              `Do NOT use any of these skills: ${excludeList}. ` +
+              `Pass a natural rephrasing of the unhandled intent as the userRequest.`,
+          });
+          steps.push({
+            thought: `Skill "${sourceSlug}" partial — routing unhandled intent`,
+            observation: hookResult.intentDescription,
+            timestamp: new Date(),
+          });
+          console.log(`[Agent] UNHANDLED_INTENT from "${sourceSlug}": "${hookResult.intentDescription}" — routing to another skill`);
+          return null; // continue the main loop so LLM can route the unhandled intent
+        }
       }
 
       messages.push({
@@ -385,88 +447,15 @@ export class AgentEngine {
     return msgs;
   }
 
-  private detectForcedSkill(
-    userMessage: string,
-    context: AgentContext,
-  ): { slug: string; type: 'trigger' | 'continuation' | 'resume' } | null {
-    if (context.skills.length === 0) return null;
-
-    const msgLower = userMessage.toLowerCase();
-    const goalStack = context.goalStack;
-
-    // 1. Check trigger word match first — explicit intent overrides continuation
-    for (const skill of context.skills) {
-      const hints = skill.triggerHints || [];
-      for (const hint of hints) {
-        if (hint && msgLower.includes(hint.toLowerCase())) {
-          console.log(`[Agent] Trigger match: "${hint}" from skill "${skill.slug}"`);
-          return { slug: skill.slug, type: 'trigger' };
-        }
-      }
-    }
-
-    // 2. Check if the last skill just completed and there are suspended goals to resume
-    if (goalStack) {
-      const lastAssistantMsg = context.messageHistory
-        .filter(m => m.role === 'assistant')
-        .slice(-1)[0];
-
-      if (lastAssistantMsg?.content?.includes(':complete')) {
-        // Find which skill just completed
-        const completedMatch = lastAssistantMsg.content.match(/<!-- skill:(\S+?):complete\s+(\{.*?\}) -->/);
-        const completedSlug = completedMatch?.[1];
-        let completedObs: Record<string, string> = {};
-        if (completedMatch?.[2]) {
-          try { completedObs = JSON.parse(completedMatch[2]); } catch { /* ignore */ }
-        }
-
-        const suspended = goalStack.goals.filter(g => g.status === 'suspended');
-        if (suspended.length > 0) {
-          const toResume = suspended[0];
-
-          // Same-skill auto-completion: if the completed skill is the same as the
-          // suspended one, the suspended goal is already achieved — skip it
-          if (completedSlug && toResume.skillSlug === completedSlug) {
-            console.log(`[Agent] Suspended goal "${toResume.skillSlug}" is same skill as completed — auto-completing`);
-            toResume.status = 'completed';
-            toResume.observations = { ...toResume.observations, ...completedObs };
-            toResume.completedAt = Date.now();
-            // Check next suspended goal
-            const nextSuspended = goalStack.goals.filter(g => g.status === 'suspended');
-            if (nextSuspended.length > 0) {
-              console.log(`[Agent] Moving to next suspended goal: "${nextSuspended[0].skillSlug}"`);
-              return { slug: nextSuspended[0].skillSlug, type: 'resume' };
-            }
-            return null; // All goals resolved
-          }
-
-          console.log(`[Agent] Previous skill completed — resuming suspended goal "${toResume.skillSlug}"`);
-          return { slug: toResume.skillSlug, type: 'resume' };
-        }
-      }
-    }
-
-    // 3. Fall back to multi-turn continuation (soft — LLM can override)
-    const recent = context.messageHistory.slice(-4);
-    for (let i = recent.length - 1; i >= 0; i--) {
-      const msg = recent[i];
-      if (msg.role === 'assistant' && msg.content) {
-        // Skip completed skill markers
-        const completeMatch = msg.content.match(/<!-- skill:(\S+?):complete/);
-        if (completeMatch) {
-          console.log(`[Agent] Last skill "${completeMatch[1]}" was completed — no continuation`);
-          break;
-        }
-        const skillMatch = msg.content.match(/<!-- skill:(\S+) -->/);
-        if (skillMatch) {
-          console.log(`[Agent] Multi-turn continuation available — last response from skill "${skillMatch[1]}"`);
-          return { slug: skillMatch[1], type: 'continuation' };
-        }
-        break;
-      }
-    }
-
-    return null;
+  private createSyntheticSkillCall(slug: string, userRequest: string): OpenRouterToolCall {
+    return {
+      id: `forced-${Date.now()}`,
+      type: 'function' as const,
+      function: {
+        name: 'execute_skill',
+        arguments: JSON.stringify({ slug, userRequest }),
+      },
+    };
   }
 
   /**

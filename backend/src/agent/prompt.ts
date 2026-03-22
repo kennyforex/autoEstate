@@ -1,5 +1,39 @@
 import type { AgentContext } from './types.js';
 
+const ACTION_KEYWORDS: Record<string, string> = {
+  book: 'BOOKING / SCHEDULING',
+  booking: 'BOOKING / SCHEDULING',
+  schedule: 'BOOKING / SCHEDULING',
+  appointment: 'BOOKING / SCHEDULING',
+  reserve: 'BOOKING / SCHEDULING',
+  estimate: 'PRICING / ESTIMATION',
+  pricing: 'PRICING / ESTIMATION',
+  price: 'PRICING / ESTIMATION',
+  cost: 'PRICING / ESTIMATION',
+  quote: 'PRICING / ESTIMATION',
+  greet: 'GREETING',
+  greeting: 'GREETING',
+  welcome: 'GREETING',
+  search: 'SEARCH / LOOKUP',
+  find: 'SEARCH / LOOKUP',
+  lookup: 'SEARCH / LOOKUP',
+  track: 'TRACKING / STATUS',
+  status: 'TRACKING / STATUS',
+  support: 'SUPPORT / HELP',
+  help: 'SUPPORT / HELP',
+  complaint: 'COMPLAINT / FEEDBACK',
+  feedback: 'COMPLAINT / FEEDBACK',
+};
+
+function extractActionWords(description: string): string {
+  const lower = description.toLowerCase();
+  for (const [keyword, action] of Object.entries(ACTION_KEYWORDS)) {
+    if (lower.includes(keyword)) return action;
+  }
+  const firstVerb = lower.match(/^(\w+s?)\b/);
+  return firstVerb ? firstVerb[1] : '';
+}
+
 const LANGUAGE_LABELS: Record<string, string> = {
   'zh-TW': 'Traditional Chinese',
   'zh-CN': 'Simplified Chinese',
@@ -58,58 +92,38 @@ export function buildSystemPrompt(context: AgentContext): string {
   // ── Skills ──
   if (skills.length > 0) {
     parts.push('');
-    parts.push('## Installed Skills — MANDATORY USAGE');
+    parts.push('## Skills');
     parts.push(
-      'You have specialised skills installed. ' +
-      'You MUST call `execute_skill` whenever the user\'s message matches a skill\'s trigger hints or purpose. ' +
-      'Do NOT attempt to handle skill-covered topics yourself — always delegate to the skill. ' +
-      'Pass the user\'s exact message as the `userRequest` argument.',
+      'You have specialized skills installed. When a user\'s request matches a skill\'s purpose, ' +
+      'you MUST delegate by calling `execute_skill` with that skill\'s slug and the user\'s message.',
     );
     parts.push('');
-    parts.push('Skills (call execute_skill with the slug shown):');
+    parts.push(
+      'Rules:\n' +
+      '- NEVER answer directly when a skill should handle the request — ALWAYS use `execute_skill`.\n' +
+      '- When a skill is actively conversing with the user (collecting info, asking questions), ' +
+      'continue routing through `execute_skill` with the same slug.\n' +
+      '- NEVER fabricate data (prices, availability, dates, etc.) that should come from a skill.',
+    );
+    parts.push('');
+    parts.push('Available skills:');
     for (const skill of skills) {
-      const hints = skill.triggerHints.length > 0 ? `\n  Trigger words: ${skill.triggerHints.join(', ')}` : '';
-
-      const structureInfo: string[] = [];
-      if (skill.hasReferences) structureInfo.push('reference');
-      if (skill.hasExamples) structureInfo.push('examples');
-      if (skill.availableScripts.length > 0) {
-        structureInfo.push(`scripts: [${skill.availableScripts.join(', ')}]`);
-      }
-
-      parts.push(`- **${skill.name}** (slug: \`${skill.slug}\`): ${skill.description}${hints}`);
+      const actionWords = extractActionWords(skill.description);
+      const action = actionWords || 'General';
+      parts.push(
+        `- slug: \`${skill.slug}\` | Action: **${action.toUpperCase()}** | ${skill.description}`,
+      );
     }
-    parts.push('');
-    parts.push(
-      '⚠️ Rules:\n' +
-      '1. If ANY trigger word above appears in the user\'s message, you MUST call execute_skill immediately. Do not answer directly.\n' +
-      '2. MULTI-TURN: If you previously called execute_skill and the skill asked the user a question, ' +
-      'you MUST call execute_skill AGAIN with the user\'s follow-up answer (same slug). ' +
-      'The skill maintains context from conversation history. ' +
-      'Keep calling execute_skill until the skill completes its workflow.\n' +
-      '3. NEVER answer on behalf of a skill. If a conversation was started by a skill, ALL follow-up messages MUST go through that skill.\n' +
-      '4. GOAL MANAGEMENT: Multiple goals can be active. When the user interrupts a skill with a new request ' +
-      '(e.g., asking for a price while mid-booking), the current goal is suspended and a new skill handles the interruption. ' +
-      'When the interrupting skill completes, check for suspended goals and resume them by calling execute_skill again. ' +
-      'Information collected by completed skills is automatically bridged to resumed skills.\n' +
-      '5. SKILL COMPLETION: When a skill response contains the completion marker, that goal is done. ' +
-      'Check if there are suspended goals to resume.',
-    );
 
-    // Show current goal state if available
     if (context.goalStack && context.goalStack.goals.length > 0) {
       parts.push('');
-      parts.push('## Current Goals');
+      parts.push('### Current Goal Stack');
       for (const goal of context.goalStack.goals) {
         const icon = goal.status === 'active' ? '🔵' : goal.status === 'suspended' ? '⏸️' : '✅';
         const obs = Object.keys(goal.observations).length > 0
-          ? ` (collected: ${Object.entries(goal.observations).map(([k,v]) => `${k}=${v}`).join(', ')})`
+          ? ` | collected: ${Object.entries(goal.observations).map(([k,v]) => `${k}=${v}`).join(', ')}`
           : '';
-        parts.push(`${icon} ${goal.skillSlug}: ${goal.status}${obs}`);
-      }
-      const suspended = context.goalStack.goals.filter(g => g.status === 'suspended');
-      if (suspended.length > 0) {
-        parts.push(`\n⚠️ There are ${suspended.length} suspended goal(s). After the current skill completes, resume the oldest suspended one.`);
+        parts.push(`${icon} \`${goal.skillSlug}\`: ${goal.status}${obs}`);
       }
     }
   }

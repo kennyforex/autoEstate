@@ -1,7 +1,7 @@
 ---
 name: Car Wash Estimator
 description: Provides quick price estimates ONLY for car washing services. Use ONLY for pricing/estimate queries like "how much", "price", "estimate". If user wants to BOOK, use the booking skill instead.
-triggerHints: car wash, wash price, estimate, 洗車, 報價
+triggerHints: wash price, estimate, price for car wash, how much car wash, 洗車報價, 洗車價格
 ---
 
 ## Car Wash Price Estimator

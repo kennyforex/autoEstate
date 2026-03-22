@@ -2,7 +2,7 @@ import axios from 'axios';
 import { BaseTool } from './base.js';
 import { openRouterConfig } from '../../config/openrouter.js';
 import { skillStorage } from '../../services/skillStorage.service.js';
-import type { AgentContext, AgentSkillInfo, ToolResult, OpenAITool } from '../types.js';
+import type { AgentContext, AgentSkillInfo, ToolResult, OpenAITool, SkillExecutionResult } from '../types.js';
 import type { ToolRegistry } from './registry.js';
 
 const DEFAULT_DESCRIPTION =
@@ -105,18 +105,8 @@ export class SkillExecutionTool extends BaseTool {
     console.log(`[SkillExecution] Running skill "${skill.name}" (${slug})`);
 
     try {
-      const result = await this.executeSkillWithScripts(skill, userRequest, context);
-      const isComplete = (this as any)._lastSkillComplete || false;
-      const observations = (this as any)._lastObservations || {};
-      // Clean up transient state
-      (this as any)._lastSkillComplete = false;
-      (this as any)._lastObservations = {};
-
-      return {
-        success: true,
-        data: { skill: slug, output: result, completed: isComplete, observations },
-        summary: result,
-      };
+      const skillResult = await this.executeSkillWithScripts(skill, userRequest, context);
+      return this.mapToToolResult(slug, skillResult);
     } catch (error: any) {
       console.error(`[SkillExecution] Skill "${slug}" failed:`, error.message);
       return {
@@ -127,14 +117,32 @@ export class SkillExecutionTool extends BaseTool {
     }
   }
 
-  /**
-   * Execute skill with on-demand loading, conversation history, and script support.
-   */
+  private mapToToolResult(slug: string, result: SkillExecutionResult): ToolResult {
+    if (result.type === 'out_of_scope') {
+      return {
+        success: true,
+        data: { skill: slug, outOfScope: true, reason: result.outOfScopeReason },
+        summary: result.content,
+      };
+    }
+    return {
+      success: true,
+      data: {
+        skill: slug,
+        output: result.content,
+        completed: result.type === 'complete',
+        observations: result.observations || {},
+        ...(result.unhandledIntent ? { unhandledIntent: result.unhandledIntent } : {}),
+      },
+      summary: result.content,
+    };
+  }
+
   private async executeSkillWithScripts(
     skill: AgentSkillInfo,
     userRequest: string,
     context: AgentContext,
-  ): Promise<string> {
+  ): Promise<SkillExecutionResult> {
     // 1. Load instructions on-demand from storage (or use legacy embedded)
     let instructions: string;
     if (skill.storagePath) {
@@ -184,6 +192,22 @@ export class SkillExecutionTool extends BaseTool {
       systemPrompt += '\nThe script output will be provided as the next message.\n';
     }
 
+    // Describe available tools (if any are passed through)
+    if (skill.requiredTools && skill.requiredTools.length > 0 && this.parentRegistry) {
+      const toolNames = skill.requiredTools.filter(t => t !== 'execute_skill' && t !== 'ask_clarification');
+      if (toolNames.length > 0) {
+        systemPrompt += '\n## Available Tools\n';
+        systemPrompt += 'You have access to the following tools via function calling. Use them when needed:\n';
+        for (const toolName of toolNames) {
+          const tool = this.parentRegistry.get(toolName);
+          if (tool) {
+            systemPrompt += `- **${tool.name}**: ${tool.description}\n`;
+          }
+        }
+        systemPrompt += '\nCall these tools naturally as function calls. Results will be provided automatically.\n';
+      }
+    }
+
     // Add context
     systemPrompt += '\n## Context\n';
     if (context.contact.name) {
@@ -223,7 +247,17 @@ export class SkillExecutionTool extends BaseTool {
       '5. Ask for ONLY ONE piece of missing information per response.\n' +
       '6. NEVER invent information the customer did not provide.\n' +
       '7. NEVER try to auto-retrieve or look up information not provided by the customer — just ASK for it.\n' +
-      '8. When ALL required info is collected, provide a confirmation summary.\n';
+      '8. When ALL required info is collected, provide a confirmation summary.\n' +
+      '9. SCOPE RULES — NEVER fabricate answers for topics outside your defined scope.\n' +
+      '   a) FULLY out of scope: The user\'s ENTIRE message is unrelated to your skill\'s purpose.\n' +
+      '      → Respond with EXACTLY: OUT_OF_SCOPE: <brief reason>\n' +
+      '   b) MIXED intent: The user\'s message contains BOTH something you can handle AND a request for a DIFFERENT type of service/action.\n' +
+      '      → Process the part within YOUR skill\'s purpose.\n' +
+      '      → Write your normal response for the handled part.\n' +
+      '      → ONLY if the other part requires a genuinely DIFFERENT skill (e.g., booking vs pricing), ' +
+      'add on a new line: UNHANDLED_INTENT: <describe the OTHER action the user wants>\n' +
+      '   IMPORTANT: Do NOT signal UNHANDLED_INTENT for requests that ARE your skill\'s purpose. ' +
+      'If the user asks about pricing and you ARE the pricing skill, handle it — do NOT flag it as unhandled.\n';
 
     systemPrompt +=
       '\n## MANDATORY RESPONSE FORMAT\n' +
@@ -252,7 +286,7 @@ export class SkillExecutionTool extends BaseTool {
     }
 
     // 4. Build messages: system + conversation history + current message
-    const messages: Array<{ role: string; content: string }> = [
+    const messages: Array<any> = [
       { role: 'system', content: systemPrompt },
     ];
 
@@ -268,7 +302,7 @@ export class SkillExecutionTool extends BaseTool {
       }
       // Strip skill continuation markers from history
       const cleaned = content.replace(/\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g, '');
-      messages.push({ role: msg.role, content: cleaned });
+      messages.push({ role: msg.role, content: cleaned as string });
     }
 
     // Add the current user request as the latest message
@@ -282,15 +316,78 @@ export class SkillExecutionTool extends BaseTool {
       console.log(`[SkillTool]   msg[${i}] role=${m.role}: ${preview}...`);
     }
 
-    // 4. Conversation loop with script execution
+    // 4. Resolve tools available for this skill
+    const skillTools = this.resolveSkillTools(skill, context);
+    if (skillTools.length > 0) {
+      console.log(`[SkillTool] Passing ${skillTools.length} tool(s) to sub-LLM: ${skillTools.map(t => t.function.name).join(', ')}`);
+    }
+
+    // 5. Conversation loop with script execution and tool calling
     let iterations = 0;
-    const maxIterations = 5; // Prevent infinite loops
+    const maxIterations = 8;
 
     while (iterations < maxIterations) {
       iterations++;
 
-      const response = await this.callSkillLLM(messages);
-      const content = response.choices?.[0]?.message?.content || '';
+      const response = await this.callSkillLLM(messages, skillTools.length > 0 ? skillTools : undefined);
+      const assistantMsg = response.choices?.[0]?.message;
+      const content = assistantMsg?.content || '';
+      const toolCalls = assistantMsg?.tool_calls;
+
+      // ── Handle OpenAI-style tool calls from sub-LLM ──
+      if (toolCalls && toolCalls.length > 0) {
+        console.log(`[SkillTool] Sub-LLM requested ${toolCalls.length} tool call(s)`);
+        messages.push({
+          role: 'assistant',
+          content: content || null,
+          tool_calls: toolCalls,
+        });
+
+        for (const tc of toolCalls) {
+          const toolName = tc.function.name;
+          let toolArgs: Record<string, unknown>;
+          try {
+            toolArgs = JSON.parse(tc.function.arguments);
+          } catch {
+            messages.push({ role: 'tool', content: `Invalid arguments for tool "${toolName}"`, tool_call_id: tc.id });
+            continue;
+          }
+
+          const tool = this.parentRegistry?.get(toolName);
+          if (!tool) {
+            messages.push({ role: 'tool', content: `Tool "${toolName}" not found`, tool_call_id: tc.id });
+            continue;
+          }
+
+          console.log(`[SkillTool] Executing tool "${toolName}" with args: ${JSON.stringify(toolArgs).substring(0, 200)}`);
+          try {
+            const toolResult = await tool.execute(toolArgs, context);
+            console.log(`[SkillTool] Tool "${toolName}" result (${toolResult.success ? 'ok' : 'fail'}): ${toolResult.summary.substring(0, 150)}`);
+            messages.push({
+              role: 'tool',
+              content: toolResult.summary,
+              tool_call_id: tc.id,
+            });
+          } catch (error: any) {
+            console.error(`[SkillTool] Tool "${toolName}" threw:`, error.message);
+            messages.push({
+              role: 'tool',
+              content: `Tool "${toolName}" failed: ${error.message}`,
+              tool_call_id: tc.id,
+            });
+          }
+        }
+        continue;
+      }
+
+      const oosMatch = content.match(/OUT_OF_SCOPE:\s*(.+)/);
+      if (oosMatch) {
+        const reason = oosMatch[1].trim();
+        console.log(`[SkillTool] Skill "${skill.slug}" signalled OUT_OF_SCOPE: ${reason}`);
+        return { type: 'out_of_scope', content: `OUT_OF_SCOPE: ${reason}`, outOfScopeReason: reason };
+      }
+
+      // ── Handle text-marker commands (legacy: scripts, reference, examples) ──
 
       // Check for LOAD_REFERENCE marker
       if (content.includes('LOAD_REFERENCE') && skill.hasReferences && skill.storagePath) {
@@ -298,7 +395,7 @@ export class SkillExecutionTool extends BaseTool {
         if (reference) {
           messages.push({ role: 'assistant', content });
           messages.push({ role: 'user', content: `Reference material:\n\n${reference}` });
-          continue; // Continue conversation with reference loaded
+          continue;
         }
       }
 
@@ -341,13 +438,10 @@ export class SkillExecutionTool extends BaseTool {
             (result.stderr ? `Warnings: ${result.stderr}\n` : '') +
             `Exit code: ${result.exitCode}`;
 
-          // Add to conversation
           messages.push({ role: 'assistant', content });
           messages.push({ role: 'user', content: scriptOutput });
-
-          continue; // Continue conversation with script output
+          continue;
         } catch (error: any) {
-          // Script execution failed
           messages.push({ role: 'assistant', content });
           messages.push({
             role: 'user',
@@ -357,11 +451,9 @@ export class SkillExecutionTool extends BaseTool {
         }
       }
 
-      // No markers found - this is the final response
       const isComplete = content.includes('SKILL_COMPLETE');
 
-      // Extract observations if present
-      let observations: Record<string, string> = {};
+      const observations: Record<string, string> = {};
       const obsMatch = content.match(/SKILL_OBSERVATIONS\n([\s\S]*?)\nEND_OBSERVATIONS/);
       if (obsMatch) {
         const lines = obsMatch[1].trim().split('\n');
@@ -373,11 +465,17 @@ export class SkillExecutionTool extends BaseTool {
         }
       }
 
-      // Strip <think>, SKILL_COMPLETE, and SKILL_OBSERVATIONS blocks
-      let cleaned = content
+      const unhandledMatch = content.match(/UNHANDLED_INTENT:\s*(.+)/);
+      const unhandledIntent = unhandledMatch ? unhandledMatch[1].trim() : undefined;
+      if (unhandledIntent) {
+        console.log(`[SkillTool] Skill "${skill.slug}" signalled UNHANDLED_INTENT: ${unhandledIntent}`);
+      }
+
+      const cleaned = content
         .replace(/<think>[\s\S]*?<\/think>\s*/g, '')
         .replace(/SKILL_OBSERVATIONS\n[\s\S]*?\nEND_OBSERVATIONS\s*/g, '')
         .replace(/SKILL_COMPLETE\s*/g, '')
+        .replace(/UNHANDLED_INTENT:\s*.+/g, '')
         .trim();
 
       if (isComplete) {
@@ -385,15 +483,40 @@ export class SkillExecutionTool extends BaseTool {
       }
       console.log(`[SkillTool] Final response (${cleaned.length} chars): ${cleaned.substring(0, 100)}...`);
 
-      // Return enriched data so afterToolCall can encode goal state
-      (this as any)._lastSkillComplete = isComplete;
-      (this as any)._lastObservations = observations;
-
-      return cleaned;
+      return {
+        type: isComplete ? 'complete' : 'response',
+        content: cleaned,
+        observations: Object.keys(observations).length > 0 ? observations : undefined,
+        unhandledIntent,
+      };
     }
 
-    // Max iterations reached
-    return 'Skill execution reached maximum iterations. Please try a more specific request.';
+    return { type: 'response', content: 'Skill execution reached maximum iterations. Please try a more specific request.' };
+  }
+
+  /**
+   * Resolve which tools from the parent registry this skill is allowed to use.
+   * Excludes execute_skill (no recursion) and ask_clarification (skill handles its own flow).
+   */
+  private resolveSkillTools(skill: AgentSkillInfo, context: AgentContext): OpenAITool[] {
+    if (!this.parentRegistry || !skill.requiredTools || skill.requiredTools.length === 0) {
+      return [];
+    }
+
+    const excludedTools = new Set(['execute_skill', 'ask_clarification']);
+    const tools: OpenAITool[] = [];
+
+    for (const toolName of skill.requiredTools) {
+      if (excludedTools.has(toolName)) continue;
+      const tool = this.parentRegistry.get(toolName);
+      if (tool) {
+        tools.push(tool.toOpenAITool());
+      } else {
+        console.warn(`[SkillTool] Skill "${skill.slug}" requested tool "${toolName}" but it's not in the registry`);
+      }
+    }
+
+    return tools;
   }
 
   /**
@@ -429,16 +552,23 @@ export class SkillExecutionTool extends BaseTool {
   }
 
   private async callSkillLLM(
-    messages: Array<{ role: string; content: string }>,
+    messages: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }>,
+    tools?: OpenAITool[],
   ): Promise<any> {
+    const body: any = {
+      model: openRouterConfig.models.agent,
+      messages,
+      temperature: 0.3,
+      max_tokens: 2048,
+    };
+    if (tools && tools.length > 0) {
+      body.tools = tools;
+      body.tool_choice = 'auto';
+    }
+
     const response = await axios.post(
       `${openRouterConfig.baseUrl}/chat/completions`,
-      {
-        model: openRouterConfig.models.agent,
-        messages,
-        temperature: 0.3,
-        max_tokens: 2048,
-      },
+      body,
       {
         headers: {
           Authorization: `Bearer ${openRouterConfig.apiKey}`,

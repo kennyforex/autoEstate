@@ -1,7 +1,7 @@
 ---
 name: Car Service Booking
-description: Handles appointment booking for a car service shop. Use when the customer wants to book, schedule, or enquire about car servicing, repairs, oil change, tyre change, inspection, or any vehicle maintenance.
-triggerHints: book, appointment, schedule, service, repair, oil change, tyre, tire, inspection, maintenance, vehicle, car wash, brake, engine, 預約, 保養, 維修, 換油, 換輪胎, 車廠
+description: Handles booking and scheduling for car services. Use when the customer wants to **book**, schedule, make an appointment, or says "I want to book [service]". Covers car wash, servicing, repairs, etc.
+triggerHints: book, booking, schedule, appointment, reserve, i want to book, book car wash, booking car wash, 預約, 保養, 預約洗車, book service, car service booking
 ---
 
 ## Role

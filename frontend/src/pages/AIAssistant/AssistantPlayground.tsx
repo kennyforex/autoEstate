@@ -891,7 +891,7 @@ export const AssistantPlayground: React.FC = () => {
       description: skill.description || "",
       instructions: skill.instructions || "",
       triggerHints: (skill.triggerHints || []).join(", "),
-      requiredTools: "",
+      requiredTools: (skill.requiredTools || []).join(", "),
     });
   };
 
@@ -904,6 +904,10 @@ export const AssistantPlayground: React.FC = () => {
         description: skillForm.description,
         instructions: skillForm.instructions || undefined,
         triggerHints: skillForm.triggerHints
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        requiredTools: skillForm.requiredTools
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
@@ -3047,6 +3051,35 @@ ${skillForm.instructions}
                           }
                           placeholder="e.g. hello, greet, welcome, 你好"
                         />
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Tools Access (select tools this skill can use)
+                          </label>
+                          <div className="flex flex-wrap gap-2">
+                            {["knowledge_base", "calendar", "contact_lookup", "conversation_history", "media_analysis"].map((tool) => {
+                              const selected = skillForm.requiredTools.split(",").map(s => s.trim()).filter(Boolean).includes(tool);
+                              return (
+                                <button
+                                  key={tool}
+                                  type="button"
+                                  onClick={() => {
+                                    const current = skillForm.requiredTools.split(",").map(s => s.trim()).filter(Boolean);
+                                    const next = selected ? current.filter(t => t !== tool) : [...current, tool];
+                                    setSkillForm({ ...skillForm, requiredTools: next.join(", ") });
+                                  }}
+                                  className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                                    selected
+                                      ? "bg-blue-50 border-blue-300 text-blue-700"
+                                      : "bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300"
+                                  }`}
+                                >
+                                  {tool.replace(/_/g, " ")}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1">Optional. These tools will be available inside skill execution.</p>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -3161,6 +3194,34 @@ ${skillForm.instructions}
                         onChange={(e) => setSkillForm({ ...skillForm, triggerHints: e.target.value })}
                         placeholder="e.g. hello, greet, welcome, 你好"
                       />
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Tools Access
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {["knowledge_base", "calendar", "contact_lookup", "conversation_history", "media_analysis"].map((tool) => {
+                            const selected = skillForm.requiredTools.split(",").map(s => s.trim()).filter(Boolean).includes(tool);
+                            return (
+                              <button
+                                key={tool}
+                                type="button"
+                                onClick={() => {
+                                  const current = skillForm.requiredTools.split(",").map(s => s.trim()).filter(Boolean);
+                                  const next = selected ? current.filter(t => t !== tool) : [...current, tool];
+                                  setSkillForm({ ...skillForm, requiredTools: next.join(", ") });
+                                }}
+                                className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                                  selected
+                                    ? "bg-blue-50 border-blue-300 text-blue-700"
+                                    : "bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300"
+                                }`}
+                              >
+                                {tool.replace(/_/g, " ")}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   </Modal>
                 )}

@@ -67,13 +67,14 @@ export async function updateSkill(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { name, description, instructions, triggerHints, status } = req.body;
+    const { name, description, instructions, triggerHints, status, requiredTools } = req.body;
     const skill = await skillService.update(req.params.id, {
       name,
       description,
       instructions,
       triggerHints,
       status,
+      requiredTools,
     });
     if (!skill) {
       res.status(404).json({ error: 'Skill not found' });

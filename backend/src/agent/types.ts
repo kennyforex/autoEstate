@@ -146,6 +146,23 @@ export interface GoalStack {
   activeGoalId: string | null;
 }
 
+// ── Structured Skill Execution Result ──
+
+export interface SkillExecutionResult {
+  type: 'response' | 'out_of_scope' | 'complete';
+  content: string;
+  observations?: Record<string, string>;
+  unhandledIntent?: string;
+  outOfScopeReason?: string;
+}
+
+// ── Router Decision ──
+
+export type RouterDecision =
+  | { action: 'force_skill'; slug: string; reason: string }
+  | { action: 'suggest_skill'; slug: string }
+  | { action: 'llm_decide' };
+
 export interface AgentContext {
   conversationId: string;
   assistantId: string;
@@ -217,6 +234,8 @@ export interface AgentLoopState {
   userMessage: string;
   model: string;
   usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  unhandledSkillSlugs: Set<string>;
+  pendingPartialResult?: AgentResult;
 }
 
 export type BeforeToolCallHook = (ctx: BeforeToolCallContext) => Promise<
@@ -227,6 +246,8 @@ export type BeforeToolCallHook = (ctx: BeforeToolCallContext) => Promise<
 
 export type AfterToolCallHook = (ctx: AfterToolCallContext) => Promise<
   | { shortCircuit: true; result: AgentResult }
+  | { outOfScope: true; failedSkillSlug: string; reason: string }
+  | { unhandledIntent: true; partialResult: AgentResult; intentDescription: string; sourceSkillSlug: string }
   | undefined
 >;
 

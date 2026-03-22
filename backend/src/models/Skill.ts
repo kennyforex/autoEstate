@@ -17,6 +17,9 @@ export interface ISkillDocument extends Document {
   // Storage location for on-demand content loading (empty string for legacy skills)
   storagePath: string;
 
+  // Tools this skill can use from the main agent's registry
+  requiredTools: string[];
+
   // Legacy: for backward compatibility during migration
   instructions?: string;
 
@@ -76,6 +79,11 @@ const skillSchema = new Schema<ISkillDocument>(
       type: String,
       required: false,
       default: '',
+    },
+
+    requiredTools: {
+      type: [String],
+      default: [],
     },
 
     // Legacy: backward compatibility
