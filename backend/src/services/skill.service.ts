@@ -22,6 +22,8 @@ export interface UpdateSkillInput {
   instructions?: string;
   triggerHints?: string[];
   requiredTools?: string[];
+  reminderDelay?: number;
+  maxReminders?: number;
   status?: 'active' | 'inactive';
 }
 
@@ -53,6 +55,8 @@ export function parseSkillFrontmatter(content: string): {
   triggerHints: string[];
   scriptsMeta: Record<string, string>;
   steps: ParsedSkillStep[];
+  reminderDelay: number;
+  maxReminders: number;
 } {
   const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
 
@@ -119,6 +123,8 @@ export function parseSkillFrontmatter(content: string): {
     triggerHints: meta.triggerHints ? meta.triggerHints.split(',').map((s) => s.trim()).filter(Boolean) : [],
     scriptsMeta,
     steps,
+    reminderDelay: meta.reminderDelay ? parseInt(meta.reminderDelay, 10) || 0 : 0,
+    maxReminders: meta.maxReminders ? parseInt(meta.maxReminders, 10) || 0 : 0,
   };
 }
 
@@ -254,6 +260,8 @@ class SkillService {
       existing.scripts = finalStructure.scripts;
       existing.storagePath = storagePath;
       existing.steps = parsed.steps;
+      existing.reminderDelay = parsed.reminderDelay;
+      existing.maxReminders = parsed.maxReminders;
       await existing.save();
       return existing;
     }
@@ -311,6 +319,8 @@ class SkillService {
       existing.storagePath = storagePath;
       existing.steps = parsed.steps;
       existing.instructions = instructionsBody;
+      existing.reminderDelay = parsed.reminderDelay;
+      existing.maxReminders = parsed.maxReminders;
       await existing.save();
       return existing;
     }

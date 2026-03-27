@@ -124,6 +124,8 @@ export interface AgentSkillInfo {
 
   instructions?: string;
   requiredTools?: string[];
+  reminderDelay?: number;
+  maxReminders?: number;
 }
 
 export interface ChatMessage {
@@ -188,6 +190,8 @@ export interface AgentContext {
   session?: AgentSessionData;
   markdownEnabled?: boolean;
   goalStack?: GoalStack;
+  /** Set only while a skill sub-agent runs tools (so tools can read that skill's SKILL.md). */
+  activeSkillSlug?: string;
 }
 
 // ── Agent Result ──

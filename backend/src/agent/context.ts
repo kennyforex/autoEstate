@@ -174,6 +174,8 @@ async function loadAssistantSkills(assistantId: string): Promise<AgentSkillInfo[
       steps: s.steps || [],
       instructions: s.instructions,
       requiredTools: s.requiredTools || [],
+      reminderDelay: s.reminderDelay || 0,
+      maxReminders: s.maxReminders || 0,
     }));
   } catch (error: any) {
     console.error('[AgentContext] Failed to load skills:', error.message);

@@ -7,6 +7,7 @@ import {
   Mail,
   Calendar,
   HardDrive,
+  FileSpreadsheet,
   ExternalLink,
 } from "lucide-react";
 import { googleApi } from "../../lib/api";
@@ -177,8 +178,9 @@ export function ConnectedAppsSettings() {
                   Google Workspace
                 </h2>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  Connect Gmail, Calendar, and Drive so your AI agent can manage
-                  emails, schedule meetings, and access files.
+                  Connect Gmail, Calendar, Drive, and Google Sheets so your AI
+                  agent can manage email, schedule meetings, access files, and
+                  work with spreadsheets.
                 </p>
                 {googleStatus?.connected && (
                   <div className="mt-3 space-y-2">
@@ -198,6 +200,9 @@ export function ConnectedAppsSettings() {
                       </span>
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700">
                         <HardDrive className="w-3 h-3" /> Drive
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-violet-50 text-violet-700">
+                        <FileSpreadsheet className="w-3 h-3" /> Sheets
                       </span>
                     </div>
                   </div>

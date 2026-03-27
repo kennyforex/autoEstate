@@ -50,7 +50,7 @@ export class GoogleDriveTool extends BaseTool {
             return { success: true, data: [], summary: 'No files found.' };
           }
           const summary = files.map((f, i) =>
-            `${i + 1}. ${f.name} | Type: ${f.mimeType} | Modified: ${f.modifiedTime} | ID: ${f.id}`,
+            `${i + 1}. ${f.name} | Type: ${f.mimeType} | Modified: ${f.modifiedTime} | ID: ${f.id}${f.webViewLink ? ` | Open: ${f.webViewLink}` : ''}`,
           ).join('\n');
           return { success: true, data: files, summary: `${files.length} file(s):\n${summary}` };
         }

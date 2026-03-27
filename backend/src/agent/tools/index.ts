@@ -9,6 +9,7 @@ export { CalendarTool } from './calendar.tool.js';
 export { GoogleGmailTool } from './googleGmail.tool.js';
 export { GoogleCalendarTool } from './googleCalendar.tool.js';
 export { GoogleDriveTool } from './googleDrive.tool.js';
+export { GoogleSheetsTool } from './googleSheets.tool.js';
 export { SkillExecutionTool } from './skill.tool.js';
 export { WebSearchTool } from './webSearch.tool.js';
 
@@ -21,6 +22,7 @@ import { MediaAnalysisTool } from './mediaAnalysis.tool.js';
 import { GoogleGmailTool } from './googleGmail.tool.js';
 import { GoogleCalendarTool } from './googleCalendar.tool.js';
 import { GoogleDriveTool } from './googleDrive.tool.js';
+import { GoogleSheetsTool } from './googleSheets.tool.js';
 import { SkillExecutionTool } from './skill.tool.js';
 import { WebSearchTool } from './webSearch.tool.js';
 
@@ -34,6 +36,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new GoogleCalendarTool());
   registry.register(new GoogleGmailTool());
   registry.register(new GoogleDriveTool());
+  registry.register(new GoogleSheetsTool());
   registry.register(new WebSearchTool());
 
   const skillTool = new SkillExecutionTool();

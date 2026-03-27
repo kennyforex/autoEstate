@@ -23,6 +23,9 @@ export interface ISkillDocument extends Document {
 
   requiredTools: string[];
 
+  reminderDelay: number;
+  maxReminders: number;
+
   steps: ISkillStepDef[];
 
   instructions?: string;
@@ -88,6 +91,16 @@ const skillSchema = new Schema<ISkillDocument>(
     requiredTools: {
       type: [String],
       default: [],
+    },
+
+    reminderDelay: {
+      type: Number,
+      default: 0,
+    },
+
+    maxReminders: {
+      type: Number,
+      default: 0,
     },
 
     steps: {

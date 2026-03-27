@@ -3,6 +3,7 @@ import { BaseTool } from './base.js';
 import { openRouterConfig } from '../../config/openrouter.js';
 import { skillStorage } from '../../services/skillStorage.service.js';
 import type { AgentContext, AgentSkillInfo, ToolResult, OpenAITool, SkillExecutionResult } from '../types.js';
+import { parseOrderSheetIdFromSkillMarkdown } from '../../utils/skillMdConfig.js';
 import type { ToolRegistry } from './registry.js';
 
 const DEFAULT_DESCRIPTION =
@@ -143,24 +144,40 @@ export class SkillExecutionTool extends BaseTool {
     userRequest: string,
     context: AgentContext,
   ): Promise<SkillExecutionResult> {
-    // 1. Load instructions on-demand from storage (or use legacy embedded)
-    let instructions: string;
+    const prevActiveSlug = context.activeSkillSlug;
+    context.activeSkillSlug = skill.slug;
+    try {
+      return await this.runSkillWithScriptsInner(skill, userRequest, context);
+    } finally {
+      context.activeSkillSlug = prevActiveSlug;
+    }
+  }
+
+  private async runSkillWithScriptsInner(
+    skill: AgentSkillInfo,
+    userRequest: string,
+    context: AgentContext,
+  ): Promise<SkillExecutionResult> {
+    // 1. Load SKILL.md from storage (file is source of truth; YAML may contain orderSheetId, etc.)
+    let rawSkillMd: string;
     if (skill.storagePath) {
       try {
-        instructions = await skillStorage.loadSkillMd(skill.storagePath);
+        rawSkillMd = await skillStorage.loadSkillMd(skill.storagePath);
       } catch {
-        instructions = skill.instructions || '';
+        rawSkillMd = skill.instructions || '';
       }
     } else {
-      instructions = skill.instructions || '';
+      rawSkillMd = skill.instructions || '';
     }
 
-    if (!instructions) {
+    if (!rawSkillMd?.trim()) {
       throw new Error(`No instructions found for skill "${skill.name}"`);
     }
 
-    // Strip YAML frontmatter if present
-    instructions = instructions.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '').trim();
+    const sheetIdHint = parseOrderSheetIdFromSkillMarkdown(rawSkillMd);
+
+    // Strip YAML frontmatter for instruction body
+    let instructions = rawSkillMd.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '').trim();
 
     if (instructions.length > MAX_SKILL_INSTRUCTIONS) {
       instructions = instructions.substring(0, MAX_SKILL_INSTRUCTIONS) + '...';
@@ -173,6 +190,12 @@ export class SkillExecutionTool extends BaseTool {
     let systemPrompt =
       `You are executing the "${skill.name}" skill.\n\n` +
       `## Skill Instructions\n${instructions}\n\n`;
+
+    if (sheetIdHint) {
+      systemPrompt +=
+        `\n## Google Sheet (from this skill's SKILL.md frontmatter)\n` +
+        `Spreadsheet document ID for \`google_sheets\` **append_row** — omit \`spreadsheetId\` in the tool call: \`${sheetIdHint}\`\n`;
+    }
 
     // Add reference/examples/scripts availability
     if (skill.hasReferences) {
@@ -345,6 +368,7 @@ export class SkillExecutionTool extends BaseTool {
     let iterations = 0;
     const maxIterations = 8;
     let scriptExecutedInLoop = false;
+    let toolCalledInLoop = false;
 
     while (iterations < maxIterations) {
       iterations++;
@@ -380,6 +404,7 @@ export class SkillExecutionTool extends BaseTool {
           }
 
           console.log(`[SkillTool] Executing tool "${toolName}" with args: ${JSON.stringify(toolArgs).substring(0, 200)}`);
+          toolCalledInLoop = true;
           try {
             const toolResult = await tool.execute(toolArgs, context);
             console.log(`[SkillTool] Tool "${toolName}" result (${toolResult.success ? 'ok' : 'fail'}): ${toolResult.summary.substring(0, 150)}`);
@@ -493,6 +518,29 @@ export class SkillExecutionTool extends BaseTool {
       }
 
       const isComplete = content.includes('SKILL_COMPLETE');
+
+      // Guard: if skill says COMPLETE but has requiredTools that were never called, force retry
+      if (
+        isComplete &&
+        !toolCalledInLoop &&
+        skill.requiredTools && skill.requiredTools.length > 0 &&
+        iterations < maxIterations
+      ) {
+        const toolNames = skill.requiredTools.filter(t => t !== 'execute_skill' && t !== 'ask_clarification');
+        if (toolNames.length > 0) {
+          console.log(`[SkillTool] Sub-LLM marked SKILL_COMPLETE without calling required tool(s): ${toolNames.join(', ')} — forcing retry`);
+          messages.push({ role: 'assistant', content });
+          messages.push({
+            role: 'user',
+            content:
+              'SYSTEM: You marked the skill as complete, but you FORGOT to call the required tool(s): ' +
+              toolNames.join(', ') + '. ' +
+              'You MUST actually invoke the tool function call NOW before completing. ' +
+              'Do NOT just write text about it — make the actual function call.',
+          });
+          continue;
+        }
+      }
 
       const observations: Record<string, string> = {};
       const obsMatch = content.match(/SKILL_OBSERVATIONS\n([\s\S]*?)\nEND_OBSERVATIONS/);

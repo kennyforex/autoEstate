@@ -46,12 +46,15 @@ class GoogleWorkspaceService {
     const auth = await this.getAuthedClient(userId);
     const gmail = google.gmail({ version: 'v1', auth });
 
+    const encodedSubject = `=?UTF-8?B?${Buffer.from(params.subject).toString('base64')}?=`;
     const message = [
       `To: ${params.to}`,
-      `Subject: ${params.subject}`,
+      `Subject: ${encodedSubject}`,
+      'MIME-Version: 1.0',
       'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
       '',
-      params.body,
+      Buffer.from(params.body).toString('base64'),
     ].join('\n');
 
     const encodedMessage = Buffer.from(message).toString('base64url');
@@ -151,14 +154,18 @@ class GoogleWorkspaceService {
     const subject = headers.find((h) => h.name === 'Subject')?.value || '';
     const messageIdHeader = headers.find((h) => h.name === 'Message-ID')?.value || '';
 
+    const replySubject = `Re: ${subject.replace(/^Re:\s*/i, '')}`;
+    const encodedSubject = `=?UTF-8?B?${Buffer.from(replySubject).toString('base64')}?=`;
     const message = [
       `To: ${from}`,
-      `Subject: Re: ${subject.replace(/^Re:\s*/i, '')}`,
+      `Subject: ${encodedSubject}`,
       `In-Reply-To: ${messageIdHeader}`,
       `References: ${messageIdHeader}`,
+      'MIME-Version: 1.0',
       'Content-Type: text/plain; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
       '',
-      params.body,
+      Buffer.from(params.body).toString('base64'),
     ].join('\n');
 
     const result = await gmail.users.messages.send({
@@ -276,6 +283,9 @@ class GoogleWorkspaceService {
       q: params.query || undefined,
       pageSize: params.pageSize || 10,
       fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink, owners)',
+      orderBy: 'modifiedTime desc',
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
     });
 
     return (result.data.files || []).map((f) => ({
@@ -298,6 +308,91 @@ class GoogleWorkspaceService {
     });
 
     return result.data;
+  }
+
+  // ── Google Sheets (requires spreadsheets scope for create/write) ──
+
+  async getSpreadsheetValues(userId: string, spreadsheetId: string, range: string) {
+    const auth = await this.getAuthedClient(userId);
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range,
+    });
+
+    return result.data.values ?? [];
+  }
+
+  /**
+   * Create a new Google Spreadsheet with a single sheet and populate rows (header + data).
+   */
+  async createSpreadsheetWithValues(
+    userId: string,
+    params: { title: string; sheetTitle?: string; rows: string[][] },
+  ) {
+    const auth = await this.getAuthedClient(userId);
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    const sheetTitle = params.sheetTitle ?? 'Orders';
+    const createRes = await sheets.spreadsheets.create({
+      requestBody: {
+        properties: { title: params.title },
+        sheets: [
+          {
+            properties: {
+              title: sheetTitle,
+              gridProperties: { frozenRowCount: 1 },
+            },
+          },
+        ],
+      },
+    });
+
+    const spreadsheetId = createRes.data.spreadsheetId!;
+    const escaped = sheetTitle.replace(/'/g, "''");
+    const range = `'${escaped}'!A1`;
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: params.rows },
+    });
+
+    return {
+      spreadsheetId,
+      spreadsheetUrl: createRes.data.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+      title: params.title,
+    };
+  }
+
+  /**
+   * Append one or more rows to a sheet (e.g. order log). Range covers all columns to append.
+   */
+  async appendSpreadsheetRows(
+    userId: string,
+    params: { spreadsheetId: string; sheetName: string; rows: string[][]; lastColumnLetter?: string },
+  ) {
+    const auth = await this.getAuthedClient(userId);
+    const sheets = google.sheets({ version: 'v4', auth });
+    const col = params.lastColumnLetter ?? 'N';
+    const escaped = params.sheetName.replace(/'/g, "''");
+    const range = `'${escaped}'!A:${col}`;
+
+    const result = await sheets.spreadsheets.values.append({
+      spreadsheetId: params.spreadsheetId,
+      range,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: { values: params.rows },
+    });
+
+    return {
+      updatedRange: result.data.updates?.updatedRange,
+      updatedRows: result.data.updates?.updatedRows,
+      spreadsheetId: params.spreadsheetId,
+    };
   }
 
   async isConnected(userId: string): Promise<boolean> {

@@ -120,6 +120,8 @@ export interface Skill {
   hasExamples: boolean;
   scripts: string[];
   requiredTools: string[];
+  reminderDelay: number;
+  maxReminders: number;
 
   createdBy: string;
   createdAt: string;

@@ -23,6 +23,7 @@ export type {
 import { AgentEngine } from './engine.js';
 import { createDefaultRegistry } from './tools/index.js';
 import { conversationStateService } from '../services/conversationState.service.js';
+import { reminderService } from '../services/reminder.service.js';
 import type {
   AgentResult,
   AgentSessionData,
@@ -94,6 +95,24 @@ const afterToolCall: AfterToolCallHook = async ({ toolName, result, context, loo
         }
       } catch (err: any) {
         console.error(`[Agent] Failed to persist goal state: ${err.message}`);
+      }
+    }
+
+    // Schedule or cancel reminders (skip for playground)
+    if (slug && !isPlayground) {
+      if (isComplete) {
+        reminderService.cancelForConversation(convId).catch(() => {});
+      } else {
+        const skill = context.skills.find(s => s.slug === slug);
+        if (skill?.reminderDelay && skill.reminderDelay > 0) {
+          reminderService.schedule({
+            conversationId: convId,
+            channelId: context.channelId,
+            skillSlug: slug,
+            delayMinutes: skill.reminderDelay,
+            maxReminders: skill.maxReminders || 1,
+          }).catch(err => console.error(`[Reminder] Failed to schedule:`, err.message));
+        }
       }
     }
 

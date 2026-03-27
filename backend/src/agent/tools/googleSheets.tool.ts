@@ -1,0 +1,145 @@
+import { BaseTool } from './base.js';
+import { googleWorkspaceService } from '../../services/googleWorkspace.service.js';
+import { skillStorage } from '../../services/skillStorage.service.js';
+import { parseOrderSheetIdFromSkillMarkdown } from '../../utils/skillMdConfig.js';
+import type { AgentContext, ToolResult } from '../types.js';
+
+/** Tool arg → active skill's SKILL.md `orderSheetId` → env fallback. */
+async function resolveSpreadsheetId(
+  argsId: string | undefined,
+  context: AgentContext,
+): Promise<string | undefined> {
+  if (argsId?.trim()) return argsId.trim();
+
+  if (context.activeSkillSlug) {
+    const info = context.skills.find((s) => s.slug === context.activeSkillSlug);
+    if (info?.storagePath) {
+      try {
+        const raw = await skillStorage.loadSkillMd(info.storagePath);
+        const id = parseOrderSheetIdFromSkillMarkdown(raw);
+        if (id?.trim()) return id.trim();
+      } catch (e: any) {
+        console.warn('[GoogleSheets] Could not read SKILL.md for orderSheetId:', e?.message);
+      }
+    }
+  }
+
+  return process.env.GOOGLE_MILLE_ORDER_SHEET_ID?.trim() || undefined;
+}
+
+export class GoogleSheetsTool extends BaseTool {
+  readonly name = 'google_sheets';
+  readonly description =
+    'Read or append rows in Google Sheets. For cake orders, use append_row to add a line to the order log ' +
+    '(same columns as the Mille Order sheet). Requires Google connected in Settings.';
+  readonly parameters = {
+    type: 'object',
+    properties: {
+      action: {
+        type: 'string',
+        enum: ['append_row', 'read_range'],
+        description: 'append_row adds data rows; read_range reads cell values',
+      },
+      spreadsheetId: {
+        type: 'string',
+        description:
+          'Spreadsheet document ID (from the URL). If omitted while a skill is running, reads `orderSheetId` from that skill\'s SKILL.md; else env GOOGLE_MILLE_ORDER_SHEET_ID.',
+      },
+      sheetName: {
+        type: 'string',
+        description: 'Worksheet tab name, e.g. Cake orders',
+      },
+      range: {
+        type: 'string',
+        description: 'A1 range for read_range, e.g. Cake orders!A1:N5 or Sheet1!A1:C10',
+      },
+      row: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'One table row: Order ID, Order Date, Customer, Phone/Email, Cake Name, Flavor, Size, Servings, Pickup Date, Pickup Time, Decoration Notes, Dietary, Status, Price (HKD) — 14 strings for Mille order log.',
+      },
+    },
+    required: ['action'],
+  };
+
+  async execute(args: Record<string, unknown>, context: AgentContext, _signal?: AbortSignal): Promise<ToolResult> {
+    const userId = context.userId;
+    if (!userId) {
+      return {
+        success: false,
+        data: null,
+        summary: 'Google account is not connected. Connect Google in Settings > Connected Apps.',
+      };
+    }
+
+    const action = args.action as string;
+
+    try {
+      switch (action) {
+        case 'append_row': {
+          const row = args.row as string[] | undefined;
+          if (!row || !Array.isArray(row) || row.length < 2) {
+            return {
+              success: false,
+              data: null,
+              summary: 'append_row requires row: string[] with all cells for the new line (14 values for Mille orders).',
+            };
+          }
+          const spreadsheetId = await resolveSpreadsheetId(args.spreadsheetId as string | undefined, context);
+          if (!spreadsheetId) {
+            return {
+              success: false,
+              data: null,
+              summary:
+                'Missing spreadsheet ID. Put `orderSheetId` in the skill SKILL.md frontmatter, set GOOGLE_MILLE_ORDER_SHEET_ID, or pass spreadsheetId.',
+            };
+          }
+          const sheetName = (args.sheetName as string) || 'Cake orders';
+          const result = await googleWorkspaceService.appendSpreadsheetRows(userId, {
+            spreadsheetId,
+            sheetName,
+            rows: [row],
+          });
+          return {
+            success: true,
+            data: result,
+            summary: `Appended ${result.updatedRows ?? 1} row(s) to ${sheetName}. Range: ${result.updatedRange ?? 'n/a'}`,
+          };
+        }
+
+        case 'read_range': {
+          const range = args.range as string;
+          const spreadsheetId = await resolveSpreadsheetId(args.spreadsheetId as string | undefined, context);
+          if (!spreadsheetId || !range) {
+            return {
+              success: false,
+              data: null,
+              summary:
+                'read_range requires range (e.g. Cake orders!A1:N20). spreadsheetId is optional if SKILL.md has orderSheetId or GOOGLE_MILLE_ORDER_SHEET_ID is set.',
+            };
+          }
+          const values = await googleWorkspaceService.getSpreadsheetValues(userId, spreadsheetId, range);
+          return {
+            success: true,
+            data: values,
+            summary: `Read ${values.length} row(s).`,
+          };
+        }
+
+        default:
+          return { success: false, data: null, summary: `Unknown action "${action}". Use append_row or read_range.` };
+      }
+    } catch (error: any) {
+      if (error.message === 'GOOGLE_NOT_CONNECTED') {
+        return {
+          success: false,
+          data: null,
+          summary: 'Google account is not connected.',
+        };
+      }
+      console.error(`[GoogleSheets] Error:`, error.message);
+      return { success: false, data: null, summary: `Sheets error: ${error.message}` };
+    }
+  }
+}

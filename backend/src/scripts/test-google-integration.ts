@@ -95,24 +95,47 @@ async function run() {
   // ── 7. Drive: List Files ──
   try {
     const files = await googleWorkspaceService.listFiles(userId, { pageSize: 5 });
-    log('7. Drive — listFiles()', 'PASS', `${files.length} file(s) returned`);
-    if (files.length > 0) {
-      console.log(`   └─ First: "${files[0].name}" (${files[0].mimeType})`);
+    log('7. Drive — listFiles()', 'PASS', `${files.length} file(s) returned (sorted by modified time)`);
+    for (let i = 0; i < Math.min(files.length, 5); i++) {
+      const f = files[i];
+      const link = f.webViewLink ? `\n      ${f.webViewLink}` : '';
+      console.log(`   ${i + 1}. "${f.name}" (${f.mimeType})${link}`);
     }
   } catch (err: any) {
     log('7. Drive — listFiles()', 'FAIL', err.message);
   }
 
-  // ── 8. Gmail: Send Test Email (to self) ──
+  // ── 8. Sheets: Read cells (first Google Sheet from recent Drive files) ──
+  try {
+    const files = await googleWorkspaceService.listFiles(userId, { pageSize: 20 });
+    const sheet = files.find((f) => f.mimeType === 'application/vnd.google-apps.spreadsheet');
+    if (!sheet?.id) {
+      log('8. Sheets — getSpreadsheetValues()', 'PASS', 'Skipped (no spreadsheet in recent files)');
+    } else {
+      const values = await googleWorkspaceService.getSpreadsheetValues(userId, sheet.id, 'A1:C5');
+      log(
+        '8. Sheets — getSpreadsheetValues()',
+        'PASS',
+        `"${sheet.name}" A1:C5 → ${values.length} row(s)`,
+      );
+      if (values.length > 0) {
+        console.log(`   └─ Sample row: ${JSON.stringify(values[0])}`);
+      }
+    }
+  } catch (err: any) {
+    log('8. Sheets — getSpreadsheetValues()', 'FAIL', err.message);
+  }
+
+  // ── 9. Gmail: Send Test Email (to self) ──
   try {
     const result = await googleWorkspaceService.sendEmail(userId, {
       to: connection.email,
       subject: `[autoEstate Test] Integration Test — ${new Date().toLocaleString()}`,
       body: 'This is an automated test email from the autoEstate Google Workspace integration.\n\nIf you received this, the Gmail send API is working correctly.',
     });
-    log('8. Gmail — sendEmail()', 'PASS', `Sent to self (id: ${result.id})`);
+    log('9. Gmail — sendEmail()', 'PASS', `Sent to self (id: ${result.id})`);
   } catch (err: any) {
-    log('8. Gmail — sendEmail()', 'FAIL', err.message);
+    log('9. Gmail — sendEmail()', 'FAIL', err.message);
   }
 
   // ── Summary ──

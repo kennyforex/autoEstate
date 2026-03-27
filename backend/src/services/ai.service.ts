@@ -12,6 +12,7 @@ import { openRouterConfig } from "../config/openrouter.js";
 import { getEvolutionClient } from "../config/evolution.js";
 import { agentEngine } from "../agent/index.js";
 import { buildAgentContext } from "../agent/context.js";
+import { reminderService } from "./reminder.service.js";
 import type { AgentEvent } from "../agent/types.js";
 import type {
   ServerToClientEvents,
@@ -703,6 +704,9 @@ IMPORTANT RULES:
    * Process incoming message and generate AI response
    */
   async processMessage(conversationId: string, message: any): Promise<void> {
+    // Cancel any pending reminders the moment a user responds
+    reminderService.cancelForConversation(conversationId).catch(() => {});
+
     const messageId = message._id.toString();
     const contentType = message.contentType;
     const content = message.content;

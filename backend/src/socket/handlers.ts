@@ -3,6 +3,7 @@ import { messageService } from "../services/message.service.js";
 import { conversationService } from "../services/conversation.service.js";
 import { webhookService } from "../services/webhook.service.js";
 import { aiService } from "../services/ai.service.js";
+import { reminderService } from "../services/reminder.service.js";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -19,6 +20,12 @@ export function initializeSocketHandlers(
   conversationService.setIO(io);
   webhookService.setIO(io);
   aiService.setIO(io);
+  reminderService.setIO(io);
+
+  // Restore pending reminders from DB
+  reminderService.loadPendingOnBoot().catch(err =>
+    console.error('[Reminder] Failed to load pending reminders on boot:', err.message),
+  );
 
   // Set AI reply handler on webhook service
   webhookService.setAIReplyHandler(

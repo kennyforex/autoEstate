@@ -577,6 +577,8 @@ export const AssistantPlayground: React.FC = () => {
     instructions: "",
     triggerHints: "",
     requiredTools: "",
+    reminderDelay: 0,
+    maxReminders: 0,
   });
   const [skillUploadFile, setSkillUploadFile] = useState<File | null>(null);
   const skillFileInputRef = useRef<HTMLInputElement>(null);
@@ -892,6 +894,8 @@ export const AssistantPlayground: React.FC = () => {
       instructions: skill.instructions || "",
       triggerHints: (skill.triggerHints || []).join(", "),
       requiredTools: (skill.requiredTools || []).join(", "),
+      reminderDelay: skill.reminderDelay || 0,
+      maxReminders: skill.maxReminders || 0,
     });
   };
 
@@ -911,12 +915,14 @@ export const AssistantPlayground: React.FC = () => {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
+        reminderDelay: skillForm.reminderDelay,
+        maxReminders: skillForm.maxReminders,
       });
       setAllSkills((prev) =>
         prev.map((s) => (s._id === updated._id ? updated : s)),
       );
       setEditingSkill(null);
-      setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "" });
+      setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "", reminderDelay: 0, maxReminders: 0 });
       showSuccess("Skill updated", `"${updated.name}" has been updated.`);
     } catch (error: any) {
       const msg = error.response?.data?.error || error.message || "Failed to update skill";
@@ -1019,6 +1025,8 @@ ${skillForm.instructions}
         instructions: "",
         triggerHints: "",
         requiredTools: "",
+        reminderDelay: 0,
+        maxReminders: 0,
       });
       setSkillUploadFile(null);
       fetchSkills();
@@ -2939,6 +2947,8 @@ ${skillForm.instructions}
                         instructions: "",
                         triggerHints: "",
                         requiredTools: "",
+                        reminderDelay: 0,
+                        maxReminders: 0,
                       });
                       setSkillUploadFile(null);
                     }}
@@ -2960,6 +2970,8 @@ ${skillForm.instructions}
                               instructions: "",
                               triggerHints: "",
                               requiredTools: "",
+                              reminderDelay: 0,
+                              maxReminders: 0,
                             });
                             setSkillUploadFile(null);
                           }}
@@ -3056,7 +3068,7 @@ ${skillForm.instructions}
                             Tools Access (select tools this skill can use)
                           </label>
                           <div className="flex flex-wrap gap-2">
-                            {["knowledge_base", "calendar", "contact_lookup", "conversation_history", "media_analysis"].map((tool) => {
+                            {["knowledge_base", "calendar", "contact_lookup", "conversation_history", "media_analysis", "google_gmail", "google_calendar", "google_drive", "google_sheets"].map((tool) => {
                               const selected = skillForm.requiredTools.split(",").map(s => s.trim()).filter(Boolean).includes(tool);
                               return (
                                 <button
@@ -3142,7 +3154,7 @@ ${skillForm.instructions}
                     isOpen={!!editingSkill}
                     onClose={() => {
                       setEditingSkill(null);
-                      setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "" });
+                      setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "", reminderDelay: 0, maxReminders: 0 });
                     }}
                     title="Edit Skill"
                     size="lg"
@@ -3152,7 +3164,7 @@ ${skillForm.instructions}
                           variant="outline"
                           onClick={() => {
                             setEditingSkill(null);
-                            setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "" });
+                            setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "", reminderDelay: 0, maxReminders: 0 });
                           }}
                         >
                           Cancel
@@ -3199,7 +3211,7 @@ ${skillForm.instructions}
                           Tools Access
                         </label>
                         <div className="flex flex-wrap gap-2">
-                          {["knowledge_base", "calendar", "contact_lookup", "conversation_history", "media_analysis"].map((tool) => {
+                          {["knowledge_base", "calendar", "contact_lookup", "conversation_history", "media_analysis", "google_gmail", "google_calendar", "google_drive", "google_sheets"].map((tool) => {
                             const selected = skillForm.requiredTools.split(",").map(s => s.trim()).filter(Boolean).includes(tool);
                             return (
                               <button
@@ -3220,6 +3232,39 @@ ${skillForm.instructions}
                               </button>
                             );
                           })}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Idle Reminder
+                        </label>
+                        <p className="text-xs text-gray-400 mb-2">
+                          Automatically nudge the user if they don't respond within the delay.
+                        </p>
+                        <div className="flex gap-3">
+                          <div className="flex-1">
+                            <label className="block text-xs text-gray-500 mb-1">Delay (minutes)</label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={skillForm.reminderDelay}
+                              onChange={(e) => setSkillForm({ ...skillForm, reminderDelay: parseInt(e.target.value) || 0 })}
+                              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="0 = disabled"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="block text-xs text-gray-500 mb-1">Max reminders</label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={5}
+                              value={skillForm.maxReminders}
+                              onChange={(e) => setSkillForm({ ...skillForm, maxReminders: parseInt(e.target.value) || 0 })}
+                              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="0 = disabled"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
