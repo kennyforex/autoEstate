@@ -264,10 +264,11 @@ class SkillStorageService {
       const child = spawn(command, commandArgs, {
         cwd: resolvedSkillPath,
         env: {
-          // Limited environment - no access to full process env
           PATH: process.env.PATH,
           NODE_ENV: process.env.NODE_ENV,
-          // Add any custom env vars needed
+          HOME: process.env.HOME,
+          GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: process.env.GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE,
+          GOOGLE_WORKSPACE_CLI_CONFIG_DIR: process.env.GOOGLE_WORKSPACE_CLI_CONFIG_DIR,
         },
         timeout: timeoutMs,
       });

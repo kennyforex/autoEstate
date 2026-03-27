@@ -22,6 +22,7 @@ export type {
 
 import { AgentEngine } from './engine.js';
 import { createDefaultRegistry } from './tools/index.js';
+import { conversationStateService } from '../services/conversationState.service.js';
 import type {
   AgentResult,
   AgentSessionData,
@@ -59,11 +60,12 @@ const beforeToolCall: BeforeToolCallHook = async ({ toolName, args, context, loo
   return undefined;
 };
 
-const afterToolCall: AfterToolCallHook = async ({ toolName, result, loopState }) => {
+const afterToolCall: AfterToolCallHook = async ({ toolName, result, context, loopState }) => {
   if (toolName === 'execute_skill' && result.success && result.summary) {
     const data = result.data as any;
+    const convId = context.conversationId;
+    const isPlayground = convId === 'playground';
 
-    // OUT_OF_SCOPE: skill cannot handle this request — let engine re-route
     if (data?.outOfScope) {
       console.log(`[Agent] Skill "${data.skill}" returned OUT_OF_SCOPE: ${data.reason}`);
       return { outOfScope: true as const, failedSkillSlug: data.skill as string, reason: data.reason as string };
@@ -74,6 +76,28 @@ const afterToolCall: AfterToolCallHook = async ({ toolName, result, loopState })
     const observations = data?.observations || {};
     const unhandledIntent = data?.unhandledIntent as string | undefined;
 
+    // Persist goal state to DB (skip for playground)
+    if (slug && !isPlayground) {
+      try {
+        if (isComplete) {
+          const updated = await conversationStateService.completeGoal(convId, slug, observations);
+          context.goalStack = updated;
+          console.log(`[Agent] Goal "${slug}" completed — persisted to DB`);
+        } else {
+          const skill = context.skills.find((s) => s.slug === slug);
+          const updated = await conversationStateService.activateGoal(convId, slug, skill?.steps);
+          context.goalStack = updated;
+          if (Object.keys(observations).length > 0) {
+            await conversationStateService.updateStepProgress(convId, slug, observations);
+          }
+          console.log(`[Agent] Goal "${slug}" active — persisted to DB`);
+        }
+      } catch (err: any) {
+        console.error(`[Agent] Failed to persist goal state: ${err.message}`);
+      }
+    }
+
+    // Keep markers in message content for backward compatibility
     let marker = '';
     if (slug) {
       if (isComplete) {
@@ -85,7 +109,6 @@ const afterToolCall: AfterToolCallHook = async ({ toolName, result, loopState })
       }
     }
 
-    // UNHANDLED_INTENT: skill processed its part but user also asked something outside scope
     if (unhandledIntent) {
       console.log(`[Agent] Skill "${slug}" has UNHANDLED_INTENT: ${unhandledIntent}`);
       const partialResult: AgentResult = {

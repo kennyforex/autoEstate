@@ -102,22 +102,26 @@ export interface AgentAssistantInfo {
   pineconeAssistantName: string;
 }
 
+export interface SkillStepDef {
+  id: string;
+  label: string;
+  collects?: string;
+}
+
 export interface AgentSkillInfo {
-  // Metadata only (always loaded in context)
   name: string;
   slug: string;
   description: string;
   triggerHints: string[];
 
-  // Content availability flags
   hasReferences: boolean;
   hasExamples: boolean;
   availableScripts: string[];
 
-  // Storage location for on-demand content loading
   storagePath: string;
 
-  // Legacy: backward compatibility
+  steps?: SkillStepDef[];
+
   instructions?: string;
   requiredTools?: string[];
 }
@@ -131,11 +135,20 @@ export interface ChatMessage {
 
 export type GoalStatus = 'active' | 'suspended' | 'completed';
 
+export interface SkillStepProgress {
+  id: string;
+  label: string;
+  status: 'pending' | 'active' | 'completed';
+  collects?: string;
+  collectedValue?: string;
+}
+
 export interface SkillGoal {
   id: string;
   skillSlug: string;
   status: GoalStatus;
   observations: Record<string, string>;
+  steps?: SkillStepProgress[];
   createdAt: number;
   suspendedAt?: number;
   completedAt?: number;
@@ -167,6 +180,7 @@ export interface AgentContext {
   conversationId: string;
   assistantId: string;
   channelId: string;
+  userId?: string;
   contact: AgentContactInfo;
   assistant: AgentAssistantInfo;
   skills: AgentSkillInfo[];

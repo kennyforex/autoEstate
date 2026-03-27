@@ -17,6 +17,7 @@ import {
   RolesSettings,
   GeneralSettings,
   SMTPSettings,
+  ConnectedAppsSettings,
 } from "./pages/Settings";
 
 function App() {
@@ -82,7 +83,7 @@ function App() {
               />
               <Route
                 path="apps"
-                element={<PlaceholderPage title="Connected Apps" />}
+                element={<ConnectedAppsSettings />}
               />
               <Route path="smtp" element={<SMTPSettings />} />
               <Route path="api-keys" element={<APIKeysSettings />} />

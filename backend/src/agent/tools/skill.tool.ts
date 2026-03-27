@@ -182,14 +182,16 @@ export class SkillExecutionTool extends BaseTool {
       systemPrompt += '\n[Usage examples available. Use "LOAD_EXAMPLES" to see them.]\n';
     }
     if (skill.availableScripts.length > 0) {
-      systemPrompt += '\n## Available Scripts\n';
-      systemPrompt += 'You can execute these scripts during skill execution:\n';
+      systemPrompt += '\n## Available Scripts — MANDATORY\n';
+      systemPrompt += 'You MUST use these scripts for any calculations, pricing, or data lookups. ' +
+        'NEVER compute, estimate, or fabricate results yourself — even if you saw similar results in earlier messages. ' +
+        'Previous results are for that specific request only.\n';
       for (const scriptName of skill.availableScripts) {
         systemPrompt += `- ${scriptName}\n`;
       }
       systemPrompt += '\nTo run a script, output exactly:\n';
       systemPrompt += 'EXECUTE_SCRIPT:scriptname\nARG:arg1_value\nEND_SCRIPT\n';
-      systemPrompt += '\nThe script output will be provided as the next message.\n';
+      systemPrompt += '\nThe script output will be provided as the next message. Wait for it before quoting any numbers.\n';
     }
 
     // Describe available tools (if any are passed through)
@@ -210,6 +212,17 @@ export class SkillExecutionTool extends BaseTool {
 
     // Add context
     systemPrompt += '\n## Context\n';
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      timeZone: 'Asia/Hong_Kong',
+    });
+    const timeStr = now.toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'Asia/Hong_Kong',
+      hour12: false,
+    });
+    systemPrompt += `Today is ${dateStr}, current time is ${timeStr} (Hong Kong Time).\n`;
     if (context.contact.name) {
       systemPrompt += `Customer name: ${context.contact.name}\n`;
     }
@@ -237,18 +250,32 @@ export class SkillExecutionTool extends BaseTool {
       }
     }
 
-    // Enforce strict step-by-step behaviour with mandatory reasoning
+    // Inject step progress checklist if available from DB-backed goal stack
+    const activeGoal = context.goalStack?.goals.find(
+      (g) => g.skillSlug === skill.slug && g.status === 'active',
+    );
+    if (activeGoal?.steps && activeGoal.steps.length > 0) {
+      systemPrompt += '\n## Your Progress\n';
+      systemPrompt += 'This checklist tracks what you have collected so far. Pick up from the NEXT incomplete step.\n';
+      for (let i = 0; i < activeGoal.steps.length; i++) {
+        const step = activeGoal.steps[i];
+        const icon = step.status === 'completed' ? '[x]' : step.status === 'active' ? '[ ]' : '[ ]';
+        const value = step.collectedValue ? ` → "${step.collectedValue}"` : '';
+        const current = step.status === 'active' ? ' (YOU ARE HERE)' : '';
+        systemPrompt += `- ${icon} Step ${i + 1}: ${step.label}${value}${current}\n`;
+      }
+      systemPrompt += '\nDo NOT re-ask for information already marked [x].\n';
+    }
+
     systemPrompt +=
-      '\n## CRITICAL RULES — MANDATORY\n' +
+      '\n## RULES\n' +
       '1. You are continuing a multi-turn conversation. The full history is provided in the messages below.\n' +
-      '2. Read EVERY message in the history. Extract ALL information already provided by the customer.\n' +
-      '3. NEVER re-ask for information that was already given.\n' +
-      '4. NEVER skip steps. Follow the EXACT step order defined in the instructions above.\n' +
-      '5. Ask for ONLY ONE piece of missing information per response.\n' +
-      '6. NEVER invent information the customer did not provide.\n' +
-      '7. NEVER try to auto-retrieve or look up information not provided by the customer — just ASK for it.\n' +
-      '8. When ALL required info is collected, provide a confirmation summary.\n' +
-      '9. SCOPE RULES — NEVER fabricate answers for topics outside your defined scope.\n' +
+      '2. NEVER re-ask for information that was already given or marked completed above.\n' +
+      '3. Ask for ONLY ONE piece of missing information per response.\n' +
+      '4. NEVER invent information the customer did not provide.\n' +
+      '5. NEVER try to auto-retrieve or look up information not provided by the customer — just ASK for it.\n' +
+      '6. When ALL required info is collected, provide a confirmation summary.\n' +
+      '7. SCOPE RULES — NEVER fabricate answers for topics outside your defined scope.\n' +
       '   a) FULLY out of scope: The user\'s ENTIRE message is unrelated to your skill\'s purpose.\n' +
       '      → Respond with EXACTLY: OUT_OF_SCOPE: <brief reason>\n' +
       '   b) MIXED intent: The user\'s message contains BOTH something you can handle AND a request for a DIFFERENT type of service/action.\n' +
@@ -260,15 +287,7 @@ export class SkillExecutionTool extends BaseTool {
       'If the user asks about pricing and you ARE the pricing skill, handle it — do NOT flag it as unhandled.\n';
 
     systemPrompt +=
-      '\n## MANDATORY RESPONSE FORMAT\n' +
-      'Before writing your customer-facing response, you MUST first output a reasoning block wrapped in <think>...</think> tags.\n' +
-      'Inside <think>, list:\n' +
-      '- What information has been collected so far (with values)\n' +
-      '- Which step you are currently on\n' +
-      '- What is the NEXT missing item in step order\n' +
-      'Then, OUTSIDE the <think> tags, write your response to the customer.\n' +
-      'The <think> block will be stripped before showing the response to the customer.\n\n' +
-      '## SKILL COMPLETION\n' +
+      '\n## SKILL COMPLETION\n' +
       'When your workflow is fully complete (all steps done, final summary given), ' +
       'add SKILL_COMPLETE on its own line at the very end of your response.\n' +
       'Also add a SKILL_OBSERVATIONS block listing key facts collected, like:\n' +
@@ -325,6 +344,7 @@ export class SkillExecutionTool extends BaseTool {
     // 5. Conversation loop with script execution and tool calling
     let iterations = 0;
     const maxIterations = 8;
+    let scriptExecutedInLoop = false;
 
     while (iterations < maxIterations) {
       iterations++;
@@ -416,6 +436,7 @@ export class SkillExecutionTool extends BaseTool {
       // Check for script execution marker
       const scriptMatch = content.match(/EXECUTE_SCRIPT:(\S+)/);
       if (scriptMatch && skill.storagePath) {
+        scriptExecutedInLoop = true;
         const scriptName = scriptMatch[1];
         const args = this.extractScriptArgs(content);
 
@@ -449,6 +470,26 @@ export class SkillExecutionTool extends BaseTool {
           });
           continue;
         }
+      }
+
+      // Guard: if the skill has scripts and the LLM quoted prices WITHOUT
+      // having run any script during this entire invocation, force a retry (once).
+      if (
+        skill.availableScripts.length > 0 &&
+        !scriptExecutedInLoop &&
+        /(?:HKD|USD|\$)\s*\d+/i.test(content) &&
+        iterations < maxIterations
+      ) {
+        console.log(`[SkillTool] Sub-LLM fabricated pricing without running a script — forcing retry`);
+        messages.push({ role: 'assistant', content });
+        messages.push({
+          role: 'user',
+          content:
+            'SYSTEM: You provided pricing without running the required script. ' +
+            'You MUST use EXECUTE_SCRIPT to get real prices. ' +
+            'Do NOT make up numbers. Re-do your response using the script.',
+        });
+        continue;
       }
 
       const isComplete = content.includes('SKILL_COMPLETE');

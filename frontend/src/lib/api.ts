@@ -945,4 +945,28 @@ export const skillsApi = {
   },
 };
 
+// Google OAuth API
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
+
+export const googleApi = {
+  getStatus: async (): Promise<{
+    connected: boolean;
+    email?: string;
+    scopes?: string[];
+    connectedAt?: string;
+  }> => {
+    const { data } = await api.get("/google/status");
+    return data;
+  },
+
+  disconnect: async (): Promise<void> => {
+    await api.delete("/google/disconnect");
+  },
+
+  getConnectUrl: (): string => {
+    const token = localStorage.getItem("token");
+    return `${API_BASE}/google/connect?token=${token}`;
+  },
+};
+
 export default api;

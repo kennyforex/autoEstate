@@ -46,10 +46,21 @@ export function buildSystemPrompt(context: AgentContext): string {
   const parts: string[] = [];
 
   // ── Role & Identity ──
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    timeZone: 'Asia/Hong_Kong',
+  });
+  const timeStr = now.toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit',
+    timeZone: 'Asia/Hong_Kong',
+    hour12: false,
+  });
   parts.push(
     'You are a helpful customer support agent. ' +
     'You solve the user\'s request by reasoning step-by-step and using the tools available to you.',
   );
+  parts.push(`Today is ${dateStr}, current time is ${timeStr} (Hong Kong Time).`);
 
   // ── Language ──
   const langLabel = LANGUAGE_LABELS[assistant.primaryLanguage] || 'the same language as the user';
@@ -103,7 +114,10 @@ export function buildSystemPrompt(context: AgentContext): string {
       '- NEVER answer directly when a skill should handle the request — ALWAYS use `execute_skill`.\n' +
       '- When a skill is actively conversing with the user (collecting info, asking questions), ' +
       'continue routing through `execute_skill` with the same slug.\n' +
-      '- NEVER fabricate data (prices, availability, dates, etc.) that should come from a skill.',
+      '- NEVER fabricate data (prices, availability, dates, etc.) that should come from a skill.\n' +
+      '- Even if a skill previously completed, a NEW request that matches that skill\'s purpose ' +
+      'MUST be handled by calling `execute_skill` again. Completed observations are only valid for ' +
+      'the specific request they were collected for — NEVER extrapolate or reuse them to answer different questions.',
     );
     parts.push('');
     parts.push('Available skills:');
@@ -120,10 +134,17 @@ export function buildSystemPrompt(context: AgentContext): string {
       parts.push('### Current Goal Stack');
       for (const goal of context.goalStack.goals) {
         const icon = goal.status === 'active' ? '🔵' : goal.status === 'suspended' ? '⏸️' : '✅';
+        let detail = '';
+        // Show step progress for active/suspended goals
+        if (goal.steps && goal.steps.length > 0 && goal.status !== 'completed') {
+          const completed = goal.steps.filter((s) => s.status === 'completed').length;
+          const activeStep = goal.steps.find((s) => s.status === 'active');
+          detail = ` (step ${completed + 1}/${goal.steps.length}${activeStep ? `: ${activeStep.label}` : ''})`;
+        }
         const obs = Object.keys(goal.observations).length > 0
           ? ` | collected: ${Object.entries(goal.observations).map(([k,v]) => `${k}=${v}`).join(', ')}`
           : '';
-        parts.push(`${icon} \`${goal.skillSlug}\`: ${goal.status}${obs}`);
+        parts.push(`${icon} \`${goal.skillSlug}\`: ${goal.status}${detail}${obs}`);
       }
     }
   }
@@ -133,6 +154,11 @@ export function buildSystemPrompt(context: AgentContext): string {
   parts.push('## Agent Guidelines');
   parts.push(
     '- Use the knowledge_base tool to look up domain-specific information before answering factual questions.\n' +
+    '- If the knowledge base has no answer and the question involves real-time data, current events, ' +
+    'public holiday schedules, or external facts, use the web_search tool.\n' +
+    '- IMPORTANT: When you receive results from web_search, you MUST summarize the key findings and present ' +
+    'them to the user in a helpful way. NEVER ignore tool results or say you cannot answer after ' +
+    'successfully retrieving search results. The search results ARE your source of truth — synthesize them.\n' +
     '- If the user\'s request is unclear or missing critical details, use ask_clarification to ask a follow-up question.\n' +
     '- Prefer concise tool queries to stay within context limits.\n' +
     '- If a tool fails, try an alternative approach or inform the user.\n' +

@@ -52,10 +52,16 @@ export class AgentEngine {
     console.log(`[Agent] Context has ${context.skills.length} skill(s): ${context.skills.map(s => s.slug).join(', ') || 'none'}`);
     this.registry.updateSkillContext(context.skills);
 
-    context.goalStack = this.buildGoalStack(context);
-    console.log(`[Agent] Goal stack: ${JSON.stringify(context.goalStack.goals.map(g => `${g.skillSlug}(${g.status})`))}`);
+    // Use DB-backed goal stack if already loaded by context builder;
+    // fall back to marker parsing for playground or migration from old conversations.
+    if (!context.goalStack) {
+      context.goalStack = this.buildGoalStack(context);
+      console.log(`[Agent] Goal stack (from markers): ${JSON.stringify(context.goalStack.goals.map(g => `${g.skillSlug}(${g.status})`))}`);
+    } else {
+      console.log(`[Agent] Goal stack (from DB): ${JSON.stringify(context.goalStack.goals.map(g => `${g.skillSlug}(${g.status})`))}`);
+    }
 
-    const routerDecision = routeIntent(context);
+    const routerDecision = await routeIntent(context, userMessage);
     console.log(`[Agent] Router: ${JSON.stringify(routerDecision)}`);
 
     const tools = this.registry.toOpenAIFormat();
@@ -116,6 +122,26 @@ export class AgentEngine {
           assistantMsg.tool_calls = [this.createSyntheticSkillCall(routerDecision.slug, userMessage)];
           assistantMsg.content = assistantMsg.content || null;
         }
+        // Guard: if the LLM answered directly with pricing but a skill with
+        // scripts exists that should handle it, force the skill invocation.
+        // Skip if a script-bearing skill already completed — the LLM is just
+        // referencing a previously validated price, not fabricating.
+        else if (
+          !routingRetryUsed &&
+          assistantMsg.content &&
+          /(?:HKD|USD|\$)\s*\d+/i.test(assistantMsg.content) &&
+          context.skills.some(s => s.availableScripts.length > 0) &&
+          !context.goalStack?.goals.some(
+            g => g.status === 'completed' &&
+              context.skills.find(s => s.slug === g.skillSlug)?.availableScripts?.length
+          )
+        ) {
+          routingRetryUsed = true;
+          const scriptSkill = context.skills.find(s => s.availableScripts.length > 0)!;
+          console.log(`[Agent] LLM fabricated pricing without using skill "${scriptSkill.slug}" — forcing execute_skill`);
+          assistantMsg.tool_calls = [this.createSyntheticSkillCall(scriptSkill.slug, userMessage)];
+          assistantMsg.content = assistantMsg.content || null;
+        }
         else {
           steps.push({ thought: assistantMsg.content || '', timestamp: new Date() });
           console.log(`[Agent] Final answer after ${iteration + 1} iteration(s) (${Date.now() - startTime}ms)`);
@@ -158,10 +184,10 @@ export class AgentEngine {
 
       if (shortCircuitResult) {
         if (loopState.pendingPartialResult) {
-          const combinedContent = loopState.pendingPartialResult.content + '\n\n' + shortCircuitResult.content;
+          // The follow-up skill fully handles the re-routed intent,
+          // so drop the first skill's "I can't do this" partial response.
           loopState.pendingPartialResult = undefined;
-          console.log(`[Agent] Combining partial response with follow-up skill response`);
-          return makeResult({ ...shortCircuitResult, content: combinedContent });
+          console.log(`[Agent] Dropping partial response — follow-up skill handled the intent`);
         }
         return makeResult(shortCircuitResult);
       }
@@ -530,6 +556,9 @@ export class AgentEngine {
   ): Promise<OpenRouterResponse> {
     const maxRetries = this.config.llmMaxRetries;
 
+    const payloadSize = JSON.stringify(messages).length;
+    console.log(`[Agent] callLLM: ${messages.length} messages, ~${Math.round(payloadSize / 1024)}KB payload, model=${model}`);
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       if (signal?.aborted) {
         throw new Error('Agent aborted');
@@ -560,15 +589,18 @@ export class AgentEngine {
         return response.data;
       } catch (error: any) {
         const status = error.response?.status;
+        const errDetail = error.response?.data
+          ? JSON.stringify(error.response.data)
+          : `${error.code || error.name}: ${error.message}`;
         const isRetryable = !status || status === 429 || status >= 500;
 
         if (!isRetryable || attempt === maxRetries - 1) {
-          console.error(`[Agent] LLM call failed (${model}):`, status, JSON.stringify(error.response?.data || error.message));
+          console.error(`[Agent] LLM call failed (${model}): status=${status} ${errDetail}`);
           throw error;
         }
 
         const delayMs = Math.min(1000 * 2 ** attempt, 10000);
-        console.warn(`[Agent] LLM call failed (status=${status}), retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+        console.warn(`[Agent] LLM call failed (status=${status}, ${errDetail}), retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
         await new Promise((r) => setTimeout(r, delayMs));
       }
     }

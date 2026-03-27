@@ -1,4 +1,5 @@
 import { Assistant, Channel, Contact, Conversation, Message } from '../models/index.js';
+import { conversationStateService } from '../services/conversationState.service.js';
 import type {
   AgentContext,
   AgentContactInfo,
@@ -19,7 +20,7 @@ export async function buildAgentContext(
   assistantId: string,
   session?: AgentSessionData,
 ): Promise<AgentContext> {
-  const [assistant, contact, messages, skillDocs] = await Promise.all([
+  const [assistant, contact, messages, skillDocs, goalStack] = await Promise.all([
     Assistant.findById(assistantId).populate('skills').lean(),
     Contact.findById(contactId).lean(),
     Message.find({ conversationId })
@@ -27,6 +28,7 @@ export async function buildAgentContext(
       .limit(15)
       .lean(),
     loadAssistantSkills(assistantId),
+    conversationStateService.load(conversationId),
   ]);
 
   if (!assistant) throw new Error(`Assistant ${assistantId} not found`);
@@ -75,15 +77,19 @@ export async function buildAgentContext(
       };
     });
 
+  const userId = (assistant as any).createdBy?.toString();
+
   return {
     conversationId,
     assistantId,
     channelId,
+    userId,
     contact: contactInfo,
     assistant: assistantInfo,
     skills: skillDocs,
     messageHistory,
     session,
+    goalStack: goalStack || undefined,
   };
 }
 
@@ -117,10 +123,13 @@ export async function buildPlaygroundContext(
     name: 'Playground User',
   };
 
+  const userId = (assistant as any).createdBy?.toString();
+
   return {
     conversationId: 'playground',
     assistantId,
     channelId: 'playground',
+    userId,
     contact: playgroundContact,
     assistant: assistantInfo,
     skills: skillDocs,
@@ -162,6 +171,7 @@ async function loadAssistantSkills(assistantId: string): Promise<AgentSkillInfo[
       hasExamples: s.hasExamples || false,
       availableScripts: s.scripts || [],
       storagePath: s.storagePath || '',
+      steps: s.steps || [],
       instructions: s.instructions,
       requiredTools: s.requiredTools || [],
     }));

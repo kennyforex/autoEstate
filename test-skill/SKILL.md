@@ -2,6 +2,16 @@
 name: Car Wash Estimator
 description: Provides quick price estimates ONLY for car washing services. Use ONLY for pricing/estimate queries like "how much", "price", "estimate". If user wants to BOOK, use the booking skill instead.
 triggerHints: car wash, wash price, estimate, 洗車, 報價
+steps:
+  - id: vehicle
+    label: Get vehicle type (sedan, SUV, truck, van, motorcycle)
+    collects: vehicle_type
+  - id: service
+    label: Get wash package (basic, premium, deluxe)
+    collects: wash_package
+  - id: estimate
+    label: Calculate and present price estimate
+    collects: estimated_price
 ---
 
 ## Car Wash Price Estimator

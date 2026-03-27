@@ -1,5 +1,11 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export interface ISkillStepDef {
+  id: string;
+  label: string;
+  collects?: string;
+}
+
 export interface ISkillDocument extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;
@@ -9,18 +15,16 @@ export interface ISkillDocument extends Document {
   isBuiltIn: boolean;
   status: 'active' | 'inactive';
 
-  // Directory structure flags (for discovery without loading content)
   hasReferences: boolean;
   hasExamples: boolean;
   scripts: string[];
 
-  // Storage location for on-demand content loading (empty string for legacy skills)
   storagePath: string;
 
-  // Tools this skill can use from the main agent's registry
   requiredTools: string[];
 
-  // Legacy: for backward compatibility during migration
+  steps: ISkillStepDef[];
+
   instructions?: string;
 
   createdBy: mongoose.Types.ObjectId;
@@ -86,7 +90,15 @@ const skillSchema = new Schema<ISkillDocument>(
       default: [],
     },
 
-    // Legacy: backward compatibility
+    steps: {
+      type: [{
+        id: { type: String, required: true },
+        label: { type: String, required: true },
+        collects: { type: String },
+      }],
+      default: [],
+    },
+
     instructions: {
       type: String,
     },

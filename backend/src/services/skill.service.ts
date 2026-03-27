@@ -41,11 +41,18 @@ export interface UpdateSkillInput {
  * ---
  * ```
  */
+export interface ParsedSkillStep {
+  id: string;
+  label: string;
+  collects?: string;
+}
+
 export function parseSkillFrontmatter(content: string): {
   name: string;
   description: string;
   triggerHints: string[];
   scriptsMeta: Record<string, string>;
+  steps: ParsedSkillStep[];
 } {
   const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
 
@@ -68,7 +75,6 @@ export function parseSkillFrontmatter(content: string): {
   if (!meta.name) throw new Error('Skill file missing required field: name');
   if (!meta.description) throw new Error('Skill file missing required field: description');
 
-  // Parse scripts section if present (simple key: description format)
   const scriptsMeta: Record<string, string> = {};
   const scriptsMatch = frontmatter.match(/scripts:\n(([\s\S]*?))(?=\n\w|$)/);
   if (scriptsMatch) {
@@ -83,11 +89,36 @@ export function parseSkillFrontmatter(content: string): {
     }
   }
 
+  // Parse steps section: YAML list items with id, label, collects
+  const steps: ParsedSkillStep[] = [];
+  const stepsMatch = frontmatter.match(/steps:\n((?:\s+-[\s\S]*?)?)(?=\n[a-zA-Z]|\s*$)/);
+  if (stepsMatch) {
+    const stepsSection = stepsMatch[1];
+    let currentStep: Partial<ParsedSkillStep> = {};
+    for (const line of stepsSection.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('- id:')) {
+        if (currentStep.id) {
+          steps.push({ id: currentStep.id, label: currentStep.label || currentStep.id, collects: currentStep.collects });
+        }
+        currentStep = { id: trimmed.substring(5).trim() };
+      } else if (trimmed.startsWith('label:')) {
+        currentStep.label = trimmed.substring(6).trim();
+      } else if (trimmed.startsWith('collects:')) {
+        currentStep.collects = trimmed.substring(9).trim();
+      }
+    }
+    if (currentStep.id) {
+      steps.push({ id: currentStep.id, label: currentStep.label || currentStep.id, collects: currentStep.collects });
+    }
+  }
+
   return {
     name: meta.name,
     description: meta.description,
     triggerHints: meta.triggerHints ? meta.triggerHints.split(',').map((s) => s.trim()).filter(Boolean) : [],
     scriptsMeta,
+    steps,
   };
 }
 
@@ -215,7 +246,6 @@ class SkillService {
     const finalStructure = await skillStorage.analyzeStructure(storagePath);
 
     if (existing) {
-      // Update existing
       existing.name = parsed.name;
       existing.description = parsed.description;
       existing.triggerHints = parsed.triggerHints;
@@ -223,12 +253,12 @@ class SkillService {
       existing.hasExamples = finalStructure.hasExamplesDir;
       existing.scripts = finalStructure.scripts;
       existing.storagePath = storagePath;
+      existing.steps = parsed.steps;
       await existing.save();
       return existing;
     }
 
-    // Create new
-    return this.create({
+    const skill = await this.create({
       name: parsed.name,
       slug,
       description: parsed.description,
@@ -239,6 +269,9 @@ class SkillService {
       hasExamples: finalStructure.hasExamplesDir,
       scripts: finalStructure.scripts,
     });
+    skill.steps = parsed.steps;
+    await skill.save();
+    return skill;
   }
 
   /**
@@ -276,7 +309,8 @@ class SkillService {
       existing.hasExamples = false;
       existing.scripts = Object.keys(parsed.scriptsMeta);
       existing.storagePath = storagePath;
-      existing.instructions = instructionsBody; // store in DB for easy editing
+      existing.steps = parsed.steps;
+      existing.instructions = instructionsBody;
       await existing.save();
       return existing;
     }
@@ -292,8 +326,8 @@ class SkillService {
       hasExamples: false,
       scripts: Object.keys(parsed.scriptsMeta),
     });
-    // Store instructions in DB legacy field
     skill.instructions = instructionsBody;
+    skill.steps = parsed.steps;
     await skill.save();
     return skill;
   }

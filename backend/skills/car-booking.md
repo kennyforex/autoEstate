@@ -2,6 +2,21 @@
 name: Car Service Booking
 description: Handles booking and scheduling for car services. Use when the customer wants to **book**, schedule, make an appointment, or says "I want to book [service]". Covers car wash, servicing, repairs, etc.
 triggerHints: book, booking, schedule, appointment, reserve, i want to book, book car wash, booking car wash, 預約, 保養, 預約洗車, book service, car service booking
+steps:
+  - id: service
+    label: Identify the service type
+    collects: service_type
+  - id: vehicle
+    label: Get vehicle details (make, model, year)
+    collects: vehicle_details
+  - id: datetime
+    label: Get preferred date and time
+    collects: preferred_datetime
+  - id: phone
+    label: Get contact phone number
+    collects: phone_number
+  - id: confirm
+    label: Confirm booking summary
 ---
 
 ## Role
