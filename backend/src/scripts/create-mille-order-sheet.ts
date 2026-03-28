@@ -34,6 +34,10 @@ const ROWS: string[][] = [
     'Dietary',
     'Status',
     'Price (HKD)',
+    'Payment Status',
+    'Payment Amount',
+    'Paid Date',
+    'Payment Checked',
   ],
   [
     'MILLE-001',
@@ -50,6 +54,10 @@ const ROWS: string[][] = [
     'Nut-free',
     'Confirmed',
     '380',
+    'Paid',
+    '380',
+    '2026-03-27',
+    'Yes',
   ],
   [
     'MILLE-002',
@@ -66,6 +74,10 @@ const ROWS: string[][] = [
     '—',
     'Pending quote',
     '520',
+    'Awaiting payment',
+    '—',
+    '—',
+    'No',
   ],
   [
     'MILLE-003',
@@ -82,6 +94,10 @@ const ROWS: string[][] = [
     '—',
     'Draft',
     '640',
+    '—',
+    '—',
+    '—',
+    'No',
   ],
 ];
 

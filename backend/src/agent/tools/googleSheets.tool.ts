@@ -57,7 +57,11 @@ export class GoogleSheetsTool extends BaseTool {
         type: 'array',
         items: { type: 'string' },
         description:
-          'One table row: Order ID, Order Date, Customer, Phone/Email, Cake Name, Flavor, Size, Servings, Pickup Date, Pickup Time, Decoration Notes, Dietary, Status, Price (HKD) — 14 strings for Mille order log.',
+          'One row: 18 cells — (1–14) Order ID, Order Date, Customer, Phone/Email, Cake Name, Flavor, Size, Servings, Pickup Date, Pickup Time, Decoration Notes, Dietary, Status, Price (HKD); (15–18) Payment Status, Payment Amount, Paid Date, Payment Checked.',
+      },
+      lastColumnLetter: {
+        type: 'string',
+        description: 'Last column letter for append range (default R for 18 columns). Use N only for legacy 14-column sheets.',
       },
     },
     required: ['action'],
@@ -79,11 +83,11 @@ export class GoogleSheetsTool extends BaseTool {
       switch (action) {
         case 'append_row': {
           const row = args.row as string[] | undefined;
-          if (!row || !Array.isArray(row) || row.length < 2) {
+          if (!row || !Array.isArray(row) || row.length < 14) {
             return {
               success: false,
               data: null,
-              summary: 'append_row requires row: string[] with all cells for the new line (14 values for Mille orders).',
+              summary: 'append_row requires row: string[] with 14 (legacy) or 18 (with payment) cells — see tool description.',
             };
           }
           const spreadsheetId = await resolveSpreadsheetId(args.spreadsheetId as string | undefined, context);
@@ -96,10 +100,14 @@ export class GoogleSheetsTool extends BaseTool {
             };
           }
           const sheetName = (args.sheetName as string) || 'Cake orders';
+          const lastCol =
+            (args.lastColumnLetter as string)?.trim().toUpperCase() ||
+            (row.length >= 18 ? 'R' : 'N');
           const result = await googleWorkspaceService.appendSpreadsheetRows(userId, {
             spreadsheetId,
             sheetName,
             rows: [row],
+            lastColumnLetter: lastCol,
           });
           return {
             success: true,

@@ -31,10 +31,22 @@ async function main() {
   const skill = await skillService.installFromMarkdown(content, userId);
   await Skill.updateOne(
     { slug: 'cake-booking' },
-    { $set: { requiredTools: ['google_sheets', 'google_gmail'] } },
+    {
+      $set: {
+        requiredTools: [
+          'media_analysis',
+          'google_drive',
+          'google_sheets',
+          'google_calendar',
+          'google_gmail',
+        ],
+      },
+    },
   );
   console.log('Installed skill:', skill.slug, skill.name, '\nstoragePath:', skill.storagePath);
-  console.log('requiredTools: google_sheets, google_gmail');
+  console.log(
+    'requiredTools: media_analysis, google_drive, google_sheets, google_calendar, google_gmail',
+  );
   await mongoose.disconnect();
 }
 

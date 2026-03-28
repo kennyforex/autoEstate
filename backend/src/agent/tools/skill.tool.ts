@@ -3,7 +3,10 @@ import { BaseTool } from './base.js';
 import { openRouterConfig } from '../../config/openrouter.js';
 import { skillStorage } from '../../services/skillStorage.service.js';
 import type { AgentContext, AgentSkillInfo, ToolResult, OpenAITool, SkillExecutionResult } from '../types.js';
-import { parseOrderSheetIdFromSkillMarkdown } from '../../utils/skillMdConfig.js';
+import {
+  parseOrderSheetIdFromSkillMarkdown,
+  parsePaymentPendingFolderIdFromSkillMarkdown,
+} from '../../utils/skillMdConfig.js';
 import type { ToolRegistry } from './registry.js';
 
 const DEFAULT_DESCRIPTION =
@@ -175,6 +178,7 @@ export class SkillExecutionTool extends BaseTool {
     }
 
     const sheetIdHint = parseOrderSheetIdFromSkillMarkdown(rawSkillMd);
+    const paymentFolderIdHint = parsePaymentPendingFolderIdFromSkillMarkdown(rawSkillMd);
 
     // Strip YAML frontmatter for instruction body
     let instructions = rawSkillMd.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '').trim();
@@ -195,6 +199,11 @@ export class SkillExecutionTool extends BaseTool {
       systemPrompt +=
         `\n## Google Sheet (from this skill's SKILL.md frontmatter)\n` +
         `Spreadsheet document ID for \`google_sheets\` **append_row** — omit \`spreadsheetId\` in the tool call: \`${sheetIdHint}\`\n`;
+    }
+    if (paymentFolderIdHint) {
+      systemPrompt +=
+        `\n## Google Drive receipts (from this skill's SKILL.md frontmatter)\n` +
+        `Parent folder ID for \`google_drive\` **upload** — omit \`parentFolderId\` (Pending folder): \`${paymentFolderIdHint}\`\n`;
     }
 
     // Add reference/examples/scripts availability

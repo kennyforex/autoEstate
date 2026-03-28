@@ -5,14 +5,14 @@ import type { AgentContext, ToolResult } from '../types.js';
 export class GoogleCalendarTool extends BaseTool {
   readonly name = 'google_calendar';
   readonly description =
-    'Manage Google Calendar: view agenda, create events, list upcoming events, delete events. ' +
+    'Manage Google Calendar: view agenda, create events, list/search events, update events, delete events. ' +
     'Requires the admin to have connected their Google account in Settings.';
   readonly parameters = {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['agenda', 'create_event', 'list_events', 'delete_event'],
+        enum: ['agenda', 'create_event', 'list_events', 'update_event', 'delete_event'],
         description: 'The calendar action to perform',
       },
       summary: {
@@ -45,7 +45,7 @@ export class GoogleCalendarTool extends BaseTool {
       },
       eventId: {
         type: 'string',
-        description: 'Event ID (for delete_event)',
+        description: 'Event ID (for update_event, delete_event)',
       },
       timeMin: {
         type: 'string',
@@ -119,9 +119,46 @@ export class GoogleCalendarTool extends BaseTool {
             return { success: true, data: [], summary: 'No upcoming events found.' };
           }
           const summary = events.map((e, i) =>
-            `${i + 1}. ${e.summary || '(No title)'} | ${e.start} - ${e.end}${e.location ? ` | ${e.location}` : ''}`,
+            `${i + 1}. [id: ${e.id}] ${e.summary || '(No title)'} | ${e.start} - ${e.end}${e.location ? ` | ${e.location}` : ''}`,
           ).join('\n');
           return { success: true, data: events, summary: `${events.length} upcoming event(s):\n${summary}` };
+        }
+
+        case 'update_event': {
+          const eventId = args.eventId as string;
+          if (!eventId) {
+            return { success: false, data: null, summary: 'Missing required parameter: eventId' };
+          }
+          const hasAny =
+            args.summary !== undefined ||
+            args.startTime !== undefined ||
+            args.endTime !== undefined ||
+            args.description !== undefined ||
+            args.location !== undefined ||
+            args.attendees !== undefined;
+          if (!hasAny) {
+            return {
+              success: false,
+              data: null,
+              summary: 'Provide at least one of: summary, startTime, endTime, description, location, attendees',
+            };
+          }
+          const attendees = args.attendees
+            ? (args.attendees as string).split(',').map((e) => e.trim())
+            : undefined;
+          const result = await googleWorkspaceService.updateEvent(userId, eventId, {
+            summary: args.summary as string | undefined,
+            startTime: args.startTime as string | undefined,
+            endTime: args.endTime as string | undefined,
+            description: args.description as string | undefined,
+            location: args.location as string | undefined,
+            attendees,
+          });
+          return {
+            success: true,
+            data: result,
+            summary: `Event updated: "${result.summary}" ${result.start} - ${result.end}. Link: ${result.htmlLink}`,
+          };
         }
 
         case 'delete_event': {
@@ -134,7 +171,7 @@ export class GoogleCalendarTool extends BaseTool {
         }
 
         default:
-          return { success: false, data: null, summary: `Unknown action "${action}". Use: agenda, create_event, list_events, delete_event.` };
+          return { success: false, data: null, summary: `Unknown action "${action}". Use: agenda, create_event, list_events, update_event, delete_event.` };
       }
     } catch (error: any) {
       if (error.message === 'GOOGLE_NOT_CONNECTED') {

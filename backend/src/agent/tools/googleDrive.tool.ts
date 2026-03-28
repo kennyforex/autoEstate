@@ -1,18 +1,41 @@
 import { BaseTool } from './base.js';
 import { googleWorkspaceService } from '../../services/googleWorkspace.service.js';
+import { skillStorage } from '../../services/skillStorage.service.js';
+import { parsePaymentPendingFolderIdFromSkillMarkdown } from '../../utils/skillMdConfig.js';
 import type { AgentContext, ToolResult } from '../types.js';
+
+async function resolveUploadParentFolderId(
+  argsParentId: string | undefined,
+  context: AgentContext,
+  userId: string,
+): Promise<string> {
+  if (argsParentId?.trim()) return argsParentId.trim();
+  if (context.activeSkillSlug) {
+    const info = context.skills.find((s) => s.slug === context.activeSkillSlug);
+    if (info?.storagePath) {
+      try {
+        const raw = await skillStorage.loadSkillMd(info.storagePath);
+        const id = parsePaymentPendingFolderIdFromSkillMarkdown(raw);
+        if (id?.trim()) return id.trim();
+      } catch (e: any) {
+        console.warn('[GoogleDrive] Could not read SKILL.md for paymentPendingFolderId:', e?.message);
+      }
+    }
+  }
+  return googleWorkspaceService.resolvePaymentPendingFolderId(userId);
+}
 
 export class GoogleDriveTool extends BaseTool {
   readonly name = 'google_drive';
   readonly description =
-    'Manage Google Drive: list recent files, search files, get file details. ' +
+    'Manage Google Drive: list, search, file info, or upload a file from a URL into a folder. ' +
     'Requires the admin to have connected their Google account in Settings.';
   readonly parameters = {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['list', 'search', 'info'],
+        enum: ['list', 'search', 'info', 'upload'],
         description: 'The Drive action to perform',
       },
       query: {
@@ -26,6 +49,27 @@ export class GoogleDriveTool extends BaseTool {
       pageSize: {
         type: 'number',
         description: 'Number of files to return (default 10)',
+      },
+      fileUrl: {
+        type: 'string',
+        description: 'Public or same-origin URL of the file to upload (for upload)',
+      },
+      fileName: {
+        type: 'string',
+        description: 'Destination file name on Drive, e.g. Receipt-MILLE-001.jpg (for upload)',
+      },
+      parentFolderId: {
+        type: 'string',
+        description:
+          'Parent Drive folder ID (for upload). Omit to use skill YAML paymentPendingFolderId, then folder lookup Client Payment > Pending.',
+      },
+      paymentFolders: {
+        type: 'boolean',
+        description: 'Deprecated optional flag; omit parentFolderId to use skill file or default folders.',
+      },
+      mimeType: {
+        type: 'string',
+        description: 'Optional MIME type for upload (e.g. image/jpeg)',
       },
     },
     required: ['action'],
@@ -68,8 +112,37 @@ export class GoogleDriveTool extends BaseTool {
           };
         }
 
+        case 'upload': {
+          const fileUrl = args.fileUrl as string;
+          const fileName = args.fileName as string;
+          if (!fileUrl?.trim() || !fileName?.trim()) {
+            return {
+              success: false,
+              data: null,
+              summary: 'upload requires fileUrl and fileName.',
+            };
+          }
+          const parentId = await resolveUploadParentFolderId(
+            args.parentFolderId as string | undefined,
+            context,
+            userId,
+          );
+          const mimeType = (args.mimeType as string) || undefined;
+          const result = await googleWorkspaceService.uploadFileFromUrl(userId, {
+            fileUrl: fileUrl.trim(),
+            fileName: fileName.trim(),
+            parentFolderId: parentId,
+            mimeType,
+          });
+          return {
+            success: true,
+            data: result,
+            summary: `Uploaded "${result.name}" to Drive. ID: ${result.id} | Link: ${result.webViewLink || 'n/a'}`,
+          };
+        }
+
         default:
-          return { success: false, data: null, summary: `Unknown action "${action}". Use: list, search, info.` };
+          return { success: false, data: null, summary: `Unknown action "${action}". Use: list, search, info, upload.` };
       }
     } catch (error: any) {
       if (error.message === 'GOOGLE_NOT_CONNECTED') {

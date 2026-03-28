@@ -1,3 +1,5 @@
+import axios from 'axios';
+import { Readable } from 'stream';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { GoogleConnection, decrypt, encrypt } from '../models/GoogleConnection.js';
@@ -242,6 +244,46 @@ class GoogleWorkspaceService {
     };
   }
 
+  async updateEvent(
+    userId: string,
+    eventId: string,
+    params: {
+      summary?: string;
+      startTime?: string;
+      endTime?: string;
+      description?: string;
+      location?: string;
+      attendees?: string[];
+    },
+  ) {
+    const auth = await this.getAuthedClient(userId);
+    const calendar = google.calendar({ version: 'v3', auth });
+
+    const requestBody: Record<string, unknown> = {};
+    if (params.summary !== undefined) requestBody.summary = params.summary;
+    if (params.description !== undefined) requestBody.description = params.description;
+    if (params.location !== undefined) requestBody.location = params.location;
+    if (params.startTime !== undefined) requestBody.start = { dateTime: params.startTime };
+    if (params.endTime !== undefined) requestBody.end = { dateTime: params.endTime };
+    if (params.attendees !== undefined) {
+      requestBody.attendees = params.attendees.map((email) => ({ email }));
+    }
+
+    const result = await calendar.events.patch({
+      calendarId: 'primary',
+      eventId,
+      requestBody,
+    });
+
+    return {
+      id: result.data.id,
+      summary: result.data.summary,
+      start: result.data.start?.dateTime,
+      end: result.data.end?.dateTime,
+      htmlLink: result.data.htmlLink,
+    };
+  }
+
   async listEvents(userId: string, params: { timeMin?: string; timeMax?: string; maxResults?: number } = {}) {
     const auth = await this.getAuthedClient(userId);
     const calendar = google.calendar({ version: 'v3', auth });
@@ -308,6 +350,95 @@ class GoogleWorkspaceService {
     });
 
     return result.data;
+  }
+
+  /**
+   * Find a folder by exact name (optionally scoped to a parent folder).
+   */
+  async findFolderByName(userId: string, name: string, parentId?: string): Promise<string | null> {
+    const auth = await this.getAuthedClient(userId);
+    const drive = google.drive({ version: 'v3', auth });
+    const escaped = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    let q = `name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    if (parentId) {
+      q += ` and '${parentId}' in parents`;
+    }
+    const result = await drive.files.list({
+      q,
+      pageSize: 10,
+      fields: 'files(id, name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    const files = result.data.files || [];
+    return files[0]?.id ?? null;
+  }
+
+  /**
+   * Resolve "Client Payment" > "Pending" for receipt uploads.
+   */
+  async resolvePaymentPendingFolderId(userId: string): Promise<string> {
+    const clientPaymentId = await this.findFolderByName(userId, 'Client Payment');
+    if (!clientPaymentId) {
+      throw new Error(
+        'DRIVE_FOLDER_NOT_FOUND: Create a top-level folder named "Client Payment" in Google Drive.',
+      );
+    }
+    const pendingId = await this.findFolderByName(userId, 'Pending', clientPaymentId);
+    if (!pendingId) {
+      throw new Error(
+        'DRIVE_FOLDER_NOT_FOUND: Create a folder named "Pending" inside "Client Payment".',
+      );
+    }
+    return pendingId;
+  }
+
+  /**
+   * Download a file from a URL and upload it to Drive under the given parent folder.
+   */
+  async uploadFileFromUrl(
+    userId: string,
+    params: { fileUrl: string; fileName: string; parentFolderId: string; mimeType?: string },
+  ) {
+    const auth = await this.getAuthedClient(userId);
+    const drive = google.drive({ version: 'v3', auth });
+
+    const httpResp = await axios.get<ArrayBuffer>(params.fileUrl, {
+      responseType: 'arraybuffer',
+      timeout: 60_000,
+      maxContentLength: 25 * 1024 * 1024,
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+
+    const buffer = Buffer.from(httpResp.data);
+    const mimeType =
+      params.mimeType ||
+      (typeof httpResp.headers['content-type'] === 'string'
+        ? httpResp.headers['content-type'].split(';')[0].trim()
+        : null) ||
+      'application/octet-stream';
+
+    const body = Readable.from(buffer);
+
+    const createRes = await drive.files.create({
+      requestBody: {
+        name: params.fileName,
+        parents: [params.parentFolderId],
+      },
+      media: {
+        mimeType,
+        body,
+      },
+      fields: 'id, name, webViewLink, mimeType',
+      supportsAllDrives: true,
+    });
+
+    return {
+      id: createRes.data.id!,
+      name: createRes.data.name!,
+      webViewLink: createRes.data.webViewLink ?? undefined,
+      mimeType: createRes.data.mimeType ?? undefined,
+    };
   }
 
   // ── Google Sheets (requires spreadsheets scope for create/write) ──
