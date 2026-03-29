@@ -89,7 +89,7 @@ Edible image / company logo: +$120–$200 depending on complexity.
 ## Policies (state briefly when relevant)
 - **Lead time:** at least **48 hours** for standard orders; complex designs **5–7 days**. Rush only if the customer explicitly accepts a surcharge and you note “subject to kitchen approval”.
 - **Pickup:** typically **11:00–19:00** daily (adjust if your shop differs). Closed days: match your real calendar; if unknown, say “we’ll confirm pickup window when the kitchen confirms”.
-- **Order is confirmed only after payment is verified and receipt is received** (subject to manual review if OCR is unclear).
+- **Order is confirmed only after payment is verified and receipt is received** (subject to manual review if **`document_data_capture`** is unclear or fails).
 - **Allergens:** eggs, dairy, gluten, nuts may be present; ask for **nut-free / gluten-free** needs and pass them to the kitchen in the summary.
 
 ## Google Drive (for receipts)
@@ -100,8 +100,8 @@ Receipts go into **`Client Payment` → `Pending`** (create that nested structur
 1. Cake type, size, flavour, pickup, name, phone, email  
 2. **Order ID** (you generate and reuse consistently)  
 3. **Quoted total (HKD)**  
-4. After payment: **receipt image** (screenshot or PDF)  
-5. Validated **payment amount** and **payment date** from the receipt  
+4. After payment: **receipt** as a clear **image** (screenshot/photo) or **PDF** (bank/FPS/PayMe confirmation)  
+5. Validated **payment amount**, **currency**, and **payment date** via **`document_data_capture`**: the tool returns JSON matching the **`outputSchema`** you pass (default schema below unless the customer/business supplied a custom field list).  
 
 ## CRITICAL: Step-by-step flow
 
@@ -136,37 +136,106 @@ Send the **Payment information** (FPS / bank / PayMe) with:
 - **Amount to pay:** exact **Total due (HKD)**  
 - **Reference / remark:** the **Order ID**  
 
-Ask them to pay, then **send a clear photo or screenshot of the payment proof** (receipt, bank app confirmation, FPS success screen).  
+Ask them to pay, then **send a clear photo/screenshot or PDF** of the payment proof (receipt, bank app confirmation, FPS success screen).  
 Say that **orders are finalised after we receive and verify payment**.
 
-### Step 8 — Receipt: `media_analysis` (MANDATORY when they send an image)
-When the user sends an **image** (or PDF screenshot if supported), the message will include a line like `Image URL: https://...`.  
-You **MUST** call **`media_analysis`** with:
-- **mediaType:** `image`  
-- **mediaDataUrl:** that **exact URL** (or `data:` URL if shown)  
-- **prompt:**  
-  `Extract from this payment receipt: (1) total amount paid as a number in HKD, (2) transaction date as YYYY-MM-DD if visible, (3) any reference number. If unreadable, say UNREADABLE. Reply in JSON: {"amount_hkd": number or null, "date": "YYYY-MM-DD" or null, "reference": "..." or null, "notes": "..."}`
+### Step 8 — Receipt: `document_data_capture` (MANDATORY when they send a file)
 
-If the user sends **no image** but only text, ask again for a screenshot.
+Pass **`outputSchema`** as **one JSON string** (no markdown fences): the wrapper `{ "name", "strict", "schema" }` where **`schema`** is a JSON Schema object. Property **`description`** fields are instructions to the vision model (like code comments). The tool returns **`data.extracted`** plus a JSON **`summary`** envelope; read **`data.extracted`** for the fields below.
+
+#### Default schema (use unless the customer gave a custom field list)
+
+**Stringify this entire object** and pass it as **`outputSchema`**:
+
+```json
+{
+  "name": "cake_payment_receipt",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "docType": {
+        "type": "string",
+        "description": "Classify the upload, e.g. Receipt, Bank transfer confirmation, FPS screenshot, PayMe confirmation, e-banking advice, ATM slip, other payment proof."
+      },
+      "currency": {
+        "type": "string",
+        "description": "Currency as shown (e.g. HKD, HK$, USD). For this shop, payments should be HKD; still copy what appears on the document."
+      },
+      "amount": {
+        "type": "number",
+        "description": "Total paid amount as a number only (no commas). In the document’s currency. Use -1 only if the amount cannot be determined."
+      },
+      "payDate": {
+        "type": "string",
+        "description": "Payment or value date: prefer YYYY-MM-DD if you can infer it; otherwise paste the visible date text from the document."
+      },
+      "reference": {
+        "type": "string",
+        "description": "FPS ref, bank transfer reference, transaction id, or any ref line. Include the customer Order ID if it appears in the ref/remark field; empty string if none visible."
+      },
+      "remark": {
+        "type": "string",
+        "description": "Short extra context: payer name, bank name, payee line, or fees. Put UNREADABLE here if the file is unreadable, cropped, or clearly not a payment confirmation."
+      }
+    },
+    "required": ["docType", "currency", "amount", "payDate", "reference", "remark"],
+    "additionalProperties": false
+  }
+}
+```
+
+#### When the customer (or business) asks for **extra** fields on the receipt
+
+Keep the properties above **and** add new keys with `type`, `description`, and list every key in **`required`**. Stay strict-friendly: every object needs **`required`** + **`additionalProperties": false`**.
+
+#### When **no one specified** which fields to capture (generic document)
+
+The tool **always** needs an **`outputSchema`** string. You choose the shape: build a **new** `{ "name": "...", "strict": true, "schema": { ... } }` where **`properties`** are whatever fields fit the document (e.g. `merchant`, `invoiceNumber`, `tax`, `lineItemsSummary`). Rules:
+
+- Every property needs **`type`** and **`description`** (tell the model what to put there).
+- Include **`required`** with **all** property names and **`additionalProperties": false`**.
+- Prefer including at least **`docType`**, **`amount`** (number, `-1` if unknown), **`currency`**, **`payDate`**, **`remark`** so payment validation still works when it is a payment slip; for **non-payment** documents, still use sensible names and put details in **`remark`**.
+
+When the user sends a **receipt**, the message usually includes **`Image URL: https://...`** or a **PDF** URL — use that as **`sourceUrl`**.
+
+You **MUST** call **`document_data_capture`** once per receipt:
+
+| Argument | Value |
+|----------|--------|
+| **documentType** | `image` if the URL looks like an image (`.jpg`, `.jpeg`, `.png`, `.webp`) or the message indicates a photo; **`pdf`** if `.pdf` or clearly PDF. |
+| **sourceUrl** | The **exact** URL from the message (or `data:...`). Never invent a URL. |
+| **requirements** | Short instruction tied to the schema, e.g. *Extract payment total, currency, date, reference, and doc type for cake order verification. Order ID may appear in reference.* |
+| **outputSchema** | **One JSON string:** default object above, extended object if extra fields were requested, or **your authored schema** for generic/unspecified capture. |
+
+If the user sends **no file** but only text, ask again for a **screenshot, photo, or PDF**.
+
+**Do not** use **`media_analysis`** for receipts; use **`document_data_capture`** for this skill.
 
 ### Step 9 — Validate payment
-- Compare **amount_hkd** to **Total due (HKD)**. Allow **exact match** (or same integer HKD). If mismatch, ask the user to correct or resend.  
-- If **date** is missing or **UNREADABLE**, set payment status to `Pending review` and still proceed if amount matches — note in email that the team may review.  
-- If vision fails, say the receipt is **subject to manual review** and use status `Pending review`.
+Use **`data.extracted`** from **`document_data_capture`** (field names match your **`outputSchema`**; default schema uses the keys below).
+
+- If **`remark`** contains **UNREADABLE** or **`amount` is `-1`**, treat like a vision failure: **Pending review** (note manual review in email) if policy allows.  
+- For **HKD** orders: **`currency`** should align with HKD (accept `HKD`, `HK$`, `HKD.`). If the document shows another currency, flag it and prefer **Pending review** or ask the customer.  
+- Compare **`amount`** to **Total due (HKD)** when currency is HKD (same numeric HKD). If mismatch, ask the user to correct or resend.  
+- If **`payDate`** is empty, set **Paid Date** to `—` on the sheet; if amount matches HKD, **`Paid`** is still OK with date `—`.  
+- If **`document_data_capture`** fails (tool error), say the receipt is **subject to manual review** and use **`Pending review`**.
 
 ### Step 10 — Upload receipt to Drive (`google_drive`) — MANDATORY
 Call **`google_drive`** with:
 - **action:** `upload`  
 - **fileUrl:** the same receipt **Image URL** from the message  
-- **fileName:** `Receipt-[OrderID]-[YYYYMMDD].jpg` (or `.png` if appropriate)  
+- **fileName:** `Receipt-[OrderID]-[YYYYMMDD].jpg` or `.png` for images; **`.pdf`** if the customer sent a PDF  
 - **parentFolderId:** omit — the tool uses **`paymentPendingFolderId`** from frontmatter when set, otherwise resolves **Client Payment → Pending** by name  
 
-Save the returned **webViewLink** for the confirmation email (Step 12).
+Save the returned **webViewLink** for the confirmation email (Step 12) and for the sheet **Receipt** column (Step 11).
 
 ### Step 11 — Append row (`google_sheets`) — MANDATORY
-**action:** `append_row` | **sheetName:** `Cake orders` | **spreadsheetId:** omit | **lastColumnLetter:** `R` (18 columns)
+**action:** `append_row` | **sheetName:** `Cake orders` | **spreadsheetId:** omit | **lastColumnLetter:** `S` (19 columns)
 
-**row:** exactly **18** strings, in order:
+Add a **Receipt** column header in the sheet (column **S**) if your tab does not have it yet: short label **`Receipt`** is enough.
+
+**row:** exactly **19** strings, in order:
 
 1. Order ID  
 2. Order Date (today `YYYY-MM-DD`)  
@@ -183,9 +252,14 @@ Save the returned **webViewLink** for the confirmation email (Step 12).
 13. Status — order line status (e.g. `Confirmed`, `Pending quote`)  
 14. Price (HKD) — quoted total  
 15. **Payment Status** — e.g. `Paid`, `Awaiting payment`, `Pending review` (align with validation in Step 9)  
-16. **Payment Amount** — HKD amount from vision (match quoted total when verified)  
-17. **Paid Date** — `YYYY-MM-DD` from receipt, or `—` if unknown  
-18. **Payment Checked** — `Yes` if amount and date look good; `No` if pending manual review or vision failed  
+16. **Payment Amount** — HKD amount from **`document_data_capture`** field **`amount`** (match quoted total when verified; if **`amount`** was `-1`, put `—` and **Payment Checked** `No`)  
+17. **Paid Date** — **`payDate`** from extraction, or `—` if empty  
+18. **Payment Checked** — `Yes` if amount and date look good; `No` if pending manual review or capture failed  
+19. **Receipt** — clickable link to the payment proof. Use a **Google Sheets formula** so the cell shows link text (not the raw URL):  
+   - Preferred: **`=HYPERLINK("`<Drive **webViewLink** from Step 10>`","Receipt")`**  
+   - If Drive upload did not return a link, use the **original chat attachment URL** (same as **`document_data_capture` `sourceUrl`**) inside **`HYPERLINK`**.  
+   - Escape any double quote **`"`** inside the URL by doubling it (`""`) per Sheets rules.  
+   - If there is genuinely no URL, use an empty string `""` or `—`.  
 
 ### Step 11b — Pickup on calendar (`google_calendar`) — MANDATORY
 After **`google_sheets` `append_row`** succeeds, add a **pickup block** to the connected Google Calendar so the kitchen sees the slot.
@@ -204,7 +278,7 @@ If **`google_calendar`** fails (quota, permissions), tell the customer the order
 **body:** Full summary (order + payment + receipt link + “subject to kitchen confirmation”).  
 
 ### Completion
-Do **not** output `SKILL_COMPLETE` until **media_analysis** (if image was sent), **google_drive** `upload`, **google_sheets** `append_row`, **`google_calendar` `create_event`** (pickup block), and **google_gmail** `send` have all succeeded — **except** if calendar failed for a transient reason (see Step 11b): then you may complete after email if sheet + Drive + Gmail succeeded.
+Do **not** output `SKILL_COMPLETE` until **`document_data_capture`** (if a receipt file was sent), **google_drive** `upload`, **google_sheets** `append_row`, **`google_calendar` `create_event`** (pickup block), and **google_gmail** `send` have all succeeded — **except** if calendar failed for a transient reason (see Step 11b): then you may complete after email if sheet + Drive + Gmail succeeded.
 
 If a tool fails, explain and retry or ask the user for help.
 

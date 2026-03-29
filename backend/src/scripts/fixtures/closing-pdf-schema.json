@@ -1,0 +1,47 @@
+{
+  "name": "closing_document",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "documentTitle": {
+        "type": "string",
+        "description": "Main title or heading on the PDF. If none, not_shown."
+      },
+      "referenceNumber": {
+        "type": "string",
+        "description": "Primary reference such as RN..., file no., case id. If none, not_shown."
+      },
+      "partiesSummary": {
+        "type": "string",
+        "description": "Short text listing buyer, seller, or other key parties if visible. Else not_shown."
+      },
+      "propertyOrSubject": {
+        "type": "string",
+        "description": "Property address, flat description, or legal subject of the document. Else not_shown."
+      },
+      "keyAmountsText": {
+        "type": "string",
+        "description": "Important amounts, totals, or consideration as printed (keep formatting). Else not_shown."
+      },
+      "keyDatesText": {
+        "type": "string",
+        "description": "Completion, settlement, or other key dates as printed. Else not_shown."
+      },
+      "oneLineSummary": {
+        "type": "string",
+        "description": "One concise English sentence describing what this PDF is."
+      }
+    },
+    "required": [
+      "documentTitle",
+      "referenceNumber",
+      "partiesSummary",
+      "propertyOrSubject",
+      "keyAmountsText",
+      "keyDatesText",
+      "oneLineSummary"
+    ],
+    "additionalProperties": false
+  }
+}

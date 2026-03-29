@@ -1,0 +1,19 @@
+{
+  "name": "sample_document_extraction",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mainText": {
+        "type": "string",
+        "description": "Main readable text visible in the document."
+      },
+      "hasNumbers": {
+        "type": "boolean",
+        "description": "True if any digits or numeric amounts appear."
+      }
+    },
+    "required": ["mainText", "hasNumbers"],
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "name": "bank_transfer_receipt",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "beneficiaryOrPayeeName": {
+        "type": "string",
+        "description": "Beneficiary or payee name exactly as printed on the slip. If not visible, use not_shown."
+      },
+      "payerOrRemitterName": {
+        "type": "string",
+        "description": "Payer, remitter, or debited account name if shown. If not visible, use not_shown."
+      },
+      "amountAsPrinted": {
+        "type": "string",
+        "description": "Monetary amount exactly as printed (keep commas, decimals, and currency symbol if present)."
+      },
+      "currency": {
+        "type": "string",
+        "description": "Currency as shown, e.g. HKD, USD, or symbol. If unclear, use not_shown."
+      },
+      "documentOrReferenceId": {
+        "type": "string",
+        "description": "Primary reference: document number, DN code, transaction ref, or similar. If none, not_shown."
+      },
+      "transactionNature": {
+        "type": "string",
+        "description": "Type of transaction, e.g. TRANSFER, FPS, remittance. If not labeled, not_shown."
+      },
+      "valueDateOrPostingDate": {
+        "type": "string",
+        "description": "Value date, posting date, or transaction date as printed (any format). If absent, not_shown."
+      },
+      "institutionName": {
+        "type": "string",
+        "description": "Bank, wallet, or platform name/logo text if identifiable. Else not_shown."
+      },
+      "oneLineSummary": {
+        "type": "string",
+        "description": "One concise English sentence summarizing what the receipt proves or shows."
+      }
+    },
+    "required": [
+      "beneficiaryOrPayeeName",
+      "payerOrRemitterName",
+      "amountAsPrinted",
+      "currency",
+      "documentOrReferenceId",
+      "transactionNature",
+      "valueDateOrPostingDate",
+      "institutionName",
+      "oneLineSummary"
+    ],
+    "additionalProperties": false
+  }
+}

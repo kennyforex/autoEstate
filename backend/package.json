@@ -11,7 +11,9 @@
     "migrate:lid": "tsx src/scripts/migrate-lid-contacts.ts",
     "migrate:countries": "tsx src/scripts/migrate-contact-countries.ts",
     "cleanup:videos": "tsx src/scripts/cleanup-orphaned-videos.ts",
-    "fix:logo": "tsx src/scripts/fix-logo-url.ts"
+    "fix:logo": "tsx src/scripts/fix-logo-url.ts",
+    "test:document-capture": "tsx src/scripts/test-document-data-capture.ts",
+    "test:lpc-documents": "tsx src/scripts/test-lpc-megafintech-documents.ts"
   },
   "keywords": [
     "customer-support",

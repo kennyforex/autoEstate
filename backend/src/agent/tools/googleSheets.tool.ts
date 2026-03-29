@@ -31,7 +31,7 @@ export class GoogleSheetsTool extends BaseTool {
   readonly name = 'google_sheets';
   readonly description =
     'Read or append rows in Google Sheets. For cake orders, use append_row to add a line to the order log ' +
-    '(same columns as the Mille Order sheet). Requires Google connected in Settings.';
+    '(19 columns with Receipt hyperlink: see row description). Requires Google connected in Settings.';
   readonly parameters = {
     type: 'object',
     properties: {
@@ -57,11 +57,11 @@ export class GoogleSheetsTool extends BaseTool {
         type: 'array',
         items: { type: 'string' },
         description:
-          'One row: 18 cells — (1–14) Order ID, Order Date, Customer, Phone/Email, Cake Name, Flavor, Size, Servings, Pickup Date, Pickup Time, Decoration Notes, Dietary, Status, Price (HKD); (15–18) Payment Status, Payment Amount, Paid Date, Payment Checked.',
+          'One row: 19 cells — (1–14) Order ID, Order Date, Customer, Phone/Email, Cake Name, Flavor, Size, Servings, Pickup Date, Pickup Time, Decoration Notes, Dietary, Status, Price (HKD); (15–18) Payment Status, Payment Amount, Paid Date, Payment Checked; (19) Receipt as =HYPERLINK("url","Receipt") formula (USER_ENTERED). Legacy: 14 or 18 cells still accepted.',
       },
       lastColumnLetter: {
         type: 'string',
-        description: 'Last column letter for append range (default R for 18 columns). Use N only for legacy 14-column sheets.',
+        description: 'Last column letter for append range (default S for 19 columns, R for 18, N for 14).',
       },
     },
     required: ['action'],
@@ -87,7 +87,8 @@ export class GoogleSheetsTool extends BaseTool {
             return {
               success: false,
               data: null,
-              summary: 'append_row requires row: string[] with 14 (legacy) or 18 (with payment) cells — see tool description.',
+              summary:
+                'append_row requires row: string[] with 14 (legacy), 18 (payment), or 19 (+ Receipt hyperlink) cells — see tool description.',
             };
           }
           const spreadsheetId = await resolveSpreadsheetId(args.spreadsheetId as string | undefined, context);
@@ -102,7 +103,7 @@ export class GoogleSheetsTool extends BaseTool {
           const sheetName = (args.sheetName as string) || 'Cake orders';
           const lastCol =
             (args.lastColumnLetter as string)?.trim().toUpperCase() ||
-            (row.length >= 18 ? 'R' : 'N');
+            (row.length >= 19 ? 'S' : row.length >= 18 ? 'R' : 'N');
           const result = await googleWorkspaceService.appendSpreadsheetRows(userId, {
             spreadsheetId,
             sheetName,

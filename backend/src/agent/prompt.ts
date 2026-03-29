@@ -165,7 +165,10 @@ export function buildSystemPrompt(context: AgentContext): string {
     '- When you have enough information, respond directly without unnecessary tool calls.\n' +
     '- Never fabricate information. If you don\'t know, say so or search the knowledge base.\n' +
     '- When using media_analysis, use ONLY the actual media URL provided in the message (e.g., "Image URL: https://..."). ' +
-    'Do NOT use image descriptions or any other text as the mediaDataUrl.',
+    'Do NOT use image descriptions or any other text as the mediaDataUrl.\n' +
+    '- When using document_data_capture, use ONLY the real sourceUrl from the message context (same rules as media URLs). ' +
+    'Pass outputSchema as a JSON string of the OpenRouter json_schema object: {"name","strict","schema"} (see OpenRouter structured outputs), ' +
+    'or legacy: stringified inner schema only. Requirements text must align with schema property descriptions.',
   );
 
   return parts.join('\n');
