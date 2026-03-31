@@ -92,14 +92,31 @@ export interface AgentContactInfo {
   company?: string;
 }
 
+/** Department roster entry for prompts (manager + staff). */
+export interface AgentTeamMemberInfo {
+  staffId: string;
+  displayName: string;
+  roleTitle: string;
+  responsibilitiesSnippet: string;
+  skillSlugs: string[];
+  isManager: boolean;
+}
+
 export interface AgentAssistantInfo {
   id: string;
   name: string;
+  /** Department label */
+  departmentName?: string;
+  /** Speaking name of the manager (user-facing channel) */
+  managerName?: string;
+  managerNickname?: string;
   primaryLanguage: AssistantLanguage;
   tone: AssistantTone;
   instructions?: string;
   model: string;
   pineconeAssistantName: string;
+  /** Populated when assistant has staff roster (department mode). */
+  teamRoster?: AgentTeamMemberInfo[];
 }
 
 export interface SkillStepDef {
@@ -126,6 +143,12 @@ export interface AgentSkillInfo {
   requiredTools?: string[];
   reminderDelay?: number;
   maxReminders?: number;
+  /** Staff member who owns this skill in the department */
+  ownerDisplayName?: string;
+  ownerRoleTitle?: string;
+  ownerResponsibilitiesSnippet?: string;
+  /** MongoDB staff _id of the owner (for UI org chart, etc.) */
+  ownerStaffId?: string;
 }
 
 export interface ChatMessage {
@@ -199,6 +222,9 @@ export interface AgentContext {
 export interface AgentResult {
   type: 'final_answer' | 'clarification';
   content: string;
+  /** Staff member whose skill produced this reply (playground org chart). */
+  activeStaffId?: string;
+  activeSkillSlug?: string;
   citations?: Array<{
     position: number;
     references: Array<{
@@ -254,6 +280,8 @@ export interface AgentLoopState {
   usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   unhandledSkillSlugs: Set<string>;
   pendingPartialResult?: AgentResult;
+  /** Last skill slug whose execute_skill completed successfully this turn (not out_of_scope). */
+  lastResponsibleSkillSlug?: string;
 }
 
 export type BeforeToolCallHook = (ctx: BeforeToolCallContext) => Promise<

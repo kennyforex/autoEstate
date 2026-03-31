@@ -32,10 +32,8 @@ import {
   Zap,
   UploadCloud,
   Code,
-  BookOpen,
   Plus,
   Eye,
-  Save,
 } from "lucide-react";
 import {
   Button,
@@ -45,10 +43,12 @@ import {
   Toggle,
   StatusDot,
   Modal,
+  ConfirmModal,
   ToastContainer,
   useToasts,
 } from "../../components/common";
 import { assistantsApi, skillsApi } from "../../lib/api";
+import { DepartmentOrgChart, type OrgSelection } from "./DepartmentOrgChart";
 import type { AgentStreamEvent } from "../../lib/api";
 import type {
   Assistant,
@@ -56,6 +56,7 @@ import type {
   AssistantLanguage,
   AssistantTone,
   Skill,
+  StaffMember,
 } from "../../lib/types";
 
 interface ChatMessage {
@@ -65,6 +66,21 @@ interface ChatMessage {
 
 // Max file size for uploads (100MB) - matches backend video limit
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
+
+/** Fixed product default; model is not user-configurable in the UI. */
+const DEFAULT_ASSISTANT_MODEL: Assistant["model"] = "gpt-4o";
+
+/** Map skill slug from agent `execute_skill` to owning staff _id (manager or employee). */
+function staffIdForSkillSlug(
+  slug: string,
+  skills: Skill[],
+  staff: StaffMember[] | undefined,
+): string | null {
+  const skill = skills.find((s) => s.slug === slug);
+  if (!skill || !staff?.length) return null;
+  const owner = staff.find((m) => m.skillIds?.includes(skill._id));
+  return owner?._id ?? null;
+}
 
 // Helper to get display name from folder path
 const getFolderDisplayName = (folderPath: string): string => {
@@ -505,9 +521,28 @@ export const AssistantPlayground: React.FC = () => {
 
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"settings" | "files" | "skills">(
-    "settings",
+  /** Right slide panel: null = closed; "manager" | staff member _id */
+  const [orgSelection, setOrgSelection] = useState<"manager" | string | null>(
+    null,
   );
+  /** Last agent reply: staff _id from skill owner (for org chart pulse) */
+  const [activeResponsibleStaffId, setActiveResponsibleStaffId] = useState<
+    string | null
+  >(null);
+  /** While execute_skill is running — org chart shows processing ring */
+  const [processingStaffId, setProcessingStaffId] = useState<string | null>(
+    null,
+  );
+  const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [addStaffForm, setAddStaffForm] = useState({
+    displayName: "",
+    roleTitle: "",
+    responsibilities: "",
+  });
+  const [isSavingStaffRow, setIsSavingStaffRow] = useState(false);
+  const [managerSubTab, setManagerSubTab] = useState<
+    "settings" | "files" | "skills"
+  >("settings");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -556,13 +591,13 @@ export const AssistantPlayground: React.FC = () => {
   } | null>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
 
-  // Form state
-  const [name, setName] = useState("");
+  // Form state (manager / department)
+  const [departmentName, setDepartmentName] = useState("");
+  const [managerName, setManagerName] = useState("");
   const [primaryLanguage, setPrimaryLanguage] =
     useState<AssistantLanguage>("auto");
   const [tone, setTone] = useState<AssistantTone>("professional");
   const [instructions, setInstructions] = useState("");
-  const [model, setModel] = useState("gpt-4o");
   const [isActive, setIsActive] = useState(true);
 
   // Skills state
@@ -579,19 +614,22 @@ export const AssistantPlayground: React.FC = () => {
     requiredTools: "",
     reminderDelay: 0,
     maxReminders: 0,
+    nickname: "",
   });
   const [skillUploadFile, setSkillUploadFile] = useState<File | null>(null);
   const skillFileInputRef = useRef<HTMLInputElement>(null);
   const zipFileInputRef = useRef<HTMLInputElement>(null);
   const [bindingSkillId, setBindingSkillId] = useState<string | null>(null);
-  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
 
-  // Edit skill state
+  // Edit skill state (unified modal: details + reference + scripts)
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [isUpdatingSkill, setIsUpdatingSkill] = useState(false);
+  const [skillDeleteConfirmOpen, setSkillDeleteConfirmOpen] = useState(false);
+  const [isDeletingSkill, setIsDeletingSkill] = useState(false);
+  type SkillEditorTab = "basic" | "content" | "reference" | "scripts" | "other";
+  const [skillEditorTab, setSkillEditorTab] = useState<SkillEditorTab>("basic");
 
   // Skill assets state (reference & scripts)
-  const [managingSkillId, setManagingSkillId] = useState<string | null>(null);
   const [refContent, setRefContent] = useState("");
   const [refLoading, setRefLoading] = useState(false);
   const [refSaving, setRefSaving] = useState(false);
@@ -604,17 +642,96 @@ export const AssistantPlayground: React.FC = () => {
   const scriptUploadRef = useRef<HTMLInputElement>(null);
   const refUploadRef = useRef<HTMLInputElement>(null);
 
+  const displayDeptName =
+    assistant?.departmentName?.trim() || assistant?.name || "";
+
+  const managerStaffId = useMemo(
+    () => assistant?.staff?.find((s) => s.isManager)?._id,
+    [assistant?.staff],
+  );
+
+  const employeeStaffList = useMemo(
+    () => assistant?.staff?.filter((s) => !s.isManager) ?? [],
+    [assistant?.staff],
+  );
+
+  const staffChartItems = useMemo(
+    () =>
+      employeeStaffList.map((s) => ({
+        id: s._id,
+        label: s.displayName?.trim() || s._id,
+        subtitle: s.roleTitle?.trim() || undefined,
+      })),
+    [employeeStaffList],
+  );
+
+  const activeOrgHighlight = useMemo((): OrgSelection | null => {
+    if (!activeResponsibleStaffId) return null;
+    if (managerStaffId && activeResponsibleStaffId === managerStaffId) {
+      return "manager";
+    }
+    if (employeeStaffList.some((s) => s._id === activeResponsibleStaffId)) {
+      return activeResponsibleStaffId;
+    }
+    return null;
+  }, [activeResponsibleStaffId, managerStaffId, employeeStaffList]);
+
+  const processingOrgHighlight = useMemo((): OrgSelection | null => {
+    if (!processingStaffId) return null;
+    if (managerStaffId && processingStaffId === managerStaffId) {
+      return "manager";
+    }
+    if (employeeStaffList.some((s) => s._id === processingStaffId)) {
+      return processingStaffId;
+    }
+    return null;
+  }, [processingStaffId, managerStaffId, employeeStaffList]);
+
+  const selectedStaffMember: StaffMember | null = useMemo(() => {
+    if (!orgSelection || orgSelection === "manager" || !assistant?.staff) {
+      return null;
+    }
+    return assistant.staff.find((s) => s._id === orgSelection) ?? null;
+  }, [orgSelection, assistant?.staff]);
+
+  const refreshAssistant = async () => {
+    if (!id) return;
+    try {
+      const data = await assistantsApi.get(id);
+      setAssistant(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const [staffRowDraft, setStaffRowDraft] = useState({
+    displayName: "",
+    roleTitle: "",
+    responsibilities: "",
+  });
+
+  useEffect(() => {
+    if (!selectedStaffMember) return;
+    setStaffRowDraft({
+      displayName: selectedStaffMember.displayName || "",
+      roleTitle: selectedStaffMember.roleTitle || "",
+      responsibilities: selectedStaffMember.responsibilities || "",
+    });
+  }, [selectedStaffMember?._id]);
+
   useEffect(() => {
     const fetchAssistant = async () => {
       if (!id) return;
       try {
         const data = await assistantsApi.get(id);
         setAssistant(data);
-        setName(data.name);
+        setDepartmentName(
+          data.departmentName?.trim() || data.name || "",
+        );
+        setManagerName(data.managerName?.trim() || data.name || "");
         setPrimaryLanguage(data.primaryLanguage || "auto");
         setTone(data.tone || "professional");
         setInstructions(data.instructions || "");
-        setModel(data.model);
         setIsActive(data.status === "active");
       } catch (error) {
         console.error("Failed to fetch assistant:", error);
@@ -640,10 +757,8 @@ export const AssistantPlayground: React.FC = () => {
   };
 
   useEffect(() => {
-    if (activeTab === "skills") {
-      fetchSkills();
-    }
-  }, [activeTab]);
+    if (id) fetchSkills();
+  }, [id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -730,11 +845,27 @@ export const AssistantPlayground: React.FC = () => {
     setIsTyping(true);
     setAgentStatus(null);
     setAgentSteps([]);
+    setActiveResponsibleStaffId(null);
+    setProcessingStaffId(null);
 
     const handleProgress = (event: AgentStreamEvent) => {
       if (event.type === "status") {
         setAgentStatus(event.status);
       } else if (event.type === "agent_step") {
+        const tool = event.step.action?.tool;
+        const args = event.step.action?.args;
+        if (tool === "execute_skill") {
+          if (event.step.observation !== undefined) {
+            setProcessingStaffId(null);
+          } else if (args && typeof args.slug === "string") {
+            const sid = staffIdForSkillSlug(
+              args.slug,
+              allSkills,
+              assistant?.staff,
+            );
+            setProcessingStaffId(sid);
+          }
+        }
         setAgentStatus("working");
         setAgentSteps((prev) => {
           const toolName = event.step.action?.tool || "thinking";
@@ -780,6 +911,7 @@ export const AssistantPlayground: React.FC = () => {
         content: response.message?.content || "",
       };
       setMessages((prev) => [...prev, assistantMessage]);
+      setActiveResponsibleStaffId(response.activeStaffId ?? null);
     } catch (error) {
       console.error("Failed to send message:", error);
       setMessages((prev) => [
@@ -793,6 +925,7 @@ export const AssistantPlayground: React.FC = () => {
       setIsTyping(false);
       setAgentStatus(null);
       setAgentSteps([]);
+      setProcessingStaffId(null);
     }
   };
 
@@ -844,24 +977,30 @@ export const AssistantPlayground: React.FC = () => {
 
     setIsSaving(true);
     try {
+      const dept = departmentName.trim() || assistant?.name || "";
+      const mgr = managerName.trim() || dept;
       const updated = await assistantsApi.update(id, {
-        name,
+        name: dept,
+        departmentName: dept,
+        managerName: mgr,
         primaryLanguage,
         tone,
         instructions,
-        model: model as Assistant["model"],
+        model: DEFAULT_ASSISTANT_MODEL,
         status: isActive ? "active" : "inactive",
       });
       setAssistant(updated);
+      setDepartmentName(updated.departmentName?.trim() || updated.name || "");
+      setManagerName(updated.managerName?.trim() || updated.name || "");
       showSuccess(
-        "Settings saved",
-        "Assistant settings have been updated successfully.",
+        t("assistants.playground.settingsSavedTitle"),
+        t("assistants.playground.settingsSavedBody"),
       );
     } catch (error) {
       console.error("Failed to save settings:", error);
       showError(
-        "Failed to save",
-        "An error occurred while saving settings. Please try again.",
+        t("assistants.playground.settingsSaveFailedTitle"),
+        t("assistants.playground.settingsSaveFailedBody"),
       );
     } finally {
       setIsSaving(false);
@@ -870,23 +1009,34 @@ export const AssistantPlayground: React.FC = () => {
 
   // ── Skill handlers ──
 
-  const isSkillBound = (skillId: string): boolean => {
-    return assistant?.skills?.includes(skillId) ?? false;
+  const isSkillBoundToStaff = (skillId: string, staffId: string | undefined): boolean => {
+    if (!staffId) return assistant?.skills?.includes(skillId) ?? false;
+    const st = assistant?.staff?.find((s) => s._id === staffId);
+    return st?.skillIds?.includes(skillId) ?? false;
   };
 
-  const toggleSkillExpanded = (skillId: string) => {
-    setExpandedSkills((prev) => {
-      const next = new Set(prev);
-      if (next.has(skillId)) {
-        next.delete(skillId);
-      } else {
-        next.add(skillId);
-      }
-      return next;
+  const closeSkillEditorModal = () => {
+    setEditingSkill(null);
+    setSkillForm({
+      name: "",
+      description: "",
+      instructions: "",
+      triggerHints: "",
+      requiredTools: "",
+      reminderDelay: 0,
+      maxReminders: 0,
+      nickname: "",
     });
+    setRefContent("");
+    setScriptList([]);
+    setViewingScript(null);
+    setShowNewScriptForm(false);
+    setSkillDeleteConfirmOpen(false);
+    setSkillEditorTab("basic");
   };
 
-  const openEditModal = (skill: Skill) => {
+  const openSkillEditorModal = async (skill: Skill) => {
+    setSkillEditorTab("basic");
     setEditingSkill(skill);
     setSkillForm({
       name: skill.name,
@@ -896,7 +1046,24 @@ export const AssistantPlayground: React.FC = () => {
       requiredTools: (skill.requiredTools || []).join(", "),
       reminderDelay: skill.reminderDelay || 0,
       maxReminders: skill.maxReminders || 0,
+      nickname: skill.nickname || "",
     });
+    setShowNewScriptForm(false);
+    setViewingScript(null);
+    setRefLoading(true);
+    try {
+      const [ref, scripts] = await Promise.all([
+        skillsApi.getReference(skill._id),
+        skillsApi.listScripts(skill._id),
+      ]);
+      setRefContent(ref || "");
+      setScriptList(scripts);
+    } catch {
+      setRefContent("");
+      setScriptList([]);
+    } finally {
+      setRefLoading(false);
+    }
   };
 
   const handleUpdateSkill = async () => {
@@ -917,12 +1084,12 @@ export const AssistantPlayground: React.FC = () => {
           .filter(Boolean),
         reminderDelay: skillForm.reminderDelay,
         maxReminders: skillForm.maxReminders,
+        nickname: skillForm.nickname.trim() || undefined,
       });
       setAllSkills((prev) =>
         prev.map((s) => (s._id === updated._id ? updated : s)),
       );
-      setEditingSkill(null);
-      setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "", reminderDelay: 0, maxReminders: 0 });
+      closeSkillEditorModal();
       showSuccess("Skill updated", `"${updated.name}" has been updated.`);
     } catch (error: any) {
       const msg = error.response?.data?.error || error.message || "Failed to update skill";
@@ -932,34 +1099,29 @@ export const AssistantPlayground: React.FC = () => {
     }
   };
 
-  const handleToggleSkill = async (skillId: string) => {
+  const handleToggleSkill = async (skillId: string, staffId: string | undefined) => {
     if (!id || bindingSkillId) return;
     setBindingSkillId(skillId);
     try {
-      if (isSkillBound(skillId)) {
-        await skillsApi.unbind(skillId, id);
-        setAssistant((prev) =>
-          prev
-            ? {
-                ...prev,
-                skills: (prev.skills || []).filter((s) => s !== skillId),
-              }
-            : prev,
-        );
+      const targetStaff = staffId || managerStaffId;
+      if (isSkillBoundToStaff(skillId, targetStaff)) {
+        await skillsApi.unbind(skillId, id, targetStaff);
+        await refreshAssistant();
         showSuccess(
           "Skill removed",
-          "Skill has been unbound from this assistant.",
+          "Skill has been unbound from this team member.",
         );
       } else {
-        await skillsApi.bind(skillId, id);
-        setAssistant((prev) =>
-          prev ? { ...prev, skills: [...(prev.skills || []), skillId] } : prev,
-        );
-        showSuccess("Skill added", "Skill has been bound to this assistant.");
+        await skillsApi.bind(skillId, id, targetStaff);
+        await refreshAssistant();
+        showSuccess("Skill added", "Skill has been bound.");
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Failed to toggle skill:", error);
-      showError("Failed", "Could not update skill binding.");
+      const msg =
+        (error as { response?: { data?: { error?: string } } })?.response?.data
+          ?.error || "Could not update skill binding.";
+      showError("Failed", msg);
     } finally {
       setBindingSkillId(null);
     }
@@ -972,12 +1134,15 @@ export const AssistantPlayground: React.FC = () => {
       if (skillFormMode === "upload" && skillUploadFile) {
         const skill = await skillsApi.install(skillUploadFile);
         if (id) {
-          await skillsApi.bind(skill._id, id);
-          setAssistant((prev) =>
-            prev
-              ? { ...prev, skills: [...(prev.skills || []), skill._id] }
-              : prev,
-          );
+          await skillsApi.bind(skill._id, id, managerStaffId);
+          const tools = skillForm.requiredTools
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (tools.length) {
+            await skillsApi.update(skill._id, { requiredTools: tools });
+          }
+          await refreshAssistant();
         }
         showSuccess(
           "Skill installed",
@@ -1006,12 +1171,15 @@ ${skillForm.instructions}
         const skill = await skillsApi.install(file);
 
         if (id) {
-          await skillsApi.bind(skill._id, id);
-          setAssistant((prev) =>
-            prev
-              ? { ...prev, skills: [...(prev.skills || []), skill._id] }
-              : prev,
-          );
+          await skillsApi.bind(skill._id, id, managerStaffId);
+          const tools = skillForm.requiredTools
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (tools.length) {
+            await skillsApi.update(skill._id, { requiredTools: tools });
+          }
+          await refreshAssistant();
         }
         showSuccess(
           "Skill created",
@@ -1027,6 +1195,7 @@ ${skillForm.instructions}
         requiredTools: "",
         reminderDelay: 0,
         maxReminders: 0,
+        nickname: "",
       });
       setSkillUploadFile(null);
       fetchSkills();
@@ -1041,19 +1210,16 @@ ${skillForm.instructions}
     }
   };
 
-  const handleDeleteSkill = async (skillId: string) => {
+  const handleDeleteSkill = async (
+    skillId: string,
+    onSuccess?: () => void,
+  ) => {
     try {
       await skillsApi.delete(skillId);
       setAllSkills((prev) => prev.filter((s) => s._id !== skillId));
-      setAssistant((prev) =>
-        prev
-          ? {
-              ...prev,
-              skills: (prev.skills || []).filter((s) => s !== skillId),
-            }
-          : prev,
-      );
+      await refreshAssistant();
       showSuccess("Skill deleted", "Skill has been removed.");
+      onSuccess?.();
     } catch (error) {
       console.error("Failed to delete skill:", error);
       showError("Failed", "Could not delete skill.");
@@ -1061,30 +1227,6 @@ ${skillForm.instructions}
   };
 
   // ── Skill asset management ──
-
-  const openSkillAssets = async (skillId: string) => {
-    if (managingSkillId === skillId) {
-      setManagingSkillId(null);
-      return;
-    }
-    setManagingSkillId(skillId);
-    setRefLoading(true);
-    setShowNewScriptForm(false);
-    setViewingScript(null);
-    try {
-      const [ref, scripts] = await Promise.all([
-        skillsApi.getReference(skillId),
-        skillsApi.listScripts(skillId),
-      ]);
-      setRefContent(ref || "");
-      setScriptList(scripts);
-    } catch {
-      setRefContent("");
-      setScriptList([]);
-    } finally {
-      setRefLoading(false);
-    }
-  };
 
   const handleSaveReference = async (skillId: string) => {
     setRefSaving(true);
@@ -1303,7 +1445,7 @@ ${skillForm.instructions}
 
   const handleFileClick = async (
     fileId: string,
-    file?: (typeof assistant.files)[0],
+    file?: AssistantFile,
   ) => {
     if (!id) return;
 
@@ -1341,7 +1483,14 @@ ${skillForm.instructions}
 
   // Compute folder structure from files
   const folderStructure = useMemo(() => {
-    if (!assistant) return { folders: [], rootFiles: [], folderFiles: {} };
+    if (!assistant)
+      return {
+        folders: [] as string[],
+        topLevelFolders: [] as string[],
+        childFoldersMap: {} as Record<string, string[]>,
+        rootFiles: [] as AssistantFile[],
+        folderFiles: {} as Record<string, AssistantFile[]>,
+      };
 
     const rootFiles: AssistantFile[] = [];
     const folderFiles: Record<string, AssistantFile[]> = {};
@@ -1740,14 +1889,14 @@ ${skillForm.instructions}
             <h1 className="text-lg font-semibold text-gray-900">
               {t("assistants.playground.title")}
             </h1>
-            <p className="text-sm text-gray-500">{assistant.name}</p>
+            <p className="text-sm text-gray-500">{displayDeptName}</p>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col bg-gray-50">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        {/* Chat Area (visual: right column) */}
+        <div className="order-2 flex w-1/2 min-w-0 shrink-0 flex-col bg-gray-50">
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
             {messages.length === 0 ? (
@@ -1787,7 +1936,7 @@ ${skillForm.instructions}
                           <p className="text-sm font-medium text-gray-900">
                             {message.role === "user"
                               ? t("assistants.playground.you")
-                              : assistant.name}
+                              : displayDeptName}
                           </p>
                           {(() => {
                             const skillMatch = message.content.match(/<!-- skill:(\S+?)(?::complete\s+\{.*?\})? -->/);
@@ -1901,8 +2050,8 @@ ${skillForm.instructions}
                               : agentStatus === "analyzing_audio"
                                 ? "Analyzing audio..."
                                 : agentSteps.length > 0
-                                  ? `${assistant.name} is working...`
-                                  : `${assistant.name} is thinking...`}
+                                  ? `${displayDeptName} is working...`
+                                  : `${displayDeptName} is thinking...`}
                           </span>
                         </div>
                         {agentSteps.length > 0 && (
@@ -2003,53 +2152,117 @@ ${skillForm.instructions}
           </div>
         </div>
 
-        {/* Settings Panel */}
-        <div className="w-[520px] bg-white border-l border-gray-200 flex flex-col">
-          {/* Tabs */}
-          <div className="flex border-b border-gray-200">
-            <button
-              onClick={() => setActiveTab("settings")}
-              className={`flex-1 px-4 py-3 text-sm font-medium ${
-                activeTab === "settings"
-                  ? "text-gray-900 border-b-2 border-gray-900"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {t("assistants.playground.settings")}
-            </button>
-            <button
-              onClick={() => setActiveTab("files")}
-              className={`flex-1 px-4 py-3 text-sm font-medium ${
-                activeTab === "files"
-                  ? "text-gray-900 border-b-2 border-gray-900"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              {t("assistants.playground.files")}
-            </button>
-            <button
-              onClick={() => setActiveTab("skills")}
-              className={`flex-1 px-4 py-3 text-sm font-medium ${
-                activeTab === "skills"
-                  ? "text-gray-900 border-b-2 border-gray-900"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              Skills
-            </button>
+        {/* AI team: full-area flow diagram (visual: left column) */}
+        <div className="order-1 flex min-h-0 w-1/2 min-w-0 flex-col border-r border-gray-200 bg-slate-100/40">
+          <div className="min-h-0 flex-1 p-3">
+            <DepartmentOrgChart
+              departmentName={departmentName || displayDeptName}
+              managerName={managerName}
+              staffItems={staffChartItems}
+              selection={orgSelection}
+              activeHighlight={activeOrgHighlight}
+              processingHighlight={processingOrgHighlight}
+              onSelect={setOrgSelection}
+              onPaneClick={() => setOrgSelection(null)}
+              onAddStaff={() => {
+                setAddStaffForm({ displayName: "", roleTitle: "", responsibilities: "" });
+                setShowAddStaffModal(true);
+              }}
+              onOpenSkillLibrary={() => {
+                setOrgSelection("manager");
+                setManagerSubTab("skills");
+              }}
+              labels={{
+                department: t("assistants.orgChart.department"),
+                manager: t("assistants.orgChart.manager"),
+                staff: t("assistants.orgChart.staff"),
+                addStaff: t("assistants.orgChart.addStaff"),
+                skillLibrary: t("assistants.playground.skillLibrary"),
+                zoomHint: t("assistants.orgChart.zoomHint"),
+                badgeDepartment: t("assistants.orgChart.badgeDepartment"),
+                badgeManager: t("assistants.orgChart.badgeManager"),
+                badgeStaff: t("assistants.orgChart.badgeStaff"),
+              }}
+              className="h-full"
+            />
           </div>
+        </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-            {activeTab === "settings" ? (
+          {/* Node settings: anchored to main area right edge (full width below header) */}
+          <aside
+            className={`absolute inset-y-0 right-0 z-30 flex w-1/2 min-w-[min(100%,360px)] flex-col border-l border-gray-200 bg-white shadow-2xl transition-transform duration-300 ease-out ${
+              orgSelection !== null
+                ? "translate-x-0"
+                : "pointer-events-none translate-x-full"
+            }`}
+            aria-hidden={orgSelection === null}
+          >
+            {orgSelection !== null && (
+              <>
+                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-3 py-2.5">
+                  <span className="truncate text-sm font-semibold text-gray-900">
+                    {orgSelection === "manager"
+                      ? t("assistants.playground.managerPanelTitle")
+                      : selectedStaffMember?.displayName?.trim() ||
+                        t("assistants.playground.settings")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOrgSelection(null)}
+                    className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                    aria-label={t("assistants.playground.closePanel")}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {orgSelection === "manager" ? (
+            <>
+              <div className="flex border-b border-gray-200 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setManagerSubTab("settings")}
+                  className={`flex-1 px-3 py-2.5 text-sm font-medium ${
+                    managerSubTab === "settings"
+                      ? "text-gray-900 border-b-2 border-gray-900"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {t("assistants.playground.settings")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManagerSubTab("files")}
+                  className={`flex-1 px-3 py-2.5 text-sm font-medium ${
+                    managerSubTab === "files"
+                      ? "text-gray-900 border-b-2 border-gray-900"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {t("assistants.playground.files")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManagerSubTab("skills")}
+                  className={`flex-1 px-3 py-2.5 text-sm font-medium ${
+                    managerSubTab === "skills"
+                      ? "text-gray-900 border-b-2 border-gray-900"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {t("assistants.playground.skillLibrary")}
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 scrollbar-thin min-h-0">
+                {managerSubTab === "settings" ? (
               <div className="space-y-6">
-                {/* Status Info */}
+                {/* Status Info — label above value (avoids wide gap from justify-between in this panel) */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">
+                  <div>
+                    <div className="text-sm text-gray-500">
                       {t("assistants.status")}
-                    </span>
-                    <div className="flex items-center gap-1.5">
+                    </div>
+                    <div className="mt-1 flex items-center gap-1.5">
                       <StatusDot status={isActive ? "active" : "inactive"} />
                       <span className="text-sm text-gray-900">
                         {isActive
@@ -2058,32 +2271,37 @@ ${skillForm.instructions}
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">
+                  <div>
+                    <div className="text-sm text-gray-500">
                       {t("assistants.created")}
-                    </span>
-                    <span className="text-sm text-gray-900">
+                    </div>
+                    <div className="text-sm text-gray-900 mt-1">
                       {format(new Date(assistant.createdAt), "MMM d, yyyy")}
-                    </span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">
+                  <div>
+                    <div className="text-sm text-gray-500">
                       {t("assistants.updated")}
-                    </span>
-                    <span className="text-sm text-gray-900">
+                    </div>
+                    <div className="text-sm text-gray-900 mt-1">
                       {format(new Date(assistant.updatedAt), "MMM d, yyyy")}
-                    </span>
+                    </div>
                   </div>
                 </div>
 
                 <hr className="border-gray-200" />
 
-                {/* Assistant Name */}
                 <Input
-                  label={t("assistants.assistantName")}
-                  placeholder="My AI Assistant"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  label={t("assistants.departmentName")}
+                  placeholder="客服部"
+                  value={departmentName}
+                  onChange={(e) => setDepartmentName(e.target.value)}
+                />
+                <Input
+                  label={t("assistants.managerName")}
+                  placeholder={t("assistants.managerNamePlaceholder")}
+                  value={managerName}
+                  onChange={(e) => setManagerName(e.target.value)}
                 />
 
                 {/* Primary Language */}
@@ -2138,18 +2356,6 @@ ${skillForm.instructions}
                   </p>
                 </div>
 
-                {/* Model */}
-                <Select
-                  label={t("assistants.chatModel")}
-                  value={model}
-                  onChange={setModel}
-                  options={[
-                    { value: "gpt-4o", label: "GPT-4o" },
-                    { value: "gpt-4.1", label: "GPT-4.1" },
-                    { value: "claude-3-7-sonnet", label: "Claude 3.7 Sonnet" },
-                  ]}
-                />
-
                 {/* Active Toggle */}
                 <Toggle
                   checked={isActive}
@@ -2167,7 +2373,7 @@ ${skillForm.instructions}
                   {t("common.save")}
                 </Button>
               </div>
-            ) : activeTab === "files" ? (
+            ) : managerSubTab === "files" ? (
               <div className="space-y-4">
                 {/* Upload Area */}
                 <div
@@ -2316,7 +2522,7 @@ ${skillForm.instructions}
                       </div>
 
                       {/* Folders - Render recursively */}
-                      {folderStructure.topLevelFolders.map((folderName) => (
+                      {(folderStructure.topLevelFolders ?? []).map((folderName) => (
                         <FolderTreeItem
                           key={folderName}
                           folderName={folderName}
@@ -2327,7 +2533,9 @@ ${skillForm.instructions}
                           draggedFolder={draggedFolder}
                           renamingFolder={renamingFolder}
                           renameFolderValue={renameFolderValue}
-                          renameFolderInputRef={renameFolderInputRef}
+                          renameFolderInputRef={
+                            renameFolderInputRef as React.RefObject<HTMLInputElement>
+                          }
                           assistantId={id!}
                           onToggleFolder={toggleFolder}
                           onSelectFolder={setSelectedFolder}
@@ -2562,10 +2770,8 @@ ${skillForm.instructions}
                     try {
                       const skill = await skillsApi.installZip(file);
                       if (id) {
-                        await skillsApi.bind(skill._id, id);
-                        setAssistant((prev) =>
-                          prev ? { ...prev, skills: [...(prev.skills || []), skill._id] } : prev,
-                        );
+                        await skillsApi.bind(skill._id, id, managerStaffId);
+                        await refreshAssistant();
                       }
                       await fetchSkills();
                       showSuccess("Skill installed", `"${skill.name}" has been installed and bound.`);
@@ -2605,330 +2811,108 @@ ${skillForm.instructions}
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {allSkills.map((skill) => {
-                      const bound = isSkillBound(skill._id);
-                      const isExpanded = expandedSkills.has(skill._id);
+                      const bound = isSkillBoundToStaff(skill._id, managerStaffId);
+                      const busy = bindingSkillId === skill._id;
+                      const initial = (skill.name?.trim() || "?").slice(0, 1).toUpperCase();
+                      const desc = (skill.description || "").trim() || skill.slug;
                       return (
                         <div
                           key={skill._id}
-                          className={`rounded-lg transition-all ${
+                          className={`flex flex-col overflow-hidden rounded-xl border transition-all ${
                             bound
-                              ? " ring-1 ring-primary/10"
-                              : "bg-white border border-gray-100 hover:border-gray-200"
+                              ? "border-primary/35 bg-primary/[0.06] shadow-sm ring-1 ring-primary/15"
+                              : "border-gray-200 bg-white hover:border-gray-300"
                           }`}
                         >
-                          {/* Header row: expandable */}
-                          <button
-                            onClick={() => toggleSkillExpanded(skill._id)}
-                            className="w-full flex items-center justify-between p-3 text-left"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-sm font-medium text-text-primary truncate">
-                                {skill.name}
-                              </span>
-                              <span className="text-[10px] text-text-secondary bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">
-                                {skill.slug}
-                              </span>
-                              {bound && (
-                                <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded flex-shrink-0">
-                                  Active
-                                </span>
-                              )}
-                              {/* Structure badges */}
-                              {skill.hasReferences && (
-                                <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded flex-shrink-0" title="Has reference documentation">
-                                  ref
-                                </span>
-                              )}
-                              {skill.hasExamples && (
-                                <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded flex-shrink-0" title="Has examples">
-                                  ex
-                                </span>
-                              )}
-                              {(skill.scripts || []).length > 0 && (
-                                <span className="text-[10px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded flex-shrink-0" title={`Scripts: ${(skill.scripts || []).join(', ')}`}>
-                                  {(skill.scripts || []).length} script{(skill.scripts || []).length > 1 ? 's' : ''}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                          <div className="flex items-stretch gap-3 p-3">
+                            <button
+                              type="button"
+                              className="flex min-w-0 flex-1 items-stretch gap-3 rounded-lg text-left outline-none ring-primary/40 focus-visible:ring-2"
+                              onDoubleClick={() => void openSkillEditorModal(skill)}
+                              title={t("assistants.playground.skillEditorDoubleClickHint")}
+                            >
+                              <div
+                                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
+                                  bound
+                                    ? "bg-primary/15 text-primary"
+                                    : "bg-gray-100 text-gray-600"
+                                }`}
+                              >
+                                {initial}
+                              </div>
+                              <div className="min-w-0 flex-1 py-0.5">
+                                <p
+                                  className={`text-sm font-semibold leading-tight truncate ${
+                                    bound ? "text-primary" : "text-gray-900"
+                                  }`}
+                                >
+                                  {skill.name}
+                                </p>
+                                <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-gray-500">
+                                  {desc}
+                                </p>
+                                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-text-secondary">
+                                    {skill.slug}
+                                  </span>
+                                  {bound && (
+                                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                                      Active
+                                    </span>
+                                  )}
+                                  {skill.hasReferences && (
+                                    <span
+                                      className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-600"
+                                      title="Has reference documentation"
+                                    >
+                                      ref
+                                    </span>
+                                  )}
+                                  {skill.hasExamples && (
+                                    <span
+                                      className="rounded bg-green-50 px-1.5 py-0.5 text-[10px] text-green-600"
+                                      title="Has examples"
+                                    >
+                                      ex
+                                    </span>
+                                  )}
+                                  {(skill.scripts || []).length > 0 && (
+                                    <span
+                                      className="rounded bg-purple-50 px-1.5 py-0.5 text-[10px] text-purple-600"
+                                      title={`Scripts: ${(skill.scripts || []).join(", ")}`}
+                                    >
+                                      {(skill.scripts || []).length} script
+                                      {(skill.scripts || []).length > 1 ? "s" : ""}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                            <div
+                              className="flex shrink-0 flex-col items-end justify-center gap-2"
+                              onClick={(e) => e.stopPropagation()}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                            >
                               <Toggle
                                 checked={bound}
-                                onChange={() => handleToggleSkill(skill._id)}
-                                disabled={bindingSkillId === skill._id}
+                                onChange={() =>
+                                  handleToggleSkill(skill._id, managerStaffId)
+                                }
+                                disabled={busy}
                               />
-                              <span className="text-gray-400">
-                                {isExpanded ? (
-                                  <ChevronDown className="w-4 h-4" />
-                                ) : (
-                                  <ChevronRight className="w-4 h-4" />
-                                )}
-                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void openSkillEditorModal(skill)}
+                                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-primary"
+                                aria-label={t("assistants.staffProfile.editSkill")}
+                                title={t("assistants.staffProfile.editSkill")}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
                             </div>
-                          </button>
-
-                          {/* Expanded content */}
-                          {isExpanded && (
-                            <div className="px-3 pb-3 pt-0">
-                              <div className="pt-2 border-t border-gray-100/60">
-                                {/* Description */}
-                                <p className="text-xs text-text-secondary leading-relaxed mb-3">
-                                  {skill.description}
-                                </p>
-
-                                {/* Trigger hints */}
-                                {(skill.triggerHints || []).length > 0 && (
-                                  <div className="flex flex-wrap gap-1.5 mb-3">
-                                    {(skill.triggerHints || []).map((hint, i) => (
-                                      <span
-                                        key={i}
-                                        className="inline-block px-2 py-0.5 text-[11px] text-text-secondary bg-gray-50 rounded-full"
-                                      >
-                                        {hint}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* Actions */}
-                                {!skill.isBuiltIn && (
-                                  <div className="flex justify-end gap-3">
-                                    <button
-                                      onClick={() => openSkillAssets(skill._id)}
-                                      className={`text-xs transition-colors flex items-center gap-1 ${
-                                        managingSkillId === skill._id
-                                          ? "text-primary"
-                                          : "text-gray-400 hover:text-primary"
-                                      }`}
-                                    >
-                                      <Folder className="w-3.5 h-3.5" />
-                                      Assets
-                                    </button>
-                                    <button
-                                      onClick={() => openEditModal(skill)}
-                                      className="text-xs text-gray-400 hover:text-primary transition-colors flex items-center gap-1"
-                                    >
-                                      <Pencil className="w-3.5 h-3.5" />
-                                      Edit
-                                    </button>
-                                    <button
-                                      onClick={() =>
-                                        handleDeleteSkill(skill._id)
-                                      }
-                                      className="text-xs text-gray-400 hover:text-error transition-colors flex items-center gap-1"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                      Delete
-                                    </button>
-                                  </div>
-                                )}
-
-                                {/* Assets panel */}
-                                {managingSkillId === skill._id && !skill.isBuiltIn && (
-                                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-4">
-                                    {refLoading ? (
-                                      <div className="flex items-center gap-2 text-xs text-text-secondary">
-                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        Loading assets...
-                                      </div>
-                                    ) : (
-                                      <>
-                                        {/* ── Reference Document ── */}
-                                        <div>
-                                          <div className="flex items-center justify-between mb-2">
-                                            <div className="flex items-center gap-1.5">
-                                              <BookOpen className="w-3.5 h-3.5 text-blue-500" />
-                                              <span className="text-xs font-medium text-text-primary">Reference Document</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                              <button
-                                                onClick={() => refUploadRef.current?.click()}
-                                                className="text-[10px] text-text-secondary hover:text-primary transition-colors flex items-center gap-0.5"
-                                              >
-                                                <Upload className="w-3 h-3" />
-                                                Upload
-                                              </button>
-                                              <input
-                                                ref={refUploadRef}
-                                                type="file"
-                                                accept=".md,.txt"
-                                                className="hidden"
-                                                onChange={(e) => {
-                                                  const file = e.target.files?.[0];
-                                                  if (file) handleUploadReference(skill._id, file);
-                                                  e.target.value = "";
-                                                }}
-                                              />
-                                              {refContent && (
-                                                <button
-                                                  onClick={() => handleDeleteReference(skill._id)}
-                                                  className="text-[10px] text-text-secondary hover:text-error transition-colors flex items-center gap-0.5"
-                                                >
-                                                  <Trash2 className="w-3 h-3" />
-                                                  Remove
-                                                </button>
-                                              )}
-                                            </div>
-                                          </div>
-                                          <textarea
-                                            value={refContent}
-                                            onChange={(e) => setRefContent(e.target.value)}
-                                            placeholder="Paste reference documentation here (loaded on-demand by the AI when needed)..."
-                                            rows={4}
-                                            className="w-full text-xs font-mono bg-gray-50 border border-gray-200 rounded-md p-2 resize-y focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40"
-                                          />
-                                          <div className="flex justify-end mt-1.5">
-                                            <button
-                                              onClick={() => handleSaveReference(skill._id)}
-                                              disabled={refSaving}
-                                              className="text-[11px] font-medium text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 px-3 py-1 rounded-md transition-colors flex items-center gap-1"
-                                            >
-                                              {refSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                                              Save Reference
-                                            </button>
-                                          </div>
-                                        </div>
-
-                                        {/* ── Scripts ── */}
-                                        <div>
-                                          <div className="flex items-center justify-between mb-2">
-                                            <div className="flex items-center gap-1.5">
-                                              <Code className="w-3.5 h-3.5 text-purple-500" />
-                                              <span className="text-xs font-medium text-text-primary">Scripts</span>
-                                              <span className="text-[10px] text-text-secondary">({scriptList.length})</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                              <button
-                                                onClick={() => scriptUploadRef.current?.click()}
-                                                className="text-[10px] text-text-secondary hover:text-primary transition-colors flex items-center gap-0.5"
-                                              >
-                                                <Upload className="w-3 h-3" />
-                                                Upload
-                                              </button>
-                                              <input
-                                                ref={scriptUploadRef}
-                                                type="file"
-                                                accept=".js,.ts,.py,.sh,.bash,.rb,.php"
-                                                className="hidden"
-                                                onChange={(e) => {
-                                                  const file = e.target.files?.[0];
-                                                  if (file) handleUploadScript(skill._id, file);
-                                                  e.target.value = "";
-                                                }}
-                                              />
-                                              <button
-                                                onClick={() => setShowNewScriptForm(!showNewScriptForm)}
-                                                className="text-[10px] text-text-secondary hover:text-primary transition-colors flex items-center gap-0.5"
-                                              >
-                                                <Plus className="w-3 h-3" />
-                                                New
-                                              </button>
-                                            </div>
-                                          </div>
-
-                                          {scriptList.length > 0 && (
-                                            <div className="space-y-1 mb-2">
-                                              {scriptList.map((filename) => (
-                                                <div
-                                                  key={filename}
-                                                  className="flex items-center justify-between bg-gray-50 rounded-md px-2.5 py-1.5 group"
-                                                >
-                                                  <div className="flex items-center gap-1.5">
-                                                    <Code className="w-3 h-3 text-purple-400" />
-                                                    <span className="text-[11px] font-mono text-text-primary">{filename}</span>
-                                                  </div>
-                                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button
-                                                      onClick={() => handleViewScript(skill._id, filename)}
-                                                      className="text-[10px] text-text-secondary hover:text-primary transition-colors p-0.5"
-                                                      title="View"
-                                                    >
-                                                      <Eye className="w-3 h-3" />
-                                                    </button>
-                                                    <button
-                                                      onClick={() => handleDeleteScript(skill._id, filename)}
-                                                      className="text-[10px] text-text-secondary hover:text-error transition-colors p-0.5"
-                                                      title="Delete"
-                                                    >
-                                                      <Trash2 className="w-3 h-3" />
-                                                    </button>
-                                                  </div>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          )}
-
-                                          {/* Viewing script content */}
-                                          {viewingScript && (
-                                            <div className="mb-2">
-                                              <div className="flex items-center justify-between mb-1">
-                                                <span className="text-[10px] font-medium text-text-secondary">{viewingScript.filename}</span>
-                                                <button
-                                                  onClick={() => setViewingScript(null)}
-                                                  className="text-[10px] text-text-secondary hover:text-text-primary"
-                                                >
-                                                  <X className="w-3 h-3" />
-                                                </button>
-                                              </div>
-                                              <pre className="text-[11px] font-mono bg-gray-900 text-gray-100 rounded-md p-2.5 overflow-x-auto max-h-48 overflow-y-auto">
-                                                {viewingScript.content}
-                                              </pre>
-                                            </div>
-                                          )}
-
-                                          {/* New script form */}
-                                          {showNewScriptForm && (
-                                            <div className="bg-gray-50 rounded-md p-2.5 space-y-2">
-                                              <input
-                                                value={newScriptName}
-                                                onChange={(e) => setNewScriptName(e.target.value)}
-                                                placeholder="filename.py (e.g. check_availability.py)"
-                                                className="w-full text-xs bg-white border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                                              />
-                                              <textarea
-                                                value={newScriptContent}
-                                                onChange={(e) => setNewScriptContent(e.target.value)}
-                                                placeholder="Script content..."
-                                                rows={5}
-                                                className="w-full text-xs font-mono bg-white border border-gray-200 rounded p-2 resize-y focus:outline-none focus:ring-1 focus:ring-primary/30"
-                                              />
-                                              <div className="flex justify-end gap-2">
-                                                <button
-                                                  onClick={() => {
-                                                    setShowNewScriptForm(false);
-                                                    setNewScriptName("");
-                                                    setNewScriptContent("");
-                                                  }}
-                                                  className="text-[11px] text-text-secondary hover:text-text-primary px-2 py-1 rounded transition-colors"
-                                                >
-                                                  Cancel
-                                                </button>
-                                                <button
-                                                  onClick={() => handleCreateScript(skill._id)}
-                                                  disabled={!newScriptName || !newScriptContent || scriptSaving}
-                                                  className="text-[11px] font-medium text-white bg-gray-900 hover:bg-gray-800 disabled:opacity-50 px-3 py-1 rounded-md transition-colors flex items-center gap-1"
-                                                >
-                                                  {scriptSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-                                                  Create Script
-                                                </button>
-                                              </div>
-                                            </div>
-                                          )}
-
-                                          {scriptList.length === 0 && !showNewScriptForm && (
-                                            <p className="text-[11px] text-text-secondary italic">
-                                              No scripts yet. Scripts run as subprocesses — code is never sent to the LLM.
-                                            </p>
-                                          )}
-                                        </div>
-                                      </>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
+                          </div>
                         </div>
                       );
                     })}
@@ -2949,6 +2933,7 @@ ${skillForm.instructions}
                         requiredTools: "",
                         reminderDelay: 0,
                         maxReminders: 0,
+                        nickname: "",
                       });
                       setSkillUploadFile(null);
                     }}
@@ -2972,6 +2957,7 @@ ${skillForm.instructions}
                               requiredTools: "",
                               reminderDelay: 0,
                               maxReminders: 0,
+                              nickname: "",
                             });
                             setSkillUploadFile(null);
                           }}
@@ -3148,133 +3134,800 @@ ${skillForm.instructions}
                   </Modal>
                 )}
 
-                {/* Edit Skill Modal */}
+                {/* Unified skill editor: details + reference + scripts */}
                 {editingSkill && (
-                  <Modal
-                    isOpen={!!editingSkill}
-                    onClose={() => {
-                      setEditingSkill(null);
-                      setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "", reminderDelay: 0, maxReminders: 0 });
-                    }}
-                    title="Edit Skill"
-                    size="lg"
-                    footer={
-                      <div className="flex gap-2 justify-end">
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setEditingSkill(null);
-                            setSkillForm({ name: "", description: "", instructions: "", triggerHints: "", requiredTools: "", reminderDelay: 0, maxReminders: 0 });
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handleUpdateSkill}
-                          isLoading={isUpdatingSkill}
-                          disabled={!skillForm.name || !skillForm.description}
-                        >
-                          Save Changes
-                        </Button>
-                      </div>
-                    }
-                  >
-                    <div className="space-y-4">
-                      <Input
-                        label="Name"
-                        value={skillForm.name}
-                        onChange={(e) => setSkillForm({ ...skillForm, name: e.target.value })}
-                        placeholder="e.g. Booking Handler"
-                      />
-                      <Textarea
-                        label="Description"
-                        value={skillForm.description}
-                        onChange={(e) => setSkillForm({ ...skillForm, description: e.target.value })}
-                        placeholder="When should the AI use this skill? (e.g. Use when customer says hello)"
-                        rows={2}
-                      />
-                      <Textarea
-                        label="Instructions"
-                        value={skillForm.instructions}
-                        onChange={(e) => setSkillForm({ ...skillForm, instructions: e.target.value })}
-                        placeholder="Step-by-step instructions for the AI to follow when this skill runs..."
-                        rows={8}
-                      />
-                      <Input
-                        label="Trigger Hints (comma-separated)"
-                        value={skillForm.triggerHints}
-                        onChange={(e) => setSkillForm({ ...skillForm, triggerHints: e.target.value })}
-                        placeholder="e.g. hello, greet, welcome, 你好"
-                      />
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Tools Access
-                        </label>
-                        <div className="flex flex-wrap gap-2">
-                          {["knowledge_base", "calendar", "contact_lookup", "conversation_history", "media_analysis", "google_gmail", "google_calendar", "google_drive", "google_sheets"].map((tool) => {
-                            const selected = skillForm.requiredTools.split(",").map(s => s.trim()).filter(Boolean).includes(tool);
-                            return (
-                              <button
-                                key={tool}
+                  <>
+                    <Modal
+                      isOpen={!!editingSkill}
+                      onClose={closeSkillEditorModal}
+                      title={
+                        editingSkill.isBuiltIn
+                          ? t("assistants.playground.skillEditorTitleView")
+                          : t("assistants.playground.skillEditorTitleEdit")
+                      }
+                      size="full"
+                      bodyScroll
+                      footer={
+                        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                          <div>
+                            {!editingSkill.isBuiltIn && (
+                              <Button
                                 type="button"
-                                onClick={() => {
-                                  const current = skillForm.requiredTools.split(",").map(s => s.trim()).filter(Boolean);
-                                  const next = selected ? current.filter(t => t !== tool) : [...current, tool];
-                                  setSkillForm({ ...skillForm, requiredTools: next.join(", ") });
-                                }}
-                                className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
-                                  selected
-                                    ? "bg-blue-50 border-blue-300 text-blue-700"
-                                    : "bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300"
-                                }`}
+                                variant="outline"
+                                className="border-error/40 text-error hover:bg-error/5"
+                                onClick={() => setSkillDeleteConfirmOpen(true)}
                               >
-                                {tool.replace(/_/g, " ")}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Idle Reminder
-                        </label>
-                        <p className="text-xs text-gray-400 mb-2">
-                          Automatically nudge the user if they don't respond within the delay.
-                        </p>
-                        <div className="flex gap-3">
-                          <div className="flex-1">
-                            <label className="block text-xs text-gray-500 mb-1">Delay (minutes)</label>
-                            <input
-                              type="number"
-                              min={0}
-                              value={skillForm.reminderDelay}
-                              onChange={(e) => setSkillForm({ ...skillForm, reminderDelay: parseInt(e.target.value) || 0 })}
-                              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="0 = disabled"
-                            />
+                                {t("common.delete")}
+                              </Button>
+                            )}
                           </div>
-                          <div className="flex-1">
-                            <label className="block text-xs text-gray-500 mb-1">Max reminders</label>
-                            <input
-                              type="number"
-                              min={0}
-                              max={5}
-                              value={skillForm.maxReminders}
-                              onChange={(e) => setSkillForm({ ...skillForm, maxReminders: parseInt(e.target.value) || 0 })}
-                              className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="0 = disabled"
-                            />
+                          <div className="flex flex-wrap gap-2 justify-end">
+                            <Button variant="outline" onClick={closeSkillEditorModal}>
+                              {t("common.cancel")}
+                            </Button>
+                            {!editingSkill.isBuiltIn && (
+                              <Button
+                                onClick={handleUpdateSkill}
+                                isLoading={isUpdatingSkill}
+                                disabled={!skillForm.name || !skillForm.description}
+                              >
+                                {t("common.save")}
+                              </Button>
+                            )}
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  </Modal>
+                      }
+                    >
+                      {(() => {
+                        const skillRo = editingSkill.isBuiltIn;
+                        const sid = editingSkill._id;
+                        return (
+                          <div className="flex min-h-0 flex-1 flex-col gap-4">
+                            <p className="shrink-0 text-xs text-text-secondary font-mono">
+                              {editingSkill.slug}
+                            </p>
+                            {skillRo && (
+                              <p className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                {t("assistants.playground.skillBuiltInReadOnly")}
+                              </p>
+                            )}
+
+                            <div
+                              className="flex shrink-0 flex-wrap gap-0.5 border-b border-gray-200"
+                              role="tablist"
+                            >
+                              {(
+                                [
+                                  [
+                                    "basic",
+                                    t("assistants.playground.skillEditorTabBasic"),
+                                  ],
+                                  [
+                                    "content",
+                                    t("assistants.playground.skillEditorTabSkillContent"),
+                                  ],
+                                  [
+                                    "reference",
+                                    t("assistants.playground.skillEditorTabReference"),
+                                  ],
+                                  [
+                                    "scripts",
+                                    `${t("assistants.playground.skillEditorTabScripts")} (${scriptList.length})`,
+                                  ],
+                                  [
+                                    "other",
+                                    t("assistants.playground.skillEditorTabOther"),
+                                  ],
+                                ] as const
+                              ).map(([tabId, tabLabel]) => (
+                                <button
+                                  key={tabId}
+                                  type="button"
+                                  role="tab"
+                                  aria-selected={skillEditorTab === tabId}
+                                  onClick={() => setSkillEditorTab(tabId)}
+                                  className={`rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition-colors -mb-px ${
+                                    skillEditorTab === tabId
+                                      ? "border-primary text-primary"
+                                      : "border-transparent text-text-secondary hover:text-text-primary"
+                                  }`}
+                                >
+                                  {tabLabel}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div
+                              className="flex min-h-0 flex-1 flex-col overflow-hidden pt-1"
+                              role="tabpanel"
+                            >
+                              {skillEditorTab === "basic" && (
+                                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                                  <div className="space-y-4">
+                                  <Input
+                                    label={t("assistants.name")}
+                                    value={skillForm.name}
+                                    disabled={skillRo}
+                                    onChange={(e) =>
+                                      setSkillForm({ ...skillForm, name: e.target.value })
+                                    }
+                                    placeholder="e.g. Booking Handler"
+                                  />
+                                  <Input
+                                    label={t("assistants.staffNickname")}
+                                    value={skillForm.nickname}
+                                    disabled={skillRo}
+                                    onChange={(e) =>
+                                      setSkillForm({ ...skillForm, nickname: e.target.value })
+                                    }
+                                    placeholder={t("assistants.staffNicknamePlaceholder")}
+                                  />
+                                  <Textarea
+                                    label={t("assistants.playground.skillFieldDescription")}
+                                    value={skillForm.description}
+                                    disabled={skillRo}
+                                    onChange={(e) =>
+                                      setSkillForm({ ...skillForm, description: e.target.value })
+                                    }
+                                    placeholder="When should the AI use this skill? (e.g. Use when customer says hello)"
+                                    rows={3}
+                                    className="resize-y"
+                                  />
+                                  <Input
+                                    label={t("assistants.playground.skillFieldTriggerHints")}
+                                    value={skillForm.triggerHints}
+                                    disabled={skillRo}
+                                    onChange={(e) =>
+                                      setSkillForm({ ...skillForm, triggerHints: e.target.value })
+                                    }
+                                    placeholder="e.g. hello, greet, welcome, 你好"
+                                  />
+                                  </div>
+                                </div>
+                              )}
+
+                              {skillEditorTab === "content" && (
+                                <div className="flex min-h-0 flex-1 flex-col">
+                                  <Textarea
+                                    label={t("assistants.playground.skillFieldInstructionsBody")}
+                                    value={skillForm.instructions}
+                                    disabled={skillRo}
+                                    onChange={(e) =>
+                                      setSkillForm({ ...skillForm, instructions: e.target.value })
+                                    }
+                                    placeholder="Step-by-step instructions for the AI to follow when this skill runs..."
+                                    containerClassName="flex min-h-0 flex-1 flex-col"
+                                    className="min-h-0 flex-1 resize-none"
+                                  />
+                                </div>
+                              )}
+
+                              {skillEditorTab === "reference" && (
+                                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                                  {skillRo ? (
+                                  <p className="text-sm text-text-secondary">
+                                    {t("assistants.playground.skillBuiltInReadOnly")}
+                                  </p>
+                                ) : refLoading ? (
+                                  <div className="flex items-center gap-2 text-sm text-text-secondary">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    {t("common.loading")}
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3">
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => refUploadRef.current?.click()}
+                                        className="flex items-center gap-1 text-xs text-text-secondary hover:text-primary"
+                                      >
+                                        <Upload className="h-3.5 w-3.5" />
+                                        {t("assistants.playground.skillReferenceUpload")}
+                                      </button>
+                                      <input
+                                        ref={refUploadRef}
+                                        type="file"
+                                        accept=".md,.txt"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (file) handleUploadReference(sid, file);
+                                          e.target.value = "";
+                                        }}
+                                      />
+                                      {refContent && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteReference(sid)}
+                                          className="flex items-center gap-1 text-xs text-text-secondary hover:text-error"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                          {t("assistants.playground.skillReferenceRemove")}
+                                        </button>
+                                      )}
+                                    </div>
+                                    <textarea
+                                      value={refContent}
+                                      onChange={(e) => setRefContent(e.target.value)}
+                                      placeholder={t(
+                                        "assistants.playground.skillReferencePlaceholder",
+                                      )}
+                                      rows={12}
+                                      className="w-full min-h-[200px] resize-y rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-xs focus:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                    />
+                                    <div className="flex justify-end">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() => handleSaveReference(sid)}
+                                        disabled={refSaving}
+                                        isLoading={refSaving}
+                                      >
+                                        {t("assistants.playground.skillSaveReference")}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                                </div>
+                              )}
+
+                              {skillEditorTab === "scripts" &&
+                                (skillRo ? (
+                                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                                  <p className="text-sm text-text-secondary">
+                                    {t("assistants.playground.skillBuiltInReadOnly")}
+                                  </p>
+                                  </div>
+                                ) : (
+                                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                                  <div>
+                                    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => scriptUploadRef.current?.click()}
+                                        className="flex items-center gap-1 text-xs text-text-secondary hover:text-primary"
+                                      >
+                                        <Upload className="h-3.5 w-3.5" />
+                                        {t("assistants.playground.skillScriptUpload")}
+                                      </button>
+                                      <input
+                                        ref={scriptUploadRef}
+                                        type="file"
+                                        accept=".js,.ts,.py,.sh,.bash,.rb,.php"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (file) handleUploadScript(sid, file);
+                                          e.target.value = "";
+                                        }}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowNewScriptForm(!showNewScriptForm)}
+                                        className="flex items-center gap-1 text-xs text-text-secondary hover:text-primary"
+                                      >
+                                        <Plus className="h-3.5 w-3.5" />
+                                        {t("assistants.playground.skillScriptNew")}
+                                      </button>
+                                    </div>
+
+                                    {scriptList.length > 0 && (
+                                      <div className="mb-3 space-y-1">
+                                        {scriptList.map((filename) => (
+                                          <div
+                                            key={filename}
+                                            className="group flex items-center justify-between rounded-md bg-gray-50 px-2.5 py-1.5"
+                                          >
+                                            <div className="flex min-w-0 items-center gap-1.5">
+                                              <Code className="h-3.5 w-3.5 shrink-0 text-purple-400" />
+                                              <span className="truncate font-mono text-[11px] text-text-primary">
+                                                {filename}
+                                              </span>
+                                            </div>
+                                            <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleViewScript(sid, filename)}
+                                                className="rounded p-0.5 text-text-secondary hover:text-primary"
+                                                title={t("assistants.playground.viewScript")}
+                                              >
+                                                <Eye className="h-3.5 w-3.5" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleDeleteScript(sid, filename)}
+                                                className="rounded p-0.5 text-text-secondary hover:text-error"
+                                                title={t("common.delete")}
+                                              >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {viewingScript && (
+                                      <div className="mb-3">
+                                        <div className="mb-1 flex items-center justify-between">
+                                          <span className="text-xs font-medium text-text-secondary">
+                                            {viewingScript.filename}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setViewingScript(null)}
+                                            className="text-text-secondary hover:text-text-primary"
+                                          >
+                                            <X className="h-4 w-4" />
+                                          </button>
+                                        </div>
+                                        <pre className="max-h-72 overflow-auto rounded-md bg-gray-900 p-3 font-mono text-[11px] text-gray-100">
+                                          {viewingScript.content}
+                                        </pre>
+                                      </div>
+                                    )}
+
+                                    {showNewScriptForm && (
+                                      <div className="space-y-2 rounded-md bg-gray-50 p-3">
+                                        <input
+                                          value={newScriptName}
+                                          onChange={(e) => setNewScriptName(e.target.value)}
+                                          placeholder={t(
+                                            "assistants.playground.skillScriptFilenamePlaceholder",
+                                          )}
+                                          className="w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                        />
+                                        <textarea
+                                          value={newScriptContent}
+                                          onChange={(e) => setNewScriptContent(e.target.value)}
+                                          placeholder={t(
+                                            "assistants.playground.skillScriptContentPlaceholder",
+                                          )}
+                                          rows={8}
+                                          className="min-h-[140px] w-full resize-y rounded border border-gray-200 bg-white p-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                        />
+                                        <div className="flex justify-end gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setShowNewScriptForm(false);
+                                              setNewScriptName("");
+                                              setNewScriptContent("");
+                                            }}
+                                            className="rounded px-2 py-1 text-xs text-text-secondary hover:text-text-primary"
+                                          >
+                                            {t("common.cancel")}
+                                          </button>
+                                          <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => handleCreateScript(sid)}
+                                            disabled={
+                                              !newScriptName ||
+                                              !newScriptContent ||
+                                              scriptSaving
+                                            }
+                                            isLoading={scriptSaving}
+                                          >
+                                            {t("assistants.playground.skillScriptCreate")}
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {scriptList.length === 0 && !showNewScriptForm && (
+                                      <p className="text-[11px] italic text-text-secondary">
+                                        {t("assistants.playground.skillScriptsEmpty")}
+                                      </p>
+                                    )}
+                                  </div>
+                                  </div>
+                                ))}
+
+                              {skillEditorTab === "other" && (
+                                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                                <div className="space-y-4">
+                                  <div>
+                                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                                      {t("assistants.playground.skillFieldToolsAccess")}
+                                    </label>
+                                    <div className="flex flex-wrap gap-2">
+                                      {[
+                                        "knowledge_base",
+                                        "calendar",
+                                        "contact_lookup",
+                                        "conversation_history",
+                                        "media_analysis",
+                                        "google_gmail",
+                                        "google_calendar",
+                                        "google_drive",
+                                        "google_sheets",
+                                      ].map((tool) => {
+                                        const selected = skillForm.requiredTools
+                                          .split(",")
+                                          .map((s) => s.trim())
+                                          .filter(Boolean)
+                                          .includes(tool);
+                                        return (
+                                          <button
+                                            key={tool}
+                                            type="button"
+                                            disabled={skillRo}
+                                            onClick={() => {
+                                              if (skillRo) return;
+                                              const current = skillForm.requiredTools
+                                                .split(",")
+                                                .map((s) => s.trim())
+                                                .filter(Boolean);
+                                              const next = selected
+                                                ? current.filter((x) => x !== tool)
+                                                : [...current, tool];
+                                              setSkillForm({
+                                                ...skillForm,
+                                                requiredTools: next.join(", "),
+                                              });
+                                            }}
+                                            className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                              selected
+                                                ? "border-blue-300 bg-blue-50 text-blue-700"
+                                                : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
+                                            } ${skillRo ? "cursor-not-allowed opacity-60" : ""}`}
+                                          >
+                                            {tool.replace(/_/g, " ")}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                                      {t("assistants.playground.skillFieldIdleReminder")}
+                                    </label>
+                                    <p className="mb-2 text-xs text-gray-400">
+                                      {t("assistants.playground.skillFieldIdleReminderHint")}
+                                    </p>
+                                    <div className="flex gap-3">
+                                      <div className="flex-1">
+                                        <label className="mb-1 block text-xs text-gray-500">
+                                          {t("assistants.playground.skillFieldReminderDelay")}
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          disabled={skillRo}
+                                          value={skillForm.reminderDelay}
+                                          onChange={(e) =>
+                                            setSkillForm({
+                                              ...skillForm,
+                                              reminderDelay: parseInt(e.target.value) || 0,
+                                            })
+                                          }
+                                          className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                          placeholder="0 = disabled"
+                                        />
+                                      </div>
+                                      <div className="flex-1">
+                                        <label className="mb-1 block text-xs text-gray-500">
+                                          {t("assistants.playground.skillFieldMaxReminders")}
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          max={5}
+                                          disabled={skillRo}
+                                          value={skillForm.maxReminders}
+                                          onChange={(e) =>
+                                            setSkillForm({
+                                              ...skillForm,
+                                              maxReminders: parseInt(e.target.value) || 0,
+                                            })
+                                          }
+                                          className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                          placeholder="0 = disabled"
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </Modal>
+
+                    <ConfirmModal
+                      isOpen={skillDeleteConfirmOpen && !!editingSkill}
+                      onClose={() => setSkillDeleteConfirmOpen(false)}
+                      onConfirm={async () => {
+                        if (!editingSkill) return;
+                        setIsDeletingSkill(true);
+                        try {
+                          await handleDeleteSkill(editingSkill._id, closeSkillEditorModal);
+                        } finally {
+                          setIsDeletingSkill(false);
+                        }
+                      }}
+                      title={t("common.delete")}
+                      message={t("assistants.playground.skillDeleteConfirm")}
+                      confirmText={t("common.delete")}
+                      cancelText={t("common.cancel")}
+                      variant="danger"
+                      isLoading={isDeletingSkill}
+                    />
+                  </>
                 )}
               </div>
+                )}
+              </div>
+            </>
+          ) : selectedStaffMember ? (
+            <div className="flex flex-1 flex-col min-h-0 overflow-y-auto">
+              <div className="space-y-3 p-4">
+                <p className="text-xs font-medium text-gray-500">
+                  {t("assistants.staffProfile.sectionTitle")}
+                </p>
+                <Input
+                  label={t("assistants.staffProfile.displayName")}
+                  value={staffRowDraft.displayName}
+                  onChange={(e) =>
+                    setStaffRowDraft((d) => ({ ...d, displayName: e.target.value }))
+                  }
+                />
+                <Input
+                  label={t("assistants.staffProfile.roleTitle")}
+                  value={staffRowDraft.roleTitle}
+                  onChange={(e) =>
+                    setStaffRowDraft((d) => ({ ...d, roleTitle: e.target.value }))
+                  }
+                />
+                <Textarea
+                  label={t("assistants.staffProfile.responsibilities")}
+                  value={staffRowDraft.responsibilities}
+                  onChange={(e) =>
+                    setStaffRowDraft((d) => ({ ...d, responsibilities: e.target.value }))
+                  }
+                  rows={3}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    isLoading={isSavingStaffRow}
+                    onClick={async () => {
+                      if (!id || !selectedStaffMember) return;
+                      setIsSavingStaffRow(true);
+                      try {
+                        const updated = await assistantsApi.updateStaff(
+                          id,
+                          selectedStaffMember._id,
+                          {
+                            displayName: staffRowDraft.displayName.trim(),
+                            roleTitle: staffRowDraft.roleTitle.trim(),
+                            responsibilities: staffRowDraft.responsibilities,
+                          },
+                        );
+                        setAssistant(updated);
+                        setManagerName(
+                          updated.managerName?.trim() ||
+                            updated.name ||
+                            managerName,
+                        );
+                        showSuccess(t("common.saved"), "");
+                      } catch (e: unknown) {
+                        showError(
+                          t("common.error"),
+                          (e as { response?: { data?: { error?: string } } })?.response
+                            ?.data?.error || "Failed",
+                        );
+                      } finally {
+                        setIsSavingStaffRow(false);
+                      }
+                    }}
+                  >
+                    {t("assistants.staffProfile.save")}
+                  </Button>
+                  {!selectedStaffMember.isManager && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-error border-error/40"
+                      onClick={async () => {
+                        if (!id || !selectedStaffMember) return;
+                        if (
+                          !window.confirm(t("assistants.staffProfile.deleteConfirm"))
+                        ) {
+                          return;
+                        }
+                        try {
+                          const updated = await assistantsApi.removeStaff(
+                            id,
+                            selectedStaffMember._id,
+                          );
+                          setAssistant(updated);
+                          setOrgSelection(null);
+                          showSuccess(t("common.deleted"), "");
+                        } catch (e: unknown) {
+                          showError(
+                            t("common.error"),
+                            (e as { response?: { data?: { error?: string } } })?.response
+                              ?.data?.error || "Failed",
+                          );
+                        }
+                      }}
+                    >
+                      {t("assistants.staffProfile.remove")}
+                    </Button>
+                  )}
+                </div>
+                <div className="pt-2 border-t border-gray-100">
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold text-gray-800">
+                      {t("assistants.staffProfile.skillSelection")}
+                    </p>
+                    <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      {t("assistants.staffProfile.skillSelectionHint")}
+                    </p>
+                  </div>
+                  {allSkills.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-2">
+                      {t("assistants.staffProfile.noSkillsToAssign")}
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {allSkills.map((skill) => {
+                        const bound = isSkillBoundToStaff(
+                          skill._id,
+                          selectedStaffMember._id,
+                        );
+                        const busy = bindingSkillId === skill._id;
+                        const initial = (skill.name?.trim() || "?").slice(0, 1).toUpperCase();
+                        const desc = (skill.description || "").trim() || skill.slug;
+                        return (
+                          <button
+                            key={skill._id}
+                            type="button"
+                            aria-pressed={bound}
+                            onClick={() =>
+                              void handleToggleSkill(
+                                skill._id,
+                                selectedStaffMember._id,
+                              )
+                            }
+                            disabled={busy}
+                            className={`group flex w-full min-h-[4.25rem] items-stretch gap-3 rounded-xl border p-3 text-left transition-all ${
+                              bound
+                                ? "border-primary/35 bg-primary/[0.06] shadow-sm ring-1 ring-primary/15"
+                                : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/90"
+                            } ${busy ? "opacity-60" : ""}`}
+                          >
+                            <div
+                              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
+                                bound
+                                  ? "bg-primary/15 text-primary"
+                                  : "bg-gray-100 text-gray-600 group-hover:bg-gray-200/80"
+                              }`}
+                            >
+                              {initial}
+                            </div>
+                            <div className="min-w-0 flex-1 py-0.5">
+                              <p
+                                className={`text-sm font-semibold leading-tight truncate ${
+                                  bound ? "text-primary" : "text-gray-900"
+                                }`}
+                              >
+                                {skill.name}
+                              </p>
+                              <p className="text-[11px] text-gray-500 line-clamp-2 mt-1 leading-snug">
+                                {desc}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-stretch">
+                              {busy ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                              ) : (
+                                <ChevronRight
+                                  className={`h-4 w-4 ${
+                                    bound ? "text-primary/70" : "text-gray-300 group-hover:text-gray-400"
+                                  }`}
+                                />
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 text-sm text-gray-500">
+              {t("assistants.playground.unknownStaff")}
+            </div>
+          )}
+                </div>
+              </>
             )}
-          </div>
-        </div>
+          </aside>
       </div>
+      {showAddStaffModal && id && (
+        <Modal
+          isOpen={showAddStaffModal}
+          onClose={() => setShowAddStaffModal(false)}
+          title={t("assistants.addStaffModal.title")}
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setShowAddStaffModal(false)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                onClick={async () => {
+                  if (!addStaffForm.displayName.trim()) return;
+                  try {
+                    const updated = await assistantsApi.addStaff(id, {
+                      displayName: addStaffForm.displayName.trim(),
+                      roleTitle: addStaffForm.roleTitle.trim(),
+                      responsibilities: addStaffForm.responsibilities,
+                    });
+                    setAssistant(updated);
+                    setShowAddStaffModal(false);
+                    setAddStaffForm({
+                      displayName: "",
+                      roleTitle: "",
+                      responsibilities: "",
+                    });
+                    showSuccess(t("assistants.addStaffModal.successTitle"), "");
+                  } catch (e: unknown) {
+                    showError(
+                      t("common.error"),
+                      (e as { response?: { data?: { error?: string } } })?.response
+                        ?.data?.error || "Failed",
+                    );
+                  }
+                }}
+              >
+                {t("assistants.addStaffModal.submit")}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <Input
+              label={t("assistants.staffProfile.displayName")}
+              value={addStaffForm.displayName}
+              onChange={(e) =>
+                setAddStaffForm((f) => ({ ...f, displayName: e.target.value }))
+              }
+            />
+            <Input
+              label={t("assistants.staffProfile.roleTitle")}
+              value={addStaffForm.roleTitle}
+              onChange={(e) =>
+                setAddStaffForm((f) => ({ ...f, roleTitle: e.target.value }))
+              }
+            />
+            <Textarea
+              label={t("assistants.staffProfile.responsibilities")}
+              value={addStaffForm.responsibilities}
+              onChange={(e) =>
+                setAddStaffForm((f) => ({
+                  ...f,
+                  responsibilities: e.target.value,
+                }))
+              }
+              rows={3}
+            />
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

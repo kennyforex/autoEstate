@@ -10,6 +10,8 @@
     "lint": "eslint src/**/*.ts",
     "migrate:lid": "tsx src/scripts/migrate-lid-contacts.ts",
     "migrate:countries": "tsx src/scripts/migrate-contact-countries.ts",
+    "migrate:department": "tsx src/scripts/migrate-assistant-department.ts",
+    "migrate:staff": "tsx src/scripts/migrate-assistant-staff.ts",
     "cleanup:videos": "tsx src/scripts/cleanup-orphaned-videos.ts",
     "fix:logo": "tsx src/scripts/fix-logo-url.ts",
     "test:document-capture": "tsx src/scripts/test-document-data-capture.ts",

@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import type { AuthRequest } from '../types/index.js';
 import { skillService } from '../services/skill.service.js';
+import { skillStorage } from '../services/skillStorage.service.js';
 
 export async function listSkills(
   req: AuthRequest,
@@ -16,6 +17,12 @@ export async function listSkills(
   }
 }
 
+/** Body of SKILL.md after YAML frontmatter (for editor when DB `instructions` is stale). */
+function skillMdBodyAfterFrontmatter(raw: string): string {
+  const m = raw.match(/^---\s*\n[\s\S]*?\n---\s*\n?([\s\S]*)$/);
+  return m ? m[1] : raw;
+}
+
 export async function getSkill(
   req: AuthRequest,
   res: Response,
@@ -27,7 +34,19 @@ export async function getSkill(
       res.status(404).json({ error: 'Skill not found' });
       return;
     }
-    res.json({ skill });
+    const payload = skill.toObject();
+    if (skill.storagePath) {
+      try {
+        const raw = await skillStorage.loadSkillMd(skill.storagePath);
+        const body = skillMdBodyAfterFrontmatter(raw);
+        if (body.trim()) {
+          payload.instructions = body;
+        }
+      } catch {
+        /* keep DB instructions */
+      }
+    }
+    res.json({ skill: payload });
   } catch (error) {
     next(error);
   }
@@ -67,7 +86,20 @@ export async function updateSkill(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { name, description, instructions, triggerHints, status, requiredTools, reminderDelay, maxReminders } = req.body;
+    const {
+      name,
+      description,
+      instructions,
+      triggerHints,
+      status,
+      requiredTools,
+      reminderDelay,
+      maxReminders,
+      nickname,
+      staffRole,
+      avatarPreset,
+      customAvatarUrl,
+    } = req.body;
     const skill = await skillService.update(req.params.id, {
       name,
       description,
@@ -77,6 +109,10 @@ export async function updateSkill(
       requiredTools,
       reminderDelay,
       maxReminders,
+      nickname,
+      staffRole,
+      avatarPreset,
+      customAvatarUrl,
     });
     if (!skill) {
       res.status(404).json({ error: 'Skill not found' });
@@ -164,14 +200,23 @@ export async function bindSkill(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { skillId, assistantId } = req.body;
-    const result = await skillService.bindToAssistant(skillId, assistantId);
+    const { skillId, assistantId, staffId } = req.body;
+    let result: boolean;
+    if (staffId && typeof staffId === 'string') {
+      result = await skillService.bindToStaff(skillId, assistantId, staffId);
+    } else {
+      result = await skillService.bindToAssistant(skillId, assistantId);
+    }
     if (!result) {
-      res.status(404).json({ error: 'Assistant not found' });
+      res.status(404).json({ error: 'Assistant or staff not found' });
       return;
     }
-    res.json({ message: 'Skill bound to assistant' });
-  } catch (error) {
+    res.json({ message: 'Skill bound' });
+  } catch (error: any) {
+    if (error.message?.includes('already assigned')) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
     next(error);
   }
 }
@@ -182,13 +227,18 @@ export async function unbindSkill(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { skillId, assistantId } = req.body;
-    const result = await skillService.unbindFromAssistant(skillId, assistantId);
+    const { skillId, assistantId, staffId } = req.body;
+    let result: boolean;
+    if (staffId && typeof staffId === 'string') {
+      result = await skillService.unbindFromStaff(skillId, assistantId, staffId);
+    } else {
+      result = await skillService.unbindFromAssistant(skillId, assistantId);
+    }
     if (!result) {
-      res.status(404).json({ error: 'Assistant not found' });
+      res.status(404).json({ error: 'Assistant or staff not found' });
       return;
     }
-    res.json({ message: 'Skill unbound from assistant' });
+    res.json({ message: 'Skill unbound' });
   } catch (error) {
     next(error);
   }

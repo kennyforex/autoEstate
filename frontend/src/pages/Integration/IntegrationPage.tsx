@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   CheckCircle,
   XCircle,
@@ -19,7 +20,8 @@ interface GoogleStatus {
   connectedAt?: string;
 }
 
-export function ConnectedAppsSettings() {
+export function IntegrationPage() {
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +38,7 @@ export function ConnectedAppsSettings() {
     if (googleParam === "connected") {
       setToast({
         type: "success",
-        message: "Google account connected successfully!",
+        message: t("integration.toast.googleConnected"),
       });
       searchParams.delete("google");
       setSearchParams(searchParams, { replace: true });
@@ -44,7 +46,7 @@ export function ConnectedAppsSettings() {
       const reason = searchParams.get("reason") || "Unknown error";
       setToast({
         type: "error",
-        message: `Failed to connect Google: ${reason}`,
+        message: t("integration.toast.googleConnectFailed", { reason }),
       });
       searchParams.delete("google");
       searchParams.delete("reason");
@@ -80,11 +82,14 @@ export function ConnectedAppsSettings() {
     try {
       await googleApi.disconnect();
       setGoogleStatus({ connected: false });
-      setToast({ type: "success", message: "Google account disconnected." });
+      setToast({
+        type: "success",
+        message: t("integration.toast.googleDisconnected"),
+      });
     } catch {
       setToast({
         type: "error",
-        message: "Failed to disconnect Google account.",
+        message: t("integration.toast.googleDisconnectFailed"),
       });
     } finally {
       setDisconnecting(false);
@@ -115,11 +120,9 @@ export function ConnectedAppsSettings() {
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-gray-900">
-          Connected Apps
+          {t("integration.title")}
         </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Connect third-party services to extend your agent's capabilities.
-        </p>
+        <p className="text-sm text-gray-500 mt-1">{t("integration.subtitle")}</p>
       </div>
 
       {toast && (
@@ -143,12 +146,11 @@ export function ConnectedAppsSettings() {
             onClick={() => setToast(null)}
             className="mt-2 text-sm underline hover:no-underline"
           >
-            Dismiss
+            {t("integration.dismiss")}
           </button>
         </div>
       )}
 
-      {/* Google Workspace Card */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <div className="p-6">
           <div className="flex items-start justify-between">
@@ -175,34 +177,34 @@ export function ConnectedAppsSettings() {
               </div>
               <div>
                 <h2 className="text-base font-semibold text-gray-900">
-                  Google Workspace
+                  {t("integration.googleWorkspace.title")}
                 </h2>
                 <p className="text-sm text-gray-500 mt-0.5">
-                  Connect Gmail, Calendar, Drive, and Google Sheets so your AI
-                  agent can manage email, schedule meetings, access files, and
-                  work with spreadsheets.
+                  {t("integration.googleWorkspace.description")}
                 </p>
                 {googleStatus?.connected && (
                   <div className="mt-3 space-y-2">
                     <div className="flex items-center gap-2 text-sm text-green-600">
                       <CheckCircle className="w-4 h-4" />
-                      Connected as{" "}
-                      <span className="font-medium">
-                        {googleStatus.email}
-                      </span>
+                      {t("integration.googleWorkspace.connectedAs")}{" "}
+                      <span className="font-medium">{googleStatus.email}</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700">
-                        <Mail className="w-3 h-3" /> Gmail
+                        <Mail className="w-3 h-3" />{" "}
+                        {t("integration.googleWorkspace.gmail")}
                       </span>
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-green-50 text-green-700">
-                        <Calendar className="w-3 h-3" /> Calendar
+                        <Calendar className="w-3 h-3" />{" "}
+                        {t("integration.googleWorkspace.calendar")}
                       </span>
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700">
-                        <HardDrive className="w-3 h-3" /> Drive
+                        <HardDrive className="w-3 h-3" />{" "}
+                        {t("integration.googleWorkspace.drive")}
                       </span>
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-violet-50 text-violet-700">
-                        <FileSpreadsheet className="w-3 h-3" /> Sheets
+                        <FileSpreadsheet className="w-3 h-3" />{" "}
+                        {t("integration.googleWorkspace.sheets")}
                       </span>
                     </div>
                   </div>
@@ -220,7 +222,7 @@ export function ConnectedAppsSettings() {
                   {disconnecting ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    "Disconnect"
+                    t("integration.googleWorkspace.disconnect")
                   )}
                 </button>
               ) : (
@@ -229,7 +231,7 @@ export function ConnectedAppsSettings() {
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary/90"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  Connect Google
+                  {t("integration.googleWorkspace.connectGoogle")}
                 </button>
               )}
             </div>

@@ -33,11 +33,11 @@ export const AssistantList: React.FC = () => {
 
   // Form state
   const [formData, setFormData] = useState({
-    name: "",
+    departmentName: "",
+    managerName: "",
     primaryLanguage: "auto" as AssistantLanguage,
     tone: "professional" as AssistantTone,
     instructions: "",
-    aiModel: "gpt-4o",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -73,20 +73,30 @@ export const AssistantList: React.FC = () => {
   });
 
   const handleCreate = async () => {
-    if (!formData.name.trim()) return;
+    const dept = formData.departmentName.trim();
+    if (!dept) return;
 
     setIsSubmitting(true);
     setCreateError(null);
     try {
+      const mgr = formData.managerName.trim() || dept;
       await assistantsApi.create({
-        name: formData.name,
+        name: dept,
+        departmentName: dept,
+        managerName: mgr,
         primaryLanguage: formData.primaryLanguage,
         tone: formData.tone,
         instructions: formData.instructions,
-        model: formData.aiModel as Assistant["model"],
+        model: "gpt-4o",
       });
       setShowCreateModal(false);
-      setFormData({ name: "", primaryLanguage: "auto", tone: "professional", instructions: "", aiModel: "gpt-4o" });
+      setFormData({
+        departmentName: "",
+        managerName: "",
+        primaryLanguage: "auto",
+        tone: "professional",
+        instructions: "",
+      });
       fetchAssistants();
     } catch (error: unknown) {
       console.error("Failed to create assistant:", error);
@@ -166,7 +176,7 @@ export const AssistantList: React.FC = () => {
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {t('assistants.name')}
+                  {t('assistants.departmentName')}
                 </th>
                 <th
                   className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700"
@@ -202,14 +212,20 @@ export const AssistantList: React.FC = () => {
                   onClick={() => navigate(`/ai-assistant/${assistant._id}`)}
                 >
                   <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <StatusDot
-                        status={
-                          assistant.status === "active" ? "active" : "inactive"
-                        }
-                      />
-                      <span className="text-sm font-medium text-gray-900 hover:underline">
-                        {assistant.name}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <StatusDot
+                          status={
+                            assistant.status === "active" ? "active" : "inactive"
+                          }
+                        />
+                        <span className="text-sm font-medium text-gray-900 hover:underline">
+                          {assistant.departmentName?.trim() || assistant.name}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-500 pl-6">
+                        {t("assistants.managerLabel")}:{" "}
+                        {assistant.managerName?.trim() || assistant.name}
                       </span>
                     </div>
                   </td>
@@ -281,11 +297,21 @@ export const AssistantList: React.FC = () => {
             </div>
           )}
           <Input
-            label={t('assistants.assistantName')}
-            placeholder="My AI Assistant"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            label={t('assistants.departmentName')}
+            placeholder={t('assistants.departmentNamePlaceholder')}
+            value={formData.departmentName}
+            onChange={(e) =>
+              setFormData({ ...formData, departmentName: e.target.value })
+            }
             required
+          />
+          <Input
+            label={t('assistants.managerName')}
+            placeholder={t('assistants.managerNamePlaceholder')}
+            value={formData.managerName}
+            onChange={(e) =>
+              setFormData({ ...formData, managerName: e.target.value })
+            }
           />
           <Select
             label={t('assistants.primaryLanguage')}
@@ -318,16 +344,6 @@ export const AssistantList: React.FC = () => {
             onChange={(e) =>
               setFormData({ ...formData, instructions: e.target.value })
             }
-          />
-          <Select
-            label={t('assistants.chatModel')}
-            value={formData.aiModel}
-            onChange={(value) => setFormData({ ...formData, aiModel: value })}
-            options={[
-              { value: "gpt-4o", label: "GPT-4o" },
-              { value: "gpt-4.1", label: "GPT-4.1" },
-              { value: "claude-3-7-sonnet", label: "Claude 3.7 Sonnet" },
-            ]}
           />
         </div>
       </Modal>

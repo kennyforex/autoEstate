@@ -107,7 +107,13 @@ async function classifyIntent(
   skills: AgentSkillInfo[],
 ): Promise<string | null> {
   const skillList = skills
-    .map((s) => `- "${s.slug}": ${s.name} - ${s.description}`)
+    .map((s) => {
+      const own =
+        s.ownerDisplayName != null && s.ownerDisplayName !== ""
+          ? ` [assigned to ${s.ownerDisplayName}${s.ownerRoleTitle ? `, ${s.ownerRoleTitle}` : ""}${s.ownerResponsibilitiesSnippet ? ` — ${s.ownerResponsibilitiesSnippet.slice(0, 120)}` : ""}]`
+          : "";
+      return `- "${s.slug}": ${s.name} - ${s.description}${own}`;
+    })
     .join("\n");
   console.log(skillList);
 

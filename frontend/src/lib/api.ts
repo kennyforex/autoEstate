@@ -248,6 +248,8 @@ export interface AgentDoneEvent {
   model?: string;
   usage?: unknown;
   steps?: unknown[];
+  activeStaffId?: string;
+  activeSkillSlug?: string;
 }
 
 export type AgentStreamEvent = AgentStepEvent | AgentStatusEvent | AgentDoneEvent;
@@ -258,6 +260,8 @@ export interface AgentChatResult {
   citations?: unknown[];
   model?: string;
   steps?: unknown[];
+  activeStaffId?: string;
+  activeSkillSlug?: string;
 }
 
 async function streamAgentChat(
@@ -323,6 +327,8 @@ async function streamAgentChat(
               citations: event.citations,
               model: event.model,
               steps: event.steps,
+              activeStaffId: event.activeStaffId,
+              activeSkillSlug: event.activeSkillSlug,
             };
           }
         } catch {
@@ -382,6 +388,38 @@ export const assistantsApi = {
 
   delete: async (id: string): Promise<void> => {
     await api.delete(`/assistants/${id}`);
+  },
+
+  addStaff: async (
+    assistantId: string,
+    body: { displayName: string; roleTitle?: string; responsibilities?: string },
+  ): Promise<Assistant> => {
+    const { data } = await api.post(`/assistants/${assistantId}/staff`, body);
+    const assistant = data.assistant || data;
+    return { ...assistant, model: assistant.aiModel || assistant.model };
+  },
+
+  updateStaff: async (
+    assistantId: string,
+    staffId: string,
+    body: {
+      displayName?: string;
+      roleTitle?: string;
+      responsibilities?: string;
+      nickname?: string;
+      avatarPreset?: string;
+      avatarUrl?: string;
+    },
+  ): Promise<Assistant> => {
+    const { data } = await api.patch(`/assistants/${assistantId}/staff/${staffId}`, body);
+    const assistant = data.assistant || data;
+    return { ...assistant, model: assistant.aiModel || assistant.model };
+  },
+
+  removeStaff: async (assistantId: string, staffId: string): Promise<Assistant> => {
+    const { data } = await api.delete(`/assistants/${assistantId}/staff/${staffId}`);
+    const assistant = data.assistant || data;
+    return { ...assistant, model: assistant.aiModel || assistant.model };
   },
 
   uploadFile: async (id: string, file: File, folder?: string): Promise<Assistant> => {
@@ -847,7 +885,22 @@ export const skillsApi = {
 
   update: async (
     id: string,
-    updates: Partial<Pick<Skill, "name" | "description" | "triggerHints" | "status" | "requiredTools" | "reminderDelay" | "maxReminders">> & { instructions?: string },
+    updates: Partial<
+      Pick<
+        Skill,
+        | "name"
+        | "description"
+        | "triggerHints"
+        | "status"
+        | "requiredTools"
+        | "reminderDelay"
+        | "maxReminders"
+        | "nickname"
+        | "staffRole"
+        | "avatarPreset"
+        | "customAvatarUrl"
+      >
+    > & { instructions?: string },
   ): Promise<Skill> => {
     const { data } = await api.put(`/skills/${id}`, updates);
     return data.skill || data;
@@ -877,12 +930,28 @@ export const skillsApi = {
     return data.skill || data;
   },
 
-  bind: async (skillId: string, assistantId: string): Promise<void> => {
-    await api.post("/skills/bind", { skillId, assistantId });
+  bind: async (
+    skillId: string,
+    assistantId: string,
+    staffId?: string,
+  ): Promise<void> => {
+    await api.post("/skills/bind", {
+      skillId,
+      assistantId,
+      ...(staffId ? { staffId } : {}),
+    });
   },
 
-  unbind: async (skillId: string, assistantId: string): Promise<void> => {
-    await api.post("/skills/unbind", { skillId, assistantId });
+  unbind: async (
+    skillId: string,
+    assistantId: string,
+    staffId?: string,
+  ): Promise<void> => {
+    await api.post("/skills/unbind", {
+      skillId,
+      assistantId,
+      ...(staffId ? { staffId } : {}),
+    });
   },
 
   // ── Reference management ──

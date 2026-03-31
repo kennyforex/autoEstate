@@ -9,10 +9,15 @@ import {
   Settings,
   ScrollText,
   Users,
+  Plug2,
 } from "lucide-react";
 import { Avatar } from "../common/Avatar";
 import { useAuth } from "../../context/AuthContext";
-import { conversationsApi } from "../../lib/api";
+import { companyApi, conversationsApi } from "../../lib/api";
+import {
+  COMPANY_LOGO_UPDATED_EVENT,
+  resolveLogoUrl,
+} from "../../lib/resolveLogoUrl";
 import { getSocket } from "../../lib/socket";
 
 interface NavItem {
@@ -55,6 +60,11 @@ const getNavItems = (): NavItem[] => [
     labelKey: "sidebar.aiLogs",
   },
   {
+    path: "/integration",
+    icon: <Plug2 className="w-6 h-6" />,
+    labelKey: "sidebar.integration",
+  },
+  {
     path: "/settings",
     icon: <Settings className="w-6 h-6" />,
     labelKey: "sidebar.settings",
@@ -70,6 +80,26 @@ export const Sidebar: React.FC = () => {
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const [navLogoSrc, setNavLogoSrc] = useState("/favicon.png");
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const loadCompanyLogo = async () => {
+      try {
+        const data = await companyApi.get();
+        const resolved = resolveLogoUrl(data.logo);
+        setNavLogoSrc(resolved || "/favicon.png");
+      } catch {
+        setNavLogoSrc("/favicon.png");
+      }
+    };
+
+    loadCompanyLogo();
+    window.addEventListener(COMPANY_LOGO_UPDATED_EVENT, loadCompanyLogo);
+    return () =>
+      window.removeEventListener(COMPANY_LOGO_UPDATED_EVENT, loadCompanyLogo);
+  }, [isAuthenticated]);
 
   // Close profile menu when clicking outside
   useEffect(() => {
@@ -149,9 +179,10 @@ export const Sidebar: React.FC = () => {
         className="w-10 h-10 rounded-lg flex items-center justify-center mb-8 overflow-hidden"
       >
         <img
-          src="/favicon.png"
-          alt="AutoEstate"
+          src={navLogoSrc}
+          alt="Company logo"
           className="w-10 h-10 object-contain"
+          onError={() => setNavLogoSrc("/favicon.png")}
         />
       </NavLink>
 

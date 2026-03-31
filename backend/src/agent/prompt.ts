@@ -56,10 +56,24 @@ export function buildSystemPrompt(context: AgentContext): string {
     timeZone: 'Asia/Hong_Kong',
     hour12: false,
   });
-  parts.push(
-    'You are a helpful customer support agent. ' +
-    'You solve the user\'s request by reasoning step-by-step and using the tools available to you.',
-  );
+  const dept = assistant.departmentName || assistant.name;
+  const mgrName = assistant.managerName || 'Manager';
+  const roster = assistant.teamRoster ?? [];
+  const useDeptPersona = roster.length > 0 || Boolean(assistant.departmentName);
+  if (useDeptPersona) {
+    parts.push(
+      `You are **${mgrName}**, manager of **${dept}**. ` +
+        'You are the only voice speaking to the customer in this channel. ' +
+        'Your team handles specialized work: delegate by calling `execute_skill` with the correct skill slug. ' +
+        'When a skill (team member) returns a result, summarize it clearly for the customer in your own words — ' +
+        'do not imply the customer was routed to a separate chat unless that helps clarity.',
+    );
+  } else {
+    parts.push(
+      'You are a helpful customer support agent. ' +
+        'You solve the user\'s request by reasoning step-by-step and using the tools available to you.',
+    );
+  }
   parts.push(`Today is ${dateStr}, current time is ${timeStr} (Hong Kong Time).`);
 
   // ── Language ──
@@ -90,6 +104,19 @@ export function buildSystemPrompt(context: AgentContext): string {
     parts.push(`The customer's name is ${contact.name}.`);
   }
 
+  if (roster.length > 0) {
+    parts.push('');
+    parts.push('## Your team');
+    for (const m of roster) {
+      const label = m.isManager ? '(you — manager)' : '';
+      const slugs = m.skillSlugs.length ? m.skillSlugs.map((s) => `\`${s}\``).join(', ') : 'none';
+      parts.push(
+        `- **${m.displayName}** ${label} — ${m.roleTitle || 'Member'}. ` +
+          `Responsibilities: ${m.responsibilitiesSnippet || '(not set)'}. Skills: ${slugs}.`,
+      );
+    }
+  }
+
   // ── Custom instructions ──
   if (assistant.instructions) {
     const truncated = assistant.instructions.length > 3000
@@ -105,8 +132,8 @@ export function buildSystemPrompt(context: AgentContext): string {
     parts.push('');
     parts.push('## Skills');
     parts.push(
-      'You have specialized skills installed. When a user\'s request matches a skill\'s purpose, ' +
-      'you MUST delegate by calling `execute_skill` with that skill\'s slug and the user\'s message.',
+      'Specialized capabilities are installed. When a user\'s request matches a skill\'s purpose, ' +
+      'assign the work by calling `execute_skill` with that skill\'s slug and the user\'s message.',
     );
     parts.push('');
     parts.push(
@@ -115,6 +142,7 @@ export function buildSystemPrompt(context: AgentContext): string {
       '- When a skill is actively conversing with the user (collecting info, asking questions), ' +
       'continue routing through `execute_skill` with the same slug.\n' +
       '- NEVER fabricate data (prices, availability, dates, etc.) that should come from a skill.\n' +
+      '- When `execute_skill` returns, **you** (the manager) must integrate the outcome into a clear reply to the customer.\n' +
       '- Even if a skill previously completed, a NEW request that matches that skill\'s purpose ' +
       'MUST be handled by calling `execute_skill` again. Completed observations are only valid for ' +
       'the specific request they were collected for — NEVER extrapolate or reuse them to answer different questions.',
@@ -124,8 +152,16 @@ export function buildSystemPrompt(context: AgentContext): string {
     for (const skill of skills) {
       const actionWords = extractActionWords(skill.description);
       const action = actionWords || 'General';
+      const owner =
+        skill.ownerDisplayName != null && skill.ownerDisplayName !== ''
+          ? ` | Owner: **${skill.ownerDisplayName}**` +
+            (skill.ownerRoleTitle ? ` (${skill.ownerRoleTitle})` : '') +
+            (skill.ownerResponsibilitiesSnippet
+              ? ` — ${skill.ownerResponsibilitiesSnippet}`
+              : '')
+          : '';
       parts.push(
-        `- slug: \`${skill.slug}\` | Action: **${action.toUpperCase()}** | ${skill.description}`,
+        `- slug: \`${skill.slug}\` | Action: **${action.toUpperCase()}** | ${skill.description}${owner}`,
       );
     }
 

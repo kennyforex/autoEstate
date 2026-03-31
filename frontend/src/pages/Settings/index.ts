@@ -5,4 +5,3 @@ export { APIKeysSettings } from './APIKeysSettings';
 export { RolesSettings } from './RolesSettings';
 export { GeneralSettings } from './GeneralSettings';
 export { SMTPSettings } from './SMTPSettings';
-export { ConnectedAppsSettings } from './ConnectedAppsSettings';

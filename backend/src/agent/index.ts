@@ -73,6 +73,9 @@ const afterToolCall: AfterToolCallHook = async ({ toolName, result, context, loo
     }
 
     const slug = data?.skill || '';
+    if (slug) {
+      loopState.lastResponsibleSkillSlug = slug;
+    }
     const isComplete = data?.completed || false;
     const observations = data?.observations || {};
     const unhandledIntent = data?.unhandledIntent as string | undefined;

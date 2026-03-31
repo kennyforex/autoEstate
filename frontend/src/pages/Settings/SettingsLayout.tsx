@@ -11,7 +11,6 @@ import {
   Sparkles,
   BookOpen,
   Database,
-  Link,
   Key,
   Webhook,
   Mail,
@@ -88,11 +87,6 @@ export const SettingsLayout: React.FC = () => {
           path: "/settings/smtp",
           label: t("settings.integrations.smtp"),
           icon: <Mail className="w-4 h-4" />,
-        },
-        {
-          path: "/settings/apps",
-          label: t("settings.integrations.connectedApps"),
-          icon: <Link className="w-4 h-4" />,
         },
         {
           path: "/settings/api-keys",

@@ -3,6 +3,7 @@ export {
   Assistant,
   type IAssistantDocument,
   type IAssistantFile,
+  type IStaffMember,
   type IVideoMetadata,
   type VideoProcessingStatus,
   type AssistantLanguage,

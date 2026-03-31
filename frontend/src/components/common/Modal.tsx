@@ -7,15 +7,18 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   showClose?: boolean;
   footer?: React.ReactNode;
+  /** When true, modal body scrolls with max height (useful for tall forms). */
+  bodyScroll?: boolean;
 }
 
-const sizeClasses = {
+const sizeClasses: Record<'sm' | 'md' | 'lg' | 'xl', string> = {
   sm: 'max-w-md',
   md: 'max-w-lg',
   lg: 'max-w-2xl',
+  xl: 'max-w-5xl',
 };
 
 export const Modal: React.FC<ModalProps> = ({
@@ -26,6 +29,7 @@ export const Modal: React.FC<ModalProps> = ({
   size = 'md',
   showClose = true,
   footer,
+  bodyScroll = false,
 }) => {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -45,8 +49,12 @@ export const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
+  const isFull = size === 'full';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className={`fixed inset-0 z-50 ${isFull ? 'flex flex-col p-3' : 'flex items-center justify-center'}`}
+    >
       {/* Overlay */}
       <div
         className="absolute inset-0 bg-black/50"
@@ -56,13 +64,13 @@ export const Modal: React.FC<ModalProps> = ({
       {/* Modal */}
       <div
         className={`
-          relative bg-white rounded-lg shadow-modal w-full mx-4
-          ${sizeClasses[size]}
+          relative z-10 bg-white rounded-lg shadow-modal w-full flex flex-col
+          ${isFull ? 'min-h-0 flex-1 overflow-hidden' : `mx-4 max-h-[90vh] ${sizeClasses[size as keyof typeof sizeClasses]}`}
         `}
       >
         {/* Header */}
         {(title || showClose) && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-border">
             {title && (
               <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
             )}
@@ -78,11 +86,15 @@ export const Modal: React.FC<ModalProps> = ({
         )}
         
         {/* Content */}
-        <div className="px-6 py-4">{children}</div>
+        <div
+          className={`px-6 py-4 ${bodyScroll ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : ''}`}
+        >
+          {children}
+        </div>
         
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border">
+          <div className="flex shrink-0 items-center justify-end gap-3 px-6 py-4 border-t border-border">
             {footer}
           </div>
         )}

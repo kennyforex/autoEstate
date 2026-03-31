@@ -5,14 +5,7 @@ import { Button, Input, Select } from '../../components/common';
 import { companyApi, uploadApi } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import type { Company } from '../../lib/types';
-
-/** Resolve logo URL so it works for all users (relative paths point to backend origin). */
-function resolveLogoUrl(logo: string | undefined): string | undefined {
-  if (!logo) return undefined;
-  if (logo.startsWith('http://') || logo.startsWith('https://')) return logo;
-  const base = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace(/\/api\/?$/, '');
-  return `${base}${logo.startsWith('/') ? '' : '/'}${logo}`;
-}
+import { COMPANY_LOGO_UPDATED_EVENT, resolveLogoUrl } from '../../lib/resolveLogoUrl';
 
 export const GeneralSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -90,6 +83,7 @@ export const GeneralSettings: React.FC = () => {
       const updated = await companyApi.update({ logo: url });
       setCompany(updated);
       setLogo(url);
+      window.dispatchEvent(new CustomEvent(COMPANY_LOGO_UPDATED_EVENT));
     } catch (error: unknown) {
       console.error('Failed to upload logo:', error);
       const err = error as { code?: string; response?: { data?: { error?: string } }; message?: string };

@@ -17,8 +17,8 @@ import {
   RolesSettings,
   GeneralSettings,
   SMTPSettings,
-  ConnectedAppsSettings,
 } from "./pages/Settings";
+import { IntegrationPage } from "./pages/Integration/IntegrationPage";
 
 function App() {
   return (
@@ -50,6 +50,8 @@ function App() {
 
             {/* Contacts route */}
             <Route path="contacts" element={<Contacts />} />
+
+            <Route path="integration" element={<IntegrationPage />} />
 
             {/* Settings routes */}
             <Route path="settings" element={<SettingsLayout />}>
@@ -83,7 +85,7 @@ function App() {
               />
               <Route
                 path="apps"
-                element={<ConnectedAppsSettings />}
+                element={<Navigate to="/integration" replace />}
               />
               <Route path="smtp" element={<SMTPSettings />} />
               <Route path="api-keys" element={<APIKeysSettings />} />

@@ -258,6 +258,12 @@ export class SkillExecutionTool extends BaseTool {
     if (context.contact.name) {
       systemPrompt += `Customer name: ${context.contact.name}\n`;
     }
+    if (skill.ownerDisplayName) {
+      systemPrompt +=
+        `Department role: you are acting as **${skill.ownerDisplayName}**` +
+        (skill.ownerRoleTitle ? ` (${skill.ownerRoleTitle})` : '') +
+        '. Produce output the manager can relay to the customer.\n';
+    }
 
     // Observation bridge: inject observations from recently completed goals
     if (context.goalStack) {

@@ -54,12 +54,14 @@ Input.displayName = 'Input';
 interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
   error?: string;
+  /** Applied to the outer wrapper (e.g. flex layout for full-height textareas). */
+  containerClassName?: string;
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, error, className = '', ...props }, ref) => {
+  ({ label, error, className = '', containerClassName = '', ...props }, ref) => {
     return (
-      <div className="w-full">
+      <div className={`w-full ${containerClassName}`}>
         {label && (
           <label className="block text-sm font-medium text-text-primary mb-1.5">
             {label}

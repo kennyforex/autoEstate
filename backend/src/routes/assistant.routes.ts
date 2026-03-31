@@ -56,6 +56,42 @@ router.get(
   assistantController.getAssistant,
 );
 
+// Staff (department roster)
+router.post(
+  "/:id/staff",
+  validate([
+    param("id").isMongoId().withMessage("Invalid assistant ID"),
+    body("displayName").trim().notEmpty().withMessage("displayName is required"),
+    body("roleTitle").optional().isString(),
+    body("responsibilities").optional().isString(),
+  ]),
+  assistantController.addStaff,
+);
+
+router.patch(
+  "/:id/staff/:staffId",
+  validate([
+    param("id").isMongoId().withMessage("Invalid assistant ID"),
+    param("staffId").notEmpty().withMessage("staffId is required"),
+    body("displayName").optional().trim().notEmpty(),
+    body("roleTitle").optional().isString(),
+    body("responsibilities").optional().isString(),
+    body("nickname").optional().isString(),
+    body("avatarPreset").optional().isString(),
+    body("avatarUrl").optional().isString(),
+  ]),
+  assistantController.updateStaff,
+);
+
+router.delete(
+  "/:id/staff/:staffId",
+  validate([
+    param("id").isMongoId().withMessage("Invalid assistant ID"),
+    param("staffId").notEmpty().withMessage("staffId is required"),
+  ]),
+  assistantController.removeStaff,
+);
+
 // Update assistant
 router.put(
   "/:id",

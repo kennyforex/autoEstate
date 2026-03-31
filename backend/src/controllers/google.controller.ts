@@ -42,12 +42,12 @@ export async function callback(req: AuthRequest, res: Response): Promise<void> {
 
   if (error) {
     console.error('[Google] OAuth error:', error);
-    res.redirect(`${appUrl}/settings/apps?google=error&reason=${error}`);
+    res.redirect(`${appUrl}/integration?google=error&reason=${error}`);
     return;
   }
 
   if (!code || !userId) {
-    res.redirect(`${appUrl}/settings/apps?google=error&reason=missing_params`);
+    res.redirect(`${appUrl}/integration?google=error&reason=missing_params`);
     return;
   }
 
@@ -78,10 +78,10 @@ export async function callback(req: AuthRequest, res: Response): Promise<void> {
     );
 
     console.log(`[Google] Connected for user ${userId} (${userInfo.email})`);
-    res.redirect(`${appUrl}/settings/apps?google=connected`);
+    res.redirect(`${appUrl}/integration?google=connected`);
   } catch (err: any) {
     console.error('[Google] OAuth callback failed:', err.message);
-    res.redirect(`${appUrl}/settings/apps?google=error&reason=token_exchange_failed`);
+    res.redirect(`${appUrl}/integration?google=error&reason=token_exchange_failed`);
   }
 }
 

@@ -1,11 +1,24 @@
+import mongoose from 'mongoose';
 import { getPineconeClient, getPineconeRegion } from '../config/pinecone.js';
-import { Assistant, type IAssistantDocument, type IAssistantFile, type AssistantLanguage, type AssistantTone } from '../models/index.js';
+import {
+  Assistant,
+  type IAssistantDocument,
+  type IAssistantFile,
+  type IStaffMember,
+  type AssistantLanguage,
+  type AssistantTone,
+} from '../models/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { videoService } from './video.service.js';
 import type { VideoProcessingStatus } from '../config/video.config.js';
 
 export interface CreateAssistantInput {
   name: string;
+  departmentName?: string;
+  managerName?: string;
+  managerNickname?: string;
+  managerAvatarPreset?: string;
+  managerAvatarUrl?: string;
   primaryLanguage?: AssistantLanguage;
   tone?: AssistantTone;
   instructions?: string;
@@ -16,12 +29,32 @@ export interface CreateAssistantInput {
 
 export interface UpdateAssistantInput {
   name?: string;
+  departmentName?: string;
+  managerName?: string;
+  managerNickname?: string;
+  managerAvatarPreset?: string;
+  managerAvatarUrl?: string;
   primaryLanguage?: AssistantLanguage;
   tone?: AssistantTone;
   instructions?: string;
   aiModel?: 'gpt-4o' | 'gpt-4.1' | 'claude-3-7-sonnet';
   status?: 'active' | 'inactive';
   metadata?: Record<string, unknown>;
+}
+
+export interface AddStaffInput {
+  displayName: string;
+  roleTitle?: string;
+  responsibilities?: string;
+}
+
+export interface UpdateStaffInput {
+  displayName?: string;
+  roleTitle?: string;
+  responsibilities?: string;
+  nickname?: string;
+  avatarPreset?: string;
+  avatarUrl?: string;
 }
 
 export interface ChatMessage {
@@ -56,6 +89,11 @@ class AssistantService {
   async create(input: CreateAssistantInput): Promise<IAssistantDocument> {
     const { 
       name, 
+      departmentName: deptIn,
+      managerName: mgrIn,
+      managerNickname,
+      managerAvatarPreset,
+      managerAvatarUrl,
       primaryLanguage = 'auto', 
       tone = 'professional', 
       instructions, 
@@ -63,9 +101,12 @@ class AssistantService {
       metadata, 
       createdBy 
     } = input;
+
+    const departmentName = (deptIn?.trim() || name.trim());
+    const managerName = (mgrIn?.trim() || departmentName);
     
     // Generate unique Pinecone assistant name
-    const pineconeAssistantName = `ffcs-${name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${uuidv4().slice(0, 8)}`;
+    const pineconeAssistantName = `ffcs-${departmentName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${uuidv4().slice(0, 8)}`;
     
     try {
       // Create assistant in Pinecone
@@ -75,14 +116,19 @@ class AssistantService {
         region: getPineconeRegion() as 'us' | 'eu',
         metadata: {
           ...metadata,
-          ffcsName: name,
+          ffcsName: departmentName,
           createdBy,
         },
       });
       
-      // Create assistant in database
+      // Create assistant in database with default manager staff (non-deletable)
       const assistant = new Assistant({
-        name,
+        name: departmentName,
+        departmentName,
+        managerName,
+        managerNickname,
+        managerAvatarPreset,
+        managerAvatarUrl,
         pineconeAssistantName,
         primaryLanguage,
         tone,
@@ -92,6 +138,18 @@ class AssistantService {
         createdBy,
         status: 'active',
         files: [],
+        staff: [
+          {
+            displayName: managerName,
+            roleTitle: '',
+            responsibilities: '',
+            isManager: true,
+            skillIds: [],
+            nickname: managerNickname,
+            avatarPreset: managerAvatarPreset,
+            avatarUrl: managerAvatarUrl,
+          },
+        ],
       });
       
       await assistant.save();
@@ -134,6 +192,117 @@ class AssistantService {
   async findById(id: string): Promise<IAssistantDocument | null> {
     return Assistant.findById(id);
   }
+
+  /**
+   * Denormalized union of all staff.skillIds (deduped).
+   */
+  rebuildSkillsUnion(assistant: IAssistantDocument): void {
+    const staff = assistant.staff || [];
+    const seen = new Set<string>();
+    const out: mongoose.Types.ObjectId[] = [];
+    for (const m of staff) {
+      for (const sid of m.skillIds || []) {
+        const oid = sid as mongoose.Types.ObjectId;
+        const id = oid.toString();
+        if (!seen.has(id)) {
+          seen.add(id);
+          out.push(oid);
+        }
+      }
+    }
+    assistant.skills = out;
+  }
+
+  getManagerStaff(assistant: IAssistantDocument): IStaffMember | undefined {
+    return assistant.staff?.find((s) => s.isManager);
+  }
+
+  syncAssistantTopLevelFromManager(assistant: IAssistantDocument): void {
+    const mgr = this.getManagerStaff(assistant);
+    if (!mgr) return;
+    assistant.managerName = mgr.displayName;
+    assistant.managerNickname = mgr.nickname;
+    assistant.managerAvatarPreset = mgr.avatarPreset;
+    assistant.managerAvatarUrl = mgr.avatarUrl;
+  }
+
+  /**
+   * Legacy / migration: ensure exactly one manager staff row exists.
+   */
+  async ensureStaffHasManager(assistant: IAssistantDocument): Promise<void> {
+    if (!Array.isArray(assistant.staff)) {
+      (assistant as { staff: IStaffMember[] }).staff = [];
+    }
+    if (this.getManagerStaff(assistant)) return;
+    const display = (
+      assistant.managerName ||
+      assistant.departmentName ||
+      assistant.name ||
+      'Manager'
+    ).trim();
+    assistant.staff!.push({
+      displayName: display,
+      roleTitle: '',
+      responsibilities: '',
+      skillIds: (assistant.skills || []).map((id) =>
+        id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(String(id)),
+      ),
+      isManager: true,
+      nickname: assistant.managerNickname,
+      avatarPreset: assistant.managerAvatarPreset,
+      avatarUrl: assistant.managerAvatarUrl,
+    } as IStaffMember);
+    this.rebuildSkillsUnion(assistant);
+  }
+
+  async addStaffMember(assistantId: string, input: AddStaffInput): Promise<IAssistantDocument | null> {
+    const assistant = await Assistant.findById(assistantId);
+    if (!assistant) return null;
+    await this.ensureStaffHasManager(assistant);
+    assistant.staff!.push({
+      displayName: input.displayName.trim(),
+      roleTitle: (input.roleTitle ?? '').trim(),
+      responsibilities: (input.responsibilities ?? '').trim(),
+      isManager: false,
+      skillIds: [],
+    } as unknown as IStaffMember);
+    await assistant.save();
+    return assistant;
+  }
+
+  async updateStaffMember(
+    assistantId: string,
+    staffId: string,
+    input: UpdateStaffInput,
+  ): Promise<IAssistantDocument | null> {
+    const assistant = await Assistant.findById(assistantId);
+    if (!assistant?.staff?.length) return null;
+    const st = (assistant.staff as mongoose.Types.DocumentArray<IStaffMember>).id(staffId);
+    if (!st) return null;
+    if (input.displayName !== undefined) st.set('displayName', input.displayName.trim());
+    if (input.roleTitle !== undefined) st.set('roleTitle', input.roleTitle.trim());
+    if (input.responsibilities !== undefined) st.set('responsibilities', input.responsibilities);
+    if (input.nickname !== undefined) st.set('nickname', input.nickname);
+    if (input.avatarPreset !== undefined) st.set('avatarPreset', input.avatarPreset);
+    if (input.avatarUrl !== undefined) st.set('avatarUrl', input.avatarUrl);
+    if (st.isManager) this.syncAssistantTopLevelFromManager(assistant);
+    await assistant.save();
+    return assistant;
+  }
+
+  async removeStaffMember(assistantId: string, staffId: string): Promise<IAssistantDocument | null> {
+    const assistant = await Assistant.findById(assistantId);
+    if (!assistant?.staff?.length) return null;
+    const st = (assistant.staff as mongoose.Types.DocumentArray<IStaffMember>).id(staffId);
+    if (!st) return null;
+    if (st.isManager) {
+      throw new Error('Cannot remove the department manager');
+    }
+    st.deleteOne();
+    this.rebuildSkillsUnion(assistant);
+    await assistant.save();
+    return assistant;
+  }
   
   /**
    * Build full instructions string including language and tone context
@@ -175,7 +344,29 @@ class AssistantService {
     }
     
     // Update local fields
-    if (input.name) assistant.name = input.name;
+    if (input.departmentName !== undefined) {
+      const d = input.departmentName.trim();
+      assistant.departmentName = d;
+      assistant.name = d;
+    } else if (input.name) {
+      assistant.name = input.name;
+      assistant.departmentName = input.name;
+    }
+    if (input.managerName !== undefined) assistant.managerName = input.managerName.trim();
+    if (input.managerNickname !== undefined) assistant.managerNickname = input.managerNickname;
+    if (input.managerAvatarPreset !== undefined) assistant.managerAvatarPreset = input.managerAvatarPreset;
+    if (input.managerAvatarUrl !== undefined) assistant.managerAvatarUrl = input.managerAvatarUrl;
+
+    // Keep manager staff row in sync with top-level manager fields
+    const mgr = this.getManagerStaff(assistant);
+    if (mgr) {
+      if (input.managerName !== undefined) mgr.displayName = assistant.managerName ?? mgr.displayName;
+      if (input.managerNickname !== undefined) mgr.nickname = input.managerNickname;
+      if (input.managerAvatarPreset !== undefined) mgr.avatarPreset = input.managerAvatarPreset;
+      if (input.managerAvatarUrl !== undefined) mgr.avatarUrl = input.managerAvatarUrl;
+    } else if (assistant.managerName) {
+      await this.ensureStaffHasManager(assistant);
+    }
     if (input.primaryLanguage) assistant.primaryLanguage = input.primaryLanguage;
     if (input.tone) assistant.tone = input.tone;
     if (input.instructions !== undefined) assistant.instructions = input.instructions;

@@ -5,15 +5,7 @@ import { Mail, ArrowRight, Zap } from "lucide-react";
 import { Button, Input } from "../components/common";
 import { useAuth } from "../context/AuthContext";
 import { companyApi } from "../lib/api";
-
-function resolveLogoUrl(logo: string | undefined): string | undefined {
-  if (!logo) return undefined;
-  if (logo.startsWith("http://") || logo.startsWith("https://")) return logo;
-  const base = (
-    import.meta.env.VITE_API_URL || "http://localhost:3001/api"
-  ).replace(/\/api\/?$/, "");
-  return `${base}${logo.startsWith("/") ? "" : "/"}${logo}`;
-}
+import { resolveLogoUrl } from "../lib/resolveLogoUrl";
 
 export const Login: React.FC = () => {
   const { t } = useTranslation();

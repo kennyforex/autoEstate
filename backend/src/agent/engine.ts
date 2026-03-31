@@ -83,7 +83,20 @@ export class AgentEngine {
     };
 
     const makeResult = (partial: Omit<AgentResult, 'steps' | 'model' | 'usage'>): AgentResult => {
-      const result: AgentResult = { ...partial, steps, model, usage: totalUsage };
+      const slug = loopState.lastResponsibleSkillSlug;
+      const skillMeta = slug ? context.skills.find((s) => s.slug === slug) : undefined;
+      const result: AgentResult = {
+        ...partial,
+        ...(slug
+          ? {
+              activeSkillSlug: slug,
+              ...(skillMeta?.ownerStaffId ? { activeStaffId: skillMeta.ownerStaffId } : {}),
+            }
+          : {}),
+        steps,
+        model,
+        usage: totalUsage,
+      };
       onEvent?.({ type: 'agent_end', result });
       return result;
     };

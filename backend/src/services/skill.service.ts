@@ -1,5 +1,7 @@
+import mongoose from 'mongoose';
 import { Skill, type ISkillDocument } from '../models/Skill.js';
 import { Assistant } from '../models/index.js';
+import { assistantService } from './assistant.service.js';
 import { skillStorage, type SkillDirectoryStructure } from './skillStorage.service.js';
 
 export interface CreateSkillInput {
@@ -25,6 +27,10 @@ export interface UpdateSkillInput {
   reminderDelay?: number;
   maxReminders?: number;
   status?: 'active' | 'inactive';
+  nickname?: string;
+  staffRole?: string;
+  avatarPreset?: string;
+  customAvatarUrl?: string;
 }
 
 /**
@@ -206,11 +212,17 @@ class SkillService {
       await skillStorage.deleteSkillDirectory(result.storagePath);
     }
 
-    // Remove from all assistants that reference this skill
-    await Assistant.updateMany(
-      { skills: id },
-      { $pull: { skills: id } },
-    );
+    const assistants = await Assistant.find({
+      $or: [{ skills: id }, { 'staff.skillIds': id }],
+    });
+    for (const a of assistants) {
+      a.skills = (a.skills || []).filter((s) => s.toString() !== id);
+      for (const st of a.staff || []) {
+        st.skillIds = (st.skillIds || []).filter((s) => s.toString() !== id);
+      }
+      assistantService.rebuildSkillsUnion(a);
+      await a.save();
+    }
     return true;
   }
 
@@ -343,27 +355,73 @@ class SkillService {
   }
 
   /**
-   * Bind a skill to an assistant
+   * Bind a skill to a specific staff member (unique per department).
    */
-  async bindToAssistant(skillId: string, assistantId: string): Promise<boolean> {
-    const result = await Assistant.findByIdAndUpdate(
-      assistantId,
-      { $addToSet: { skills: skillId } },
-      { new: true },
-    );
-    return !!result;
+  async bindToStaff(skillId: string, assistantId: string, staffId: string): Promise<boolean> {
+    const assistant = await Assistant.findById(assistantId);
+    if (!assistant) return false;
+    await assistantService.ensureStaffHasManager(assistant);
+    const skillOid = new mongoose.Types.ObjectId(skillId);
+    for (const st of assistant.staff || []) {
+      if (st._id.toString() === staffId) continue;
+      if (st.skillIds?.some((x) => x.toString() === skillId)) {
+        throw new Error(
+          'This skill is already assigned to another team member in this department',
+        );
+      }
+    }
+    const target = (
+      assistant.staff as mongoose.Types.DocumentArray<import('../models/Assistant.js').IStaffMember>
+    ).id(staffId);
+    if (!target) return false;
+    if (!target.skillIds.some((x: mongoose.Types.ObjectId) => x.toString() === skillId)) {
+      target.skillIds.push(skillOid);
+    }
+    assistantService.rebuildSkillsUnion(assistant);
+    await assistant.save();
+    return true;
   }
 
   /**
-   * Unbind a skill from an assistant
+   * Unbind a skill from a specific staff member.
+   */
+  async unbindFromStaff(skillId: string, assistantId: string, staffId: string): Promise<boolean> {
+    const assistant = await Assistant.findById(assistantId);
+    if (!assistant) return false;
+    const target = (
+      assistant.staff as mongoose.Types.DocumentArray<import('../models/Assistant.js').IStaffMember>
+    ).id(staffId);
+    if (!target) return false;
+    target.skillIds = (target.skillIds || []).filter(
+      (x: mongoose.Types.ObjectId) => x.toString() !== skillId,
+    );
+    assistantService.rebuildSkillsUnion(assistant);
+    await assistant.save();
+    return true;
+  }
+
+  /**
+   * Bind a skill to the department manager (backward-compatible entry point).
+   */
+  async bindToAssistant(skillId: string, assistantId: string): Promise<boolean> {
+    const assistant = await Assistant.findById(assistantId);
+    if (!assistant) return false;
+    await assistantService.ensureStaffHasManager(assistant);
+    const mgr = assistantService.getManagerStaff(assistant);
+    if (!mgr) return false;
+    return this.bindToStaff(skillId, assistantId, mgr._id.toString());
+  }
+
+  /**
+   * Unbind a skill from the department manager (backward-compatible).
    */
   async unbindFromAssistant(skillId: string, assistantId: string): Promise<boolean> {
-    const result = await Assistant.findByIdAndUpdate(
-      assistantId,
-      { $pull: { skills: skillId } },
-      { new: true },
-    );
-    return !!result;
+    const assistant = await Assistant.findById(assistantId);
+    if (!assistant) return false;
+    await assistantService.ensureStaffHasManager(assistant);
+    const mgr = assistantService.getManagerStaff(assistant);
+    if (!mgr) return false;
+    return this.unbindFromStaff(skillId, assistantId, mgr._id.toString());
   }
 
   async saveReference(skillId: string, content: string): Promise<ISkillDocument | null> {

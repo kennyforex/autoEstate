@@ -86,9 +86,29 @@ export type AssistantTone =
   | "formal"
   | "empathetic";
 
+/** Department roster member (manager or employee). */
+export interface StaffMember {
+  _id: string;
+  displayName: string;
+  roleTitle: string;
+  responsibilities: string;
+  skillIds: string[];
+  isManager: boolean;
+  nickname?: string;
+  avatarPreset?: string;
+  avatarUrl?: string;
+}
+
 export interface Assistant {
   _id: string;
   name: string;
+  /** 部門名 — list primary label; falls back to `name` */
+  departmentName?: string;
+  /** 經理名 */
+  managerName?: string;
+  managerNickname?: string;
+  managerAvatarPreset?: string;
+  managerAvatarUrl?: string;
   pineconeAssistantName: string;
   primaryLanguage: AssistantLanguage;
   tone: AssistantTone;
@@ -98,7 +118,9 @@ export interface Assistant {
   metadata?: Record<string, unknown>;
   files: AssistantFile[];
   folders: string[];
+  /** Denormalized union of all staff skill assignments */
   skills?: string[];
+  staff?: StaffMember[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -122,6 +144,12 @@ export interface Skill {
   requiredTools: string[];
   reminderDelay: number;
   maxReminders: number;
+
+  nickname?: string;
+  /** Job / role label (e.g. 訂單客服), separate from nickname */
+  staffRole?: string;
+  avatarPreset?: string;
+  customAvatarUrl?: string;
 
   createdBy: string;
   createdAt: string;

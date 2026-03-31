@@ -30,6 +30,13 @@ export interface ISkillDocument extends Document {
 
   instructions?: string;
 
+  /** Staff display name in org chart (optional) */
+  nickname?: string;
+  /** Job / role label for staff (e.g. 訂單客服), shown under nickname in UI */
+  staffRole?: string;
+  avatarPreset?: string;
+  customAvatarUrl?: string;
+
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -115,6 +122,11 @@ const skillSchema = new Schema<ISkillDocument>(
     instructions: {
       type: String,
     },
+
+    nickname: { type: String, trim: true },
+    staffRole: { type: String, trim: true },
+    avatarPreset: { type: String, trim: true },
+    customAvatarUrl: { type: String, trim: true },
 
     createdBy: {
       type: Schema.Types.ObjectId,

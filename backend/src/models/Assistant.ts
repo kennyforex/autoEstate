@@ -31,9 +31,29 @@ export interface IAssistantFile {
 export type AssistantLanguage = "zh-TW" | "zh-CN" | "en" | "auto";
 export type AssistantTone = "professional" | "friendly" | "casual" | "formal" | "empathetic";
 
+/** Department member: manager (exactly one, non-deletable) or recruited staff */
+export interface IStaffMember {
+  _id: mongoose.Types.ObjectId;
+  displayName: string;
+  roleTitle: string;
+  responsibilities: string;
+  skillIds: mongoose.Types.ObjectId[];
+  isManager: boolean;
+  nickname?: string;
+  avatarPreset?: string;
+  avatarUrl?: string;
+}
+
 export interface IAssistantDocument extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;
+  /** 部門名 — primary label for lists; kept in sync with legacy `name` */
+  departmentName?: string;
+  /** 經理名 — persona for the manager node */
+  managerName?: string;
+  managerNickname?: string;
+  managerAvatarPreset?: string;
+  managerAvatarUrl?: string;
   pineconeAssistantName: string;
   primaryLanguage: AssistantLanguage;
   tone: AssistantTone;
@@ -43,7 +63,10 @@ export interface IAssistantDocument extends Document {
   metadata?: Record<string, unknown>;
   files: IAssistantFile[];
   folders: string[];
+  /** Denormalized union of all staff.skillIds — rebuilt when staff skills change */
   skills: mongoose.Types.ObjectId[];
+  /** Department roster: one manager + optional employees */
+  staff: IStaffMember[];
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -104,6 +127,20 @@ const assistantFileSchema = new Schema<IAssistantFile>(
   { _id: false },
 );
 
+const staffMemberSchema = new Schema<IStaffMember>(
+  {
+    displayName: { type: String, required: true, trim: true },
+    roleTitle: { type: String, default: "", trim: true },
+    responsibilities: { type: String, default: "" },
+    skillIds: [{ type: Schema.Types.ObjectId, ref: "Skill" }],
+    isManager: { type: Boolean, default: false },
+    nickname: { type: String, trim: true },
+    avatarPreset: { type: String, trim: true },
+    avatarUrl: { type: String, trim: true },
+  },
+  { _id: true },
+);
+
 const assistantSchema = new Schema<IAssistantDocument>(
   {
     name: {
@@ -111,6 +148,17 @@ const assistantSchema = new Schema<IAssistantDocument>(
       required: true,
       trim: true,
     },
+    departmentName: {
+      type: String,
+      trim: true,
+    },
+    managerName: {
+      type: String,
+      trim: true,
+    },
+    managerNickname: { type: String, trim: true },
+    managerAvatarPreset: { type: String, trim: true },
+    managerAvatarUrl: { type: String, trim: true },
     pineconeAssistantName: {
       type: String,
       required: true,
@@ -152,6 +200,10 @@ const assistantSchema = new Schema<IAssistantDocument>(
     },
     skills: {
       type: [{ type: Schema.Types.ObjectId, ref: "Skill" }],
+      default: [],
+    },
+    staff: {
+      type: [staffMemberSchema],
       default: [],
     },
     createdBy: {

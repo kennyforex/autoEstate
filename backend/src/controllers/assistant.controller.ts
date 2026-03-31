@@ -33,10 +33,27 @@ export async function createAssistant(
       return;
     }
     
-    const { name, primaryLanguage, tone, instructions, aiModel, metadata } = req.body;
+    const {
+      name,
+      departmentName,
+      managerName,
+      managerNickname,
+      managerAvatarPreset,
+      managerAvatarUrl,
+      primaryLanguage,
+      tone,
+      instructions,
+      aiModel,
+      metadata,
+    } = req.body;
     
     const assistant = await assistantService.create({
       name,
+      departmentName,
+      managerName,
+      managerNickname,
+      managerAvatarPreset,
+      managerAvatarUrl,
       primaryLanguage,
       tone,
       instructions,
@@ -81,10 +98,28 @@ export async function updateAssistant(
 ): Promise<void> {
   try {
     const { id } = req.params;
-    const { name, primaryLanguage, tone, instructions, aiModel, status, metadata } = req.body;
+    const {
+      name,
+      departmentName,
+      managerName,
+      managerNickname,
+      managerAvatarPreset,
+      managerAvatarUrl,
+      primaryLanguage,
+      tone,
+      instructions,
+      aiModel,
+      status,
+      metadata,
+    } = req.body;
     
     const assistant = await assistantService.update(id, {
       name,
+      departmentName,
+      managerName,
+      managerNickname,
+      managerAvatarPreset,
+      managerAvatarUrl,
       primaryLanguage,
       tone,
       instructions,
@@ -121,6 +156,83 @@ export async function deleteAssistant(
     
     res.json({ message: 'Assistant deleted successfully' });
   } catch (error) {
+    next(error);
+  }
+}
+
+export async function addStaff(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { id } = req.params;
+    const { displayName, roleTitle, responsibilities } = req.body;
+    if (!displayName || typeof displayName !== 'string' || !displayName.trim()) {
+      res.status(400).json({ error: 'displayName is required' });
+      return;
+    }
+    const assistant = await assistantService.addStaffMember(id, {
+      displayName,
+      roleTitle,
+      responsibilities,
+    });
+    if (!assistant) {
+      res.status(404).json({ error: 'Assistant not found' });
+      return;
+    }
+    res.status(201).json({ assistant });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateStaff(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { id, staffId } = req.params;
+    const { displayName, roleTitle, responsibilities, nickname, avatarPreset, avatarUrl } =
+      req.body;
+    const assistant = await assistantService.updateStaffMember(id, staffId, {
+      displayName,
+      roleTitle,
+      responsibilities,
+      nickname,
+      avatarPreset,
+      avatarUrl,
+    });
+    if (!assistant) {
+      res.status(404).json({ error: 'Assistant or staff not found' });
+      return;
+    }
+    res.json({ assistant });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function removeStaff(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { id, staffId } = req.params;
+    const assistant = await assistantService.removeStaffMember(id, staffId);
+    if (!assistant) {
+      res.status(404).json({ error: 'Assistant or staff not found' });
+      return;
+    }
+    res.json({ assistant });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '';
+    if (message.includes('Cannot remove')) {
+      res.status(400).json({ error: message });
+      return;
+    }
     next(error);
   }
 }
@@ -527,6 +639,8 @@ export async function agentChat(
       model: result.model,
       usage: result.usage,
       steps: result.steps,
+      ...(result.activeStaffId != null ? { activeStaffId: result.activeStaffId } : {}),
+      ...(result.activeSkillSlug != null ? { activeSkillSlug: result.activeSkillSlug } : {}),
     });
 
     res.end();
