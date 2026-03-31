@@ -645,7 +645,19 @@
       "skillEditorTabBasic": "基本設定",
       "skillEditorTabReference": "參考文件",
       "skillEditorTabScripts": "指令碼",
-      "skillEditorTabOther": "其他"
+      "skillEditorTabOther": "其他",
+      "agentWorkflow": {
+        "defaultManager": "經理",
+        "specialist": "專員",
+        "analyzingImage": "正在分析圖片…",
+        "analyzingAudio": "正在分析音訊…",
+        "managerThinking": "{{name}} is thinking（在思考）",
+        "managerAssigns": "{{manager}} 交任務給 {{worker}} 負責",
+        "workerWorking": "{{worker}} 正在工作",
+        "workerDone": "{{worker}} 已完成任務（已回覆）",
+        "managerHandling": "{{name}} 親自處理中",
+        "managerHandled": "{{name}} 已完成（已回覆）"
+      }
     },
     "staffProfile": {
       "sectionTitle": "團隊成員",

@@ -82,6 +82,12 @@ function staffIdForSkillSlug(
   return owner?._id ?? null;
 }
 
+function staffShortLabel(member: StaffMember): string {
+  const n = member.nickname?.trim();
+  if (n) return n;
+  return member.displayName?.trim() || member._id;
+}
+
 // Helper to get display name from folder path
 const getFolderDisplayName = (folderPath: string): string => {
   const lastSlashIndex = folderPath.lastIndexOf("/");
@@ -552,6 +558,8 @@ export const AssistantPlayground: React.FC = () => {
       number: number;
       tool: string;
       status: "running" | "completed";
+      /** Set for execute_skill so we can show worker name after tool_end clears processingStaffId */
+      skillSlug?: string;
     }>
   >([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -686,6 +694,46 @@ export const AssistantPlayground: React.FC = () => {
     }
     return null;
   }, [processingStaffId, managerStaffId, employeeStaffList]);
+
+  const lastExecuteSkillStep = useMemo(() => {
+    const xs = agentSteps.filter((s) => s.tool === "execute_skill");
+    return xs[xs.length - 1];
+  }, [agentSteps]);
+
+  const delegateStaffId = useMemo(() => {
+    if (!lastExecuteSkillStep?.skillSlug) return null;
+    return staffIdForSkillSlug(
+      lastExecuteSkillStep.skillSlug,
+      allSkills,
+      assistant?.staff,
+    );
+  }, [lastExecuteSkillStep?.skillSlug, allSkills, assistant?.staff]);
+
+  const workerDisplayLabel = useMemo(() => {
+    if (!delegateStaffId || !assistant?.staff?.length) return null;
+    const m = assistant.staff.find((s) => s._id === delegateStaffId);
+    if (!m) return null;
+    return staffShortLabel(m);
+  }, [delegateStaffId, assistant?.staff]);
+
+  const managerOwnsSkill = useMemo(
+    () =>
+      Boolean(
+        managerStaffId &&
+          delegateStaffId &&
+          managerStaffId === delegateStaffId,
+      ),
+    [managerStaffId, delegateStaffId],
+  );
+
+  const managerPersonaLabel = useMemo(() => {
+    return (
+      assistant?.managerName?.trim() ||
+      assistant?.name?.trim() ||
+      displayDeptName ||
+      ""
+    );
+  }, [assistant?.managerName, assistant?.name, displayDeptName]);
 
   const selectedStaffMember: StaffMember | null = useMemo(() => {
     if (!orgSelection || orgSelection === "manager" || !assistant?.staff) {
@@ -869,16 +917,24 @@ export const AssistantPlayground: React.FC = () => {
         setAgentStatus("working");
         setAgentSteps((prev) => {
           const toolName = event.step.action?.tool || "thinking";
+          const existingIndex = prev.findIndex(
+            (s) => s.number === event.step.number && s.tool === toolName,
+          );
+          const prevSame = existingIndex >= 0 ? prev[existingIndex] : undefined;
+          const slugFromArgs =
+            args && typeof args.slug === "string" ? args.slug : undefined;
+          const skillSlug =
+            toolName === "execute_skill"
+              ? slugFromArgs ?? prevSame?.skillSlug
+              : undefined;
           const newStep = {
             number: event.step.number,
             tool: toolName,
             status: event.step.observation
               ? ("completed" as const)
               : ("running" as const),
+            ...(skillSlug ? { skillSlug } : {}),
           };
-          const existingIndex = prev.findIndex(
-            (s) => s.number === event.step.number && s.tool === toolName,
-          );
           if (existingIndex >= 0) {
             const updated = [...prev];
             updated[existingIndex] = newStep;
@@ -2038,44 +2094,156 @@ ${skillForm.instructions}
                 {isTyping && (
                   <div className="mb-6">
                     <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-dark text-white flex items-center justify-center">
+                      <div className="w-8 h-8 rounded-full bg-dark text-white flex items-center justify-center flex-shrink-0">
                         <Bot className="w-4 h-4" />
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                          <span className="text-sm text-gray-500">
-                            {agentStatus === "analyzing_image"
-                              ? "Analyzing image..."
-                              : agentStatus === "analyzing_audio"
-                                ? "Analyzing audio..."
-                                : agentSteps.length > 0
-                                  ? `${displayDeptName} is working...`
-                                  : `${displayDeptName} is thinking...`}
-                          </span>
-                        </div>
-                        {agentSteps.length > 0 && (
-                          <div className="ml-6 space-y-1 border-l-2 border-gray-200 pl-3">
-                            {agentSteps.slice(-5).map((step, i) => (
-                              <div
-                                key={`${step.number}-${step.tool}-${i}`}
-                                className="flex items-center gap-2 text-xs"
-                              >
-                                {step.status === "running" ? (
-                                  <Loader2 className="w-3 h-3 animate-spin text-blue-500 flex-shrink-0" />
-                                ) : (
-                                  <CheckCircle2 className="w-3 h-3 text-green-500 flex-shrink-0" />
-                                )}
-                                <span className="text-gray-500">
-                                  {step.tool === "thinking"
-                                    ? "Analyzing request..."
-                                    : step.status === "running"
-                                      ? `Using ${step.tool}...`
-                                      : `Used ${step.tool}`}
-                                </span>
-                              </div>
-                            ))}
+                      <div className="flex-1 min-w-0">
+                        {agentStatus === "analyzing_image" ||
+                        agentStatus === "analyzing_audio" ? (
+                          <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50/90 px-3 py-2.5">
+                            <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0" />
+                            <span className="text-sm text-gray-700">
+                              {agentStatus === "analyzing_image"
+                                ? t(
+                                    "assistants.playground.agentWorkflow.analyzingImage",
+                                  )
+                                : t(
+                                    "assistants.playground.agentWorkflow.analyzingAudio",
+                                  )}
+                            </span>
                           </div>
+                        ) : !lastExecuteSkillStep ? (
+                          <div className="flex items-start gap-2.5 rounded-lg border border-gray-100 bg-gray-50/90 px-3 py-2.5">
+                            <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0 mt-0.5" />
+                            <p className="text-sm text-gray-800 leading-snug">
+                              {t(
+                                "assistants.playground.agentWorkflow.managerThinking",
+                                {
+                                  name:
+                                    managerPersonaLabel ||
+                                    t(
+                                      "assistants.playground.agentWorkflow.defaultManager",
+                                    ),
+                                },
+                              )}
+                            </p>
+                          </div>
+                        ) : managerOwnsSkill ? (
+                          (() => {
+                            const mgr =
+                              managerPersonaLabel ||
+                              t(
+                                "assistants.playground.agentWorkflow.defaultManager",
+                              );
+                            const skillRunning =
+                              lastExecuteSkillStep.status === "running";
+                            const skillDone =
+                              lastExecuteSkillStep.status === "completed";
+                            return (
+                              <div className="rounded-lg border border-gray-100 bg-white px-3 py-3 space-y-2.5 shadow-sm">
+                                <div className="flex items-start gap-2.5">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                  <span className="text-sm text-gray-500 leading-snug">
+                                    {t(
+                                      "assistants.playground.agentWorkflow.managerThinking",
+                                      { name: mgr },
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex items-start gap-2.5">
+                                  {skillRunning ? (
+                                    <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0 mt-0.5" />
+                                  ) : (
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                  )}
+                                  <span
+                                    className={`text-sm leading-snug ${skillRunning ? "text-gray-900 font-medium" : "text-gray-500"}`}
+                                  >
+                                    {t(
+                                      "assistants.playground.agentWorkflow.managerHandling",
+                                      { name: mgr },
+                                    )}
+                                  </span>
+                                </div>
+                                {skillDone ? (
+                                  <div className="flex items-start gap-2.5">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                    <span className="text-sm font-medium text-gray-900 leading-snug">
+                                      {t(
+                                        "assistants.playground.agentWorkflow.managerHandled",
+                                        { name: mgr },
+                                      )}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          (() => {
+                            const mgr =
+                              managerPersonaLabel ||
+                              t(
+                                "assistants.playground.agentWorkflow.defaultManager",
+                              );
+                            const worker =
+                              workerDisplayLabel ??
+                              t(
+                                "assistants.playground.agentWorkflow.specialist",
+                              );
+                            const skillRunning =
+                              lastExecuteSkillStep.status === "running";
+                            const skillDone =
+                              lastExecuteSkillStep.status === "completed";
+                            return (
+                              <div className="rounded-lg border border-gray-100 bg-white px-3 py-3 space-y-2.5 shadow-sm">
+                                <div className="flex items-start gap-2.5">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                  <span className="text-sm text-gray-500 leading-snug">
+                                    {t(
+                                      "assistants.playground.agentWorkflow.managerThinking",
+                                      { name: mgr },
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex items-start gap-2.5">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                  <span className="text-sm text-gray-500 leading-snug">
+                                    {t(
+                                      "assistants.playground.agentWorkflow.managerAssigns",
+                                      { manager: mgr, worker },
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex items-start gap-2.5">
+                                  {skillRunning ? (
+                                    <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0 mt-0.5" />
+                                  ) : (
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                  )}
+                                  <span
+                                    className={`text-sm leading-snug ${skillRunning ? "text-gray-900 font-medium" : "text-gray-500"}`}
+                                  >
+                                    {t(
+                                      "assistants.playground.agentWorkflow.workerWorking",
+                                      { worker },
+                                    )}
+                                  </span>
+                                </div>
+                                {skillDone ? (
+                                  <div className="flex items-start gap-2.5">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                                    <span className="text-sm font-medium text-gray-900 leading-snug">
+                                      {t(
+                                        "assistants.playground.agentWorkflow.workerDone",
+                                        { worker },
+                                      )}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })()
                         )}
                       </div>
                     </div>

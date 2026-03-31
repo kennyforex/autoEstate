@@ -526,6 +526,62 @@ class GoogleWorkspaceService {
     };
   }
 
+  /**
+   * Replace an existing row by matching a cell in a column (e.g. Order ID in column A).
+   * Row must span A:lastColumn with one values[] per column.
+   */
+  async updateSpreadsheetRowByMatch(
+    userId: string,
+    params: {
+      spreadsheetId: string;
+      sheetName: string;
+      matchColumnLetter: string;
+      matchValue: string;
+      row: string[];
+      lastColumnLetter?: string;
+    },
+  ) {
+    const auth = await this.getAuthedClient(userId);
+    const sheets = google.sheets({ version: 'v4', auth });
+    const escaped = params.sheetName.replace(/'/g, "''");
+    const col = params.matchColumnLetter.trim().toUpperCase() || 'A';
+    const matchRange = `'${escaped}'!${col}:${col}`;
+
+    const columnValues = await sheets.spreadsheets.values.get({
+      spreadsheetId: params.spreadsheetId,
+      range: matchRange,
+    });
+    const rows = columnValues.data.values ?? [];
+    const needle = params.matchValue.trim();
+    let rowNumber = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const cell = rows[i]?.[0];
+      const v = cell == null ? '' : String(cell).trim();
+      if (v === needle) {
+        rowNumber = i + 1;
+        break;
+      }
+    }
+    if (rowNumber < 1) {
+      throw new Error(`No row found where ${col} equals "${params.matchValue}"`);
+    }
+
+    const lastCol = params.lastColumnLetter?.trim().toUpperCase() || 'S';
+    const updateRange = `'${escaped}'!A${rowNumber}:${lastCol}${rowNumber}`;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: params.spreadsheetId,
+      range: updateRange,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [params.row] },
+    });
+
+    return {
+      updatedRange: updateRange,
+      spreadsheetId: params.spreadsheetId,
+      matchedRow: rowNumber,
+    };
+  }
+
   async isConnected(userId: string): Promise<boolean> {
     const connection = await GoogleConnection.findOne({ userId });
     return !!connection;

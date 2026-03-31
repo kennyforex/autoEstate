@@ -30,15 +30,17 @@ async function resolveSpreadsheetId(
 export class GoogleSheetsTool extends BaseTool {
   readonly name = 'google_sheets';
   readonly description =
-    'Read or append rows in Google Sheets. For cake orders, use append_row to add a line to the order log ' +
-    '(19 columns with Receipt hyperlink: see row description). Requires Google connected in Settings.';
+    'Read, append, or update rows in Google Sheets. For cake orders: append_row adds a line; ' +
+    'update_row_by_order_id replaces the row whose column A matches the Order ID (after payment, etc.). ' +
+    '19 columns with Receipt hyperlink: see row parameter. Requires Google connected in Settings.';
   readonly parameters = {
     type: 'object',
     properties: {
       action: {
         type: 'string',
-        enum: ['append_row', 'read_range'],
-        description: 'append_row adds data rows; read_range reads cell values',
+        enum: ['append_row', 'read_range', 'update_row_by_order_id'],
+        description:
+          'append_row adds data rows; read_range reads cell values; update_row_by_order_id replaces a row by Order ID (column A)',
       },
       spreadsheetId: {
         type: 'string',
@@ -58,6 +60,11 @@ export class GoogleSheetsTool extends BaseTool {
         items: { type: 'string' },
         description:
           'One row: 19 cells — (1–14) Order ID, Order Date, Customer, Phone/Email, Cake Name, Flavor, Size, Servings, Pickup Date, Pickup Time, Decoration Notes, Dietary, Status, Price (HKD); (15–18) Payment Status, Payment Amount, Paid Date, Payment Checked; (19) Receipt as =HYPERLINK("url","Receipt") formula (USER_ENTERED). Legacy: 14 or 18 cells still accepted.',
+      },
+      orderId: {
+        type: 'string',
+        description:
+          'For update_row_by_order_id: the Order ID to find in column A (must match the cell exactly).',
       },
       lastColumnLetter: {
         type: 'string',
@@ -136,8 +143,58 @@ export class GoogleSheetsTool extends BaseTool {
           };
         }
 
+        case 'update_row_by_order_id': {
+          const row = args.row as string[] | undefined;
+          const orderId = (args.orderId as string | undefined)?.trim();
+          if (!row || !Array.isArray(row) || row.length < 14) {
+            return {
+              success: false,
+              data: null,
+              summary:
+                'update_row_by_order_id requires orderId and row: string[] with 14 (legacy), 18 (payment), or 19 (+ Receipt) cells.',
+            };
+          }
+          if (!orderId) {
+            return {
+              success: false,
+              data: null,
+              summary: 'update_row_by_order_id requires orderId (must match column A).',
+            };
+          }
+          const spreadsheetId = await resolveSpreadsheetId(args.spreadsheetId as string | undefined, context);
+          if (!spreadsheetId) {
+            return {
+              success: false,
+              data: null,
+              summary:
+                'Missing spreadsheet ID. Put `orderSheetId` in the skill SKILL.md frontmatter, set GOOGLE_MILLE_ORDER_SHEET_ID, or pass spreadsheetId.',
+            };
+          }
+          const sheetName = (args.sheetName as string) || 'Cake orders';
+          const lastCol =
+            (args.lastColumnLetter as string)?.trim().toUpperCase() ||
+            (row.length >= 19 ? 'S' : row.length >= 18 ? 'R' : 'N');
+          const result = await googleWorkspaceService.updateSpreadsheetRowByMatch(userId, {
+            spreadsheetId,
+            sheetName,
+            matchColumnLetter: 'A',
+            matchValue: orderId,
+            row,
+            lastColumnLetter: lastCol,
+          });
+          return {
+            success: true,
+            data: result,
+            summary: `Updated row ${result.matchedRow} (${result.updatedRange}).`,
+          };
+        }
+
         default:
-          return { success: false, data: null, summary: `Unknown action "${action}". Use append_row or read_range.` };
+          return {
+            success: false,
+            data: null,
+            summary: `Unknown action "${action}". Use append_row, read_range, or update_row_by_order_id.`,
+          };
       }
     } catch (error: any) {
       if (error.message === 'GOOGLE_NOT_CONNECTED') {

@@ -600,7 +600,19 @@
       "skillEditorTabBasic": "Basic settings",
       "skillEditorTabReference": "Reference",
       "skillEditorTabScripts": "Scripts",
-      "skillEditorTabOther": "Other"
+      "skillEditorTabOther": "Other",
+      "agentWorkflow": {
+        "defaultManager": "Manager",
+        "specialist": "Specialist",
+        "analyzingImage": "Analyzing image...",
+        "analyzingAudio": "Analyzing audio...",
+        "managerThinking": "{{name}} is thinking",
+        "managerAssigns": "{{manager}} assigns this to {{worker}}",
+        "workerWorking": "{{worker}} is working",
+        "workerDone": "{{worker}} has completed the task (replied)",
+        "managerHandling": "{{name}} is handling this directly",
+        "managerHandled": "{{name}} has finished (replied)"
+      }
     },
     "staffProfile": {
       "sectionTitle": "Team member",

@@ -27,11 +27,14 @@ steps:
   - id: confirm
     label: Confirm order summary and price
     collects: confirmation
+  - id: log_order
+    label: Append sheet row WAITING and send confirmation email with payment details
+    collects: order_logged
   - id: payment
     label: Payment instructions and receipt upload
     collects: payment_proof
   - id: finalize
-    label: Verify receipt, Drive upload, sheet row, confirmation email
+    label: Verify receipt, Drive upload, update sheet row, paid confirmation email
     collects: completion
 ---
 
@@ -89,7 +92,7 @@ Edible image / company logo: +$120–$200 depending on complexity.
 ## Policies (state briefly when relevant)
 - **Lead time:** at least **48 hours** for standard orders; complex designs **5–7 days**. Rush only if the customer explicitly accepts a surcharge and you note “subject to kitchen approval”.
 - **Pickup:** typically **11:00–19:00** daily (adjust if your shop differs). Closed days: match your real calendar; if unknown, say “we’ll confirm pickup window when the kitchen confirms”.
-- **Order is confirmed only after payment is verified and receipt is received** (subject to manual review if **`document_data_capture`** is unclear or fails).
+- **Order is recorded on the sheet when the customer confirms the summary** (Payment Status **WAITING**). **Payment must still be verified** from their receipt before you mark the sheet as paid and send the “paid” email (subject to manual review if **`document_data_capture`** is unclear or fails).
 - **Allergens:** eggs, dairy, gluten, nuts may be present; ask for **nut-free / gluten-free** needs and pass them to the kitchen in the summary.
 
 ## Google Drive (for receipts)
@@ -127,19 +130,70 @@ Present:
 > - Email: [email]  
 > - **Total due (HKD):** [number]  
 >
-> “Does this look correct? Reply **yes** to proceed to payment.”
+> “Does this look correct? Reply **yes** to confirm and record your order.”
 
-**Do NOT call `google_sheets`, `google_gmail`, or `google_drive` yet.**
+**Do NOT call `google_sheets` or `google_gmail` until they reply yes** (next step).
 
-### Step 7 — Payment instructions (after they say yes)
-Send the **Payment information** (FPS / bank / PayMe) with:
-- **Amount to pay:** exact **Total due (HKD)**  
-- **Reference / remark:** the **Order ID**  
+### Step 7 — Record order on the sheet + confirmation email (after they say **yes**)
 
-Ask them to pay, then **send a clear photo/screenshot or PDF** of the payment proof (receipt, bank app confirmation, FPS success screen).  
-Say that **orders are finalised after we receive and verify payment**.
+Run these **in order** (all mandatory before asking for payment proof):
 
-### Step 8 — Receipt: `document_data_capture` (MANDATORY when they send a file)
+#### 7a — Append row (`google_sheets`) — MANDATORY
+**action:** `append_row` | **sheetName:** `Cake orders` | **spreadsheetId:** omit | **lastColumnLetter:** `S` (19 columns)
+
+**row:** exactly **19** strings, in order (same column layout as before). For this first write:
+
+1. Order ID  
+2. Order Date (today `YYYY-MM-DD`)  
+3. Customer name  
+4. Phone / Email  
+5. Cake Name  
+6. Flavor  
+7. Size  
+8. Servings  
+9. Pickup Date  
+10. Pickup Time  
+11. Decoration Notes  
+12. Dietary  
+13. Status — e.g. `Pending payment` (order line is not fully confirmed until paid)  
+14. Price (HKD) — quoted total  
+15. **Payment Status — must be exactly `WAITING`** (waiting for payment)  
+16. **Payment Amount** — put the quoted **Total due (HKD)** as the expected amount (numeric string, e.g. `168`)  
+17. **Paid Date** — `—`  
+18. **Payment Checked** — `No`  
+19. **Receipt** — `—` (no proof yet)
+
+#### 7b — Confirmation email (`google_gmail`) — MANDATORY
+Send the **order confirmation** email **to the customer’s email** with **full payment instructions** in the body (not a separate “only after paid” message):
+
+**action:** `send`  
+**to:** customer email  
+**subject:** `Cake order received — [Order ID] — payment pending`  
+
+**body** must include:  
+- Short thank-you and confirmation that the order is recorded  
+- **Order ID** and **Total due (HKD)**  
+- **Full Payment information** section: FPS / bank / PayMe lines from this skill’s **Payment information** block (replace placeholders with real business details when you have them), including **amount to pay** and **reference = Order ID**  
+- Ask them to pay, then **send a clear photo/screenshot or PDF** of the payment proof  
+- Say that the team will verify payment and follow up  
+
+#### 7c — Pickup on calendar (`google_calendar`) — MANDATORY
+After the sheet append succeeds, add a **pickup block** to the connected Google Calendar.
+
+Call **`google_calendar`** with:
+- **action:** `create_event`
+- **summary:** `Cake pickup — [Order ID] — [Customer name]` (keep it short; cake type optional if it fits)
+- **startTime** / **endTime:** ISO 8601 times for the agreed pickup. Use the **Pickup Date** + **Pickup Time** from the order (e.g. if pickup is `2026-04-10` at `15:30`, use a window like **15:30–16:00** local time). Prefer timezone **`Asia/Hong_Kong`** in the ISO string (e.g. `2026-04-10T15:30:00+08:00` to `2026-04-10T16:00:00+08:00`). If the customer gave only a date with no time, use **11:00–11:30** as a default window and say so in the description.
+- **description:** Order ID, cake (type, size, flavour), decoration/dietary notes, phone, email, quoted total (HKD), **Payment Status: WAITING**, and **“Subject to kitchen confirmation.”**
+- **location:** your shop name or pickup address if you use a fixed one; otherwise omit.
+
+If **`google_calendar`** fails for a transient reason, tell the customer the order is still on the sheet and the team may add the calendar manually — do **not** block the confirmation email.
+
+### Step 8 — Ask for payment proof
+In your **chat reply** to the customer (after 7a–7c succeeded), briefly remind them to pay using the instructions **from the email** and to **reply with a receipt** (photo/screenshot/PDF).  
+Say that **payment will be verified** and the sheet will be updated to paid after that.
+
+### Step 9 — Receipt: `document_data_capture` (MANDATORY when they send a file)
 
 Pass **`outputSchema`** as **one JSON string** (no markdown fences): the wrapper `{ "name", "strict", "schema" }` where **`schema`** is a JSON Schema object. Property **`description`** fields are instructions to the vision model (like code comments). The tool returns **`data.extracted`** plus a JSON **`summary`** envelope; read **`data.extracted`** for the fields below.
 
@@ -212,7 +266,7 @@ If the user sends **no file** but only text, ask again for a **screenshot, photo
 
 **Do not** use **`media_analysis`** for receipts; use **`document_data_capture`** for this skill.
 
-### Step 9 — Validate payment
+### Step 10 — Validate payment
 Use **`data.extracted`** from **`document_data_capture`** (field names match your **`outputSchema`**; default schema uses the keys below).
 
 - If **`remark`** contains **UNREADABLE** or **`amount` is `-1`**, treat like a vision failure: **Pending review** (note manual review in email) if policy allows.  
@@ -221,24 +275,25 @@ Use **`data.extracted`** from **`document_data_capture`** (field names match you
 - If **`payDate`** is empty, set **Paid Date** to `—` on the sheet; if amount matches HKD, **`Paid`** is still OK with date `—`.  
 - If **`document_data_capture`** fails (tool error), say the receipt is **subject to manual review** and use **`Pending review`**.
 
-### Step 10 — Upload receipt to Drive (`google_drive`) — MANDATORY
+### Step 11 — Upload receipt to Drive (`google_drive`) — MANDATORY
 Call **`google_drive`** with:
 - **action:** `upload`  
 - **fileUrl:** the same receipt **Image URL** from the message  
 - **fileName:** `Receipt-[OrderID]-[YYYYMMDD].jpg` or `.png` for images; **`.pdf`** if the customer sent a PDF  
 - **parentFolderId:** omit — the tool uses **`paymentPendingFolderId`** from frontmatter when set, otherwise resolves **Client Payment → Pending** by name  
 
-Save the returned **webViewLink** for the confirmation email (Step 12) and for the sheet **Receipt** column (Step 11).
+Save the returned **webViewLink** for the paid confirmation email (Step 13) and for the sheet **Receipt** column (Step 12).
 
-### Step 11 — Append row (`google_sheets`) — MANDATORY
-**action:** `append_row` | **sheetName:** `Cake orders` | **spreadsheetId:** omit | **lastColumnLetter:** `S` (19 columns)
+### Step 12 — Update the same row (`google_sheets`) — MANDATORY
 
-Add a **Receipt** column header in the sheet (column **S**) if your tab does not have it yet: short label **`Receipt`** is enough.
+**Do not** call **`append_row`** again — the order line already exists from Step 7a. **Replace** that row with the paid details.
 
-**row:** exactly **19** strings, in order:
+**action:** `update_row_by_order_id` | **sheetName:** `Cake orders` | **spreadsheetId:** omit | **orderId:** the same **Order ID** as column A | **lastColumnLetter:** `S`
 
-1. Order ID  
-2. Order Date (today `YYYY-MM-DD`)  
+**row:** exactly **19** strings (full row), same column order as Step 7a:
+
+1. Order ID (unchanged)  
+2. Order Date — keep the same as Step 7a (original order date)  
 3. Customer name  
 4. Phone / Email  
 5. Cake Name  
@@ -249,38 +304,25 @@ Add a **Receipt** column header in the sheet (column **S**) if your tab does not
 10. Pickup Time  
 11. Decoration Notes  
 12. Dietary  
-13. Status — order line status (e.g. `Confirmed`, `Pending quote`)  
-14. Price (HKD) — quoted total  
-15. **Payment Status** — e.g. `Paid`, `Awaiting payment`, `Pending review` (align with validation in Step 9)  
-16. **Payment Amount** — HKD amount from **`document_data_capture`** field **`amount`** (match quoted total when verified; if **`amount`** was `-1`, put `—` and **Payment Checked** `No`)  
+13. Status — e.g. `Confirmed` when payment is verified, or `Pending review` if **`document_data_capture`** failed / unclear  
+14. Price (HKD) — quoted total (unchanged)  
+15. **Payment Status** — `Paid`, `Pending review`, etc. (not **`WAITING`** after successful verification)  
+16. **Payment Amount** — from **`document_data_capture`** **`amount`** (or `—` if unknown)  
 17. **Paid Date** — **`payDate`** from extraction, or `—` if empty  
 18. **Payment Checked** — `Yes` if amount and date look good; `No` if pending manual review or capture failed  
-19. **Receipt** — clickable link to the payment proof. Use a **Google Sheets formula** so the cell shows link text (not the raw URL):  
-   - Preferred: **`=HYPERLINK("`<Drive **webViewLink** from Step 10>`","Receipt")`**  
-   - If Drive upload did not return a link, use the **original chat attachment URL** (same as **`document_data_capture` `sourceUrl`**) inside **`HYPERLINK`**.  
-   - Escape any double quote **`"`** inside the URL by doubling it (`""`) per Sheets rules.  
-   - If there is genuinely no URL, use an empty string `""` or `—`.  
+19. **Receipt** — **`=HYPERLINK("`<Drive webViewLink from Step 11>`","Receipt")`** (or chat attachment URL); escape `"` in URLs by doubling  
 
-### Step 11b — Pickup on calendar (`google_calendar`) — MANDATORY
-After **`google_sheets` `append_row`** succeeds, add a **pickup block** to the connected Google Calendar so the kitchen sees the slot.
-
-Call **`google_calendar`** with:
-- **action:** `create_event`
-- **summary:** `Cake pickup — [Order ID] — [Customer name]` (keep it short; cake type optional if it fits)
-- **startTime** / **endTime:** ISO 8601 times for the agreed pickup. Use the **Pickup Date** + **Pickup Time** from the order (e.g. if pickup is `2026-04-10` at `15:30`, use a window like **15:30–16:00** local time). Prefer timezone **`Asia/Hong_Kong`** in the ISO string (e.g. `2026-04-10T15:30:00+08:00` to `2026-04-10T16:00:00+08:00`). If the customer gave only a date with no time, use **11:00–11:30** as a default window and say so in the description.
-- **description:** Order ID, cake (type, size, flavour), decoration/dietary notes, phone, email, quoted total (HKD), payment status, and **“Subject to kitchen confirmation.”**
-- **location:** your shop name or pickup address if you use a fixed one; otherwise omit.
-
-If **`google_calendar`** fails (quota, permissions), tell the customer the order is still recorded on the sheet and the team will add the calendar entry manually — do **not** block the confirmation email for a calendar-only failure.
-
-### Step 12 — Confirmation email (`google_gmail`) — MANDATORY
+### Step 13 — Paid confirmation email (`google_gmail`) — MANDATORY
 **action:** `send` | **to:** customer email | **subject:** `Cake order paid — [Order ID] — pickup [date]`  
-**body:** Full summary (order + payment + receipt link + “subject to kitchen confirmation”).  
+**body:** Full summary: order + verified payment + receipt link + “subject to kitchen confirmation”. Thank them for payment.
 
 ### Completion
-Do **not** output `SKILL_COMPLETE` until **`document_data_capture`** (if a receipt file was sent), **google_drive** `upload`, **google_sheets** `append_row`, **`google_calendar` `create_event`** (pickup block), and **google_gmail** `send` have all succeeded — **except** if calendar failed for a transient reason (see Step 11b): then you may complete after email if sheet + Drive + Gmail succeeded.
+Do **not** output `SKILL_COMPLETE` until **Step 7** (sheet **`append_row`** with **WAITING** + confirmation **`google_gmail`** + **`google_calendar`**) has succeeded for this order, and — once the customer sends a receipt — **`document_data_capture`**, **`google_drive`** `upload`, **`google_sheets` `update_row_by_order_id`**, and **Step 13** **`google_gmail`** have all succeeded. **Exception:** if **`google_calendar`** failed at Step 7c only, you may still continue if sheet + Gmail succeeded.
 
 If a tool fails, explain and retry or ask the user for help.
+
+### If the customer never sends a receipt
+Keep the skill **active**; do not output **`SKILL_COMPLETE`** until payment is resolved or the conversation clearly ends without payment (then you may complete with a short handover note — no second sheet row).
 
 ## Rules
 - Never dump the entire price list in the first message unless they ask “menu” or “prices”.
