@@ -14,6 +14,30 @@ const DEFAULT_DESCRIPTION =
 
 const MAX_SKILL_INSTRUCTIONS = 4000;
 const SCRIPT_TIMEOUT_MS = 30000;
+/** Tool-heavy skills (e.g. receipt → capture + sheets + drive) need more than 8 LLM rounds. */
+const SKILL_SUB_LLM_MAX_ITERATIONS = Math.min(
+  24,
+  Math.max(8, parseInt(process.env.SKILL_MAX_ITERATIONS || '16', 10) || 16),
+);
+
+/**
+ * Manager often calls `execute_skill` with a short paraphrase; attachment lines stay only in the full turn.
+ */
+function mergeSkillUserRequestWithFullTurn(userRequest: string, fullTurn?: string): string {
+  const u = userRequest.trim();
+  const full = fullTurn?.trim() ?? '';
+  if (!full) return u;
+  const fullHasMedia = /Image URL:|PDF URL:/i.test(full);
+  const uHasMedia = /Image URL:|PDF URL:/i.test(u);
+  if (fullHasMedia && !uHasMedia) {
+    return (
+      `${u}\n\n` +
+      `[Full customer message — includes file URL(s) for document_data_capture / google_drive; do not ask for the file again if present below]\n` +
+      `${full}`
+    );
+  }
+  return u;
+}
 
 export class SkillExecutionTool extends BaseTool {
   readonly name = 'execute_skill';
@@ -362,8 +386,9 @@ export class SkillExecutionTool extends BaseTool {
       messages.push({ role: msg.role, content: cleaned as string });
     }
 
-    // Add the current user request as the latest message
-    messages.push({ role: 'user', content: userRequest });
+    // Latest user message: merge execute_skill args with full turn so Image URL / PDF URL are not lost
+    const mergedUserRequest = mergeSkillUserRequestWithFullTurn(userRequest, context.lastUserTurnContent);
+    messages.push({ role: 'user', content: mergedUserRequest });
 
     // Debug: log the messages being sent to sub-LLM
     console.log(`[SkillTool] Sub-LLM message count: ${messages.length}`);
@@ -381,9 +406,10 @@ export class SkillExecutionTool extends BaseTool {
 
     // 5. Conversation loop with script execution and tool calling
     let iterations = 0;
-    const maxIterations = 8;
+    const maxIterations = SKILL_SUB_LLM_MAX_ITERATIONS;
     let scriptExecutedInLoop = false;
     let toolCalledInLoop = false;
+    const calledToolNames = new Set<string>();
 
     while (iterations < maxIterations) {
       iterations++;
@@ -420,6 +446,7 @@ export class SkillExecutionTool extends BaseTool {
 
           console.log(`[SkillTool] Executing tool "${toolName}" with args: ${JSON.stringify(toolArgs).substring(0, 200)}`);
           toolCalledInLoop = true;
+          calledToolNames.add(toolName);
           try {
             const toolResult = await tool.execute(toolArgs, context);
             console.log(`[SkillTool] Tool "${toolName}" result (${toolResult.success ? 'ok' : 'fail'}): ${toolResult.summary.substring(0, 150)}`);
@@ -532,6 +559,34 @@ export class SkillExecutionTool extends BaseTool {
         continue;
       }
 
+      // Guard: detect mid-workflow tool fabrication — LLM claims to have used a tool but never called it
+      if (skill.requiredTools && skill.requiredTools.length > 0 && iterations < maxIterations) {
+        const fabricationMap: Record<string, RegExp> = {
+          google_sheets: /(?:order (?:logged|recorded|saved|appended|submitted)|sheet (?:updated|appended)|row (?:added|appended|written)|已記錄|已登記|已寫入|訂單.*已記|記錄.*訂單|order.*recorded|recorded.*order|appended.*sheet)/i,
+          google_gmail: /(?:email (?:sent|delivered|dispatched)|confirmation (?:email )?sent|已發送.*電郵|電郵.*已發|email.*已送|sent.*confirmation email)/i,
+          google_calendar: /(?:calendar (?:event|entry|appointment).*(?:added|created|scheduled)|event (?:added|created) (?:to|on) (?:the )?calendar|已加入.*日曆|日曆.*已更新)/i,
+        };
+        let fabricationDetected = false;
+        for (const toolName of skill.requiredTools) {
+          if (calledToolNames.has(toolName)) continue;
+          const pattern = fabricationMap[toolName];
+          if (pattern && pattern.test(content)) {
+            console.log(`[SkillTool] Sub-LLM fabricated ${toolName} result without calling it — forcing actual tool call`);
+            messages.push({ role: 'assistant', content });
+            messages.push({
+              role: 'user',
+              content:
+                `SYSTEM: You described an action that requires ${toolName} but you did NOT call the tool. ` +
+                `You MUST make the actual function call to ${toolName} right now. ` +
+                `Do NOT write text describing what you will do — invoke the function call directly.`,
+            });
+            fabricationDetected = true;
+            break;
+          }
+        }
+        if (fabricationDetected) continue;
+      }
+
       const isComplete = content.includes('SKILL_COMPLETE');
 
       // Guard: if skill says COMPLETE but has requiredTools that were never called, force retry
@@ -595,7 +650,27 @@ export class SkillExecutionTool extends BaseTool {
       };
     }
 
-    return { type: 'response', content: 'Skill execution reached maximum iterations. Please try a more specific request.' };
+    console.warn(
+      `[SkillTool] Skill "${skill.slug}" hit max iterations (${maxIterations}) — returning last assistant text or fallback`,
+    );
+    const lastAssistantText = [...messages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim().length > 0);
+    const fallback =
+      typeof lastAssistantText?.content === 'string' && lastAssistantText.content.trim().length > 0
+        ? lastAssistantText.content
+            .replace(/SKILL_COMPLETE\s*/g, '')
+            .replace(/SKILL_OBSERVATIONS\n[\s\S]*?\nEND_OBSERVATIONS\s*/g, '')
+            .trim()
+        : '';
+    if (fallback.length > 0) {
+      return { type: 'response', content: fallback };
+    }
+    return {
+      type: 'response',
+      content:
+        'Skill execution reached maximum iterations. The workflow may need more steps (e.g. Google tools). Please try again or narrow the request.',
+    };
   }
 
   /**
@@ -680,11 +755,16 @@ export class SkillExecutionTool extends BaseTool {
           'HTTP-Referer': 'https://autoestate.ai',
           'X-Title': 'AutoEstate Skill Execution',
         },
-        timeout: 30_000,
+        timeout: 90_000,
       },
     );
 
-    return response.data;
+    const data = response.data;
+    if (!data?.choices?.[0]?.message) {
+      const snippet = JSON.stringify(data ?? {}).slice(0, 800);
+      throw new Error(`Skill sub-LLM returned no choices. ${snippet}`);
+    }
+    return data;
   }
 
   private extractScriptArgs(content: string): string[] {

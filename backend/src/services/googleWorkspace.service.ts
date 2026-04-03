@@ -1,20 +1,25 @@
-import axios from 'axios';
-import { Readable } from 'stream';
-import { google } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
-import { GoogleConnection, decrypt, encrypt } from '../models/GoogleConnection.js';
-import { createOAuth2Client } from '../config/google.js';
+import axios from "axios";
+import { Readable } from "stream";
+import { google } from "googleapis";
+import { OAuth2Client } from "google-auth-library";
+import {
+  GoogleConnection,
+  decrypt,
+  encrypt,
+} from "../models/GoogleConnection.js";
+import { createOAuth2Client } from "../config/google.js";
+import { spreadsheetColumnLettersToCount } from "../utils/spreadsheetColumns.js";
 
 class GoogleWorkspaceService {
   async getAuthedClient(userId: string): Promise<OAuth2Client> {
     const connection = await GoogleConnection.findOne({ userId });
     if (!connection) {
-      throw new Error('GOOGLE_NOT_CONNECTED');
+      throw new Error("GOOGLE_NOT_CONNECTED");
     }
 
     const client = createOAuth2Client();
     if (!client) {
-      throw new Error('Google OAuth not configured on this server');
+      throw new Error("Google OAuth not configured on this server");
     }
 
     const accessToken = decrypt(connection.accessTokenEnc);
@@ -26,7 +31,7 @@ class GoogleWorkspaceService {
       expiry_date: connection.tokenExpiry?.getTime(),
     });
 
-    client.on('tokens', async (tokens) => {
+    client.on("tokens", async (tokens) => {
       const update: Record<string, unknown> = {};
       if (tokens.access_token) {
         update.accessTokenEnc = encrypt(tokens.access_token);
@@ -44,38 +49,44 @@ class GoogleWorkspaceService {
 
   // ── Gmail ──
 
-  async sendEmail(userId: string, params: { to: string; subject: string; body: string }) {
+  async sendEmail(
+    userId: string,
+    params: { to: string; subject: string; body: string },
+  ) {
     const auth = await this.getAuthedClient(userId);
-    const gmail = google.gmail({ version: 'v1', auth });
+    const gmail = google.gmail({ version: "v1", auth });
 
-    const encodedSubject = `=?UTF-8?B?${Buffer.from(params.subject).toString('base64')}?=`;
+    const encodedSubject = `=?UTF-8?B?${Buffer.from(params.subject).toString("base64")}?=`;
     const message = [
       `To: ${params.to}`,
       `Subject: ${encodedSubject}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      Buffer.from(params.body).toString('base64'),
-    ].join('\n');
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      Buffer.from(params.body).toString("base64"),
+    ].join("\n");
 
-    const encodedMessage = Buffer.from(message).toString('base64url');
+    const encodedMessage = Buffer.from(message).toString("base64url");
 
     const result = await gmail.users.messages.send({
-      userId: 'me',
+      userId: "me",
       requestBody: { raw: encodedMessage },
     });
 
     return { id: result.data.id, threadId: result.data.threadId };
   }
 
-  async getInbox(userId: string, params: { query?: string; maxResults?: number } = {}) {
+  async getInbox(
+    userId: string,
+    params: { query?: string; maxResults?: number } = {},
+  ) {
     const auth = await this.getAuthedClient(userId);
-    const gmail = google.gmail({ version: 'v1', auth });
+    const gmail = google.gmail({ version: "v1", auth });
 
     const result = await gmail.users.messages.list({
-      userId: 'me',
-      q: params.query || 'is:inbox',
+      userId: "me",
+      q: params.query || "is:inbox",
       maxResults: params.maxResults || 10,
     });
 
@@ -86,19 +97,19 @@ class GoogleWorkspaceService {
     const messages = await Promise.all(
       result.data.messages.slice(0, 10).map(async (msg) => {
         const detail = await gmail.users.messages.get({
-          userId: 'me',
+          userId: "me",
           id: msg.id!,
-          format: 'metadata',
-          metadataHeaders: ['From', 'Subject', 'Date'],
+          format: "metadata",
+          metadataHeaders: ["From", "Subject", "Date"],
         });
         const headers = detail.data.payload?.headers || [];
         return {
           id: msg.id,
           threadId: msg.threadId,
-          from: headers.find((h) => h.name === 'From')?.value || '',
-          subject: headers.find((h) => h.name === 'Subject')?.value || '',
-          date: headers.find((h) => h.name === 'Date')?.value || '',
-          snippet: detail.data.snippet || '',
+          from: headers.find((h) => h.name === "From")?.value || "",
+          subject: headers.find((h) => h.name === "Subject")?.value || "",
+          date: headers.find((h) => h.name === "Date")?.value || "",
+          snippet: detail.data.snippet || "",
         };
       }),
     );
@@ -108,72 +119,78 @@ class GoogleWorkspaceService {
 
   async getMessage(userId: string, messageId: string) {
     const auth = await this.getAuthedClient(userId);
-    const gmail = google.gmail({ version: 'v1', auth });
+    const gmail = google.gmail({ version: "v1", auth });
 
     const result = await gmail.users.messages.get({
-      userId: 'me',
+      userId: "me",
       id: messageId,
-      format: 'full',
+      format: "full",
     });
 
     const headers = result.data.payload?.headers || [];
-    let body = '';
+    let body = "";
     const parts = result.data.payload?.parts;
     if (parts) {
-      const textPart = parts.find((p) => p.mimeType === 'text/plain');
+      const textPart = parts.find((p) => p.mimeType === "text/plain");
       if (textPart?.body?.data) {
-        body = Buffer.from(textPart.body.data, 'base64').toString('utf-8');
+        body = Buffer.from(textPart.body.data, "base64").toString("utf-8");
       }
     } else if (result.data.payload?.body?.data) {
-      body = Buffer.from(result.data.payload.body.data, 'base64').toString('utf-8');
+      body = Buffer.from(result.data.payload.body.data, "base64").toString(
+        "utf-8",
+      );
     }
 
     return {
       id: result.data.id,
       threadId: result.data.threadId,
-      from: headers.find((h) => h.name === 'From')?.value || '',
-      to: headers.find((h) => h.name === 'To')?.value || '',
-      subject: headers.find((h) => h.name === 'Subject')?.value || '',
-      date: headers.find((h) => h.name === 'Date')?.value || '',
+      from: headers.find((h) => h.name === "From")?.value || "",
+      to: headers.find((h) => h.name === "To")?.value || "",
+      subject: headers.find((h) => h.name === "Subject")?.value || "",
+      date: headers.find((h) => h.name === "Date")?.value || "",
       body,
-      snippet: result.data.snippet || '',
+      snippet: result.data.snippet || "",
     };
   }
 
-  async replyToEmail(userId: string, params: { messageId: string; body: string }) {
+  async replyToEmail(
+    userId: string,
+    params: { messageId: string; body: string },
+  ) {
     const auth = await this.getAuthedClient(userId);
-    const gmail = google.gmail({ version: 'v1', auth });
+    const gmail = google.gmail({ version: "v1", auth });
 
     const original = await gmail.users.messages.get({
-      userId: 'me',
+      userId: "me",
       id: params.messageId,
-      format: 'metadata',
-      metadataHeaders: ['From', 'Subject', 'Message-ID'],
+      format: "metadata",
+      metadataHeaders: ["From", "Subject", "Message-ID"],
     });
 
     const headers = original.data.payload?.headers || [];
-    const from = headers.find((h) => h.name === 'From')?.value || '';
-    const subject = headers.find((h) => h.name === 'Subject')?.value || '';
-    const messageIdHeader = headers.find((h) => h.name === 'Message-ID')?.value || '';
+    const from = headers.find((h) => h.name === "From")?.value || "";
+    const subject = headers.find((h) => h.name === "Subject")?.value || "";
+    const messageIdHeader =
+      headers.find((h) => h.name === "Message-ID")?.value || "";
 
-    const replySubject = `Re: ${subject.replace(/^Re:\s*/i, '')}`;
-    const encodedSubject = `=?UTF-8?B?${Buffer.from(replySubject).toString('base64')}?=`;
+    const replySubject = `Re: ${subject.replace(/^Re:\s*/i, "")}`;
+    const encodedSubject = `=?UTF-8?B?${Buffer.from(replySubject).toString("base64")}?=`;
     const message = [
       `To: ${from}`,
       `Subject: ${encodedSubject}`,
       `In-Reply-To: ${messageIdHeader}`,
       `References: ${messageIdHeader}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset=utf-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      Buffer.from(params.body).toString('base64'),
-    ].join('\n');
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      Buffer.from(params.body).toString("base64"),
+    ].join("\n");
 
     const result = await gmail.users.messages.send({
-      userId: 'me',
+      userId: "me",
       requestBody: {
-        raw: Buffer.from(message).toString('base64url'),
+        raw: Buffer.from(message).toString("base64url"),
         threadId: original.data.threadId!,
       },
     });
@@ -185,18 +202,18 @@ class GoogleWorkspaceService {
 
   async getAgenda(userId: string, params: { timezone?: string } = {}) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: 'v3', auth });
+    const calendar = google.calendar({ version: "v3", auth });
 
     const now = new Date();
     const endOfDay = new Date(now);
     endOfDay.setHours(23, 59, 59, 999);
 
     const result = await calendar.events.list({
-      calendarId: 'primary',
+      calendarId: "primary",
       timeMin: now.toISOString(),
       timeMax: endOfDay.toISOString(),
       singleEvents: true,
-      orderBy: 'startTime',
+      orderBy: "startTime",
       timeZone: params.timezone,
     });
 
@@ -212,19 +229,22 @@ class GoogleWorkspaceService {
     }));
   }
 
-  async createEvent(userId: string, params: {
-    summary: string;
-    startTime: string;
-    endTime: string;
-    description?: string;
-    location?: string;
-    attendees?: string[];
-  }) {
+  async createEvent(
+    userId: string,
+    params: {
+      summary: string;
+      startTime: string;
+      endTime: string;
+      description?: string;
+      location?: string;
+      attendees?: string[];
+    },
+  ) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: 'v3', auth });
+    const calendar = google.calendar({ version: "v3", auth });
 
     const result = await calendar.events.insert({
-      calendarId: 'primary',
+      calendarId: "primary",
       requestBody: {
         summary: params.summary,
         description: params.description,
@@ -257,20 +277,23 @@ class GoogleWorkspaceService {
     },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: 'v3', auth });
+    const calendar = google.calendar({ version: "v3", auth });
 
     const requestBody: Record<string, unknown> = {};
     if (params.summary !== undefined) requestBody.summary = params.summary;
-    if (params.description !== undefined) requestBody.description = params.description;
+    if (params.description !== undefined)
+      requestBody.description = params.description;
     if (params.location !== undefined) requestBody.location = params.location;
-    if (params.startTime !== undefined) requestBody.start = { dateTime: params.startTime };
-    if (params.endTime !== undefined) requestBody.end = { dateTime: params.endTime };
+    if (params.startTime !== undefined)
+      requestBody.start = { dateTime: params.startTime };
+    if (params.endTime !== undefined)
+      requestBody.end = { dateTime: params.endTime };
     if (params.attendees !== undefined) {
       requestBody.attendees = params.attendees.map((email) => ({ email }));
     }
 
     const result = await calendar.events.patch({
-      calendarId: 'primary',
+      calendarId: "primary",
       eventId,
       requestBody,
     });
@@ -284,17 +307,20 @@ class GoogleWorkspaceService {
     };
   }
 
-  async listEvents(userId: string, params: { timeMin?: string; timeMax?: string; maxResults?: number } = {}) {
+  async listEvents(
+    userId: string,
+    params: { timeMin?: string; timeMax?: string; maxResults?: number } = {},
+  ) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: 'v3', auth });
+    const calendar = google.calendar({ version: "v3", auth });
 
     const result = await calendar.events.list({
-      calendarId: 'primary',
+      calendarId: "primary",
       timeMin: params.timeMin || new Date().toISOString(),
       timeMax: params.timeMax,
       maxResults: params.maxResults || 10,
       singleEvents: true,
-      orderBy: 'startTime',
+      orderBy: "startTime",
     });
 
     return (result.data.items || []).map((event) => ({
@@ -310,22 +336,26 @@ class GoogleWorkspaceService {
 
   async deleteEvent(userId: string, eventId: string) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: 'v3', auth });
-    await calendar.events.delete({ calendarId: 'primary', eventId });
+    const calendar = google.calendar({ version: "v3", auth });
+    await calendar.events.delete({ calendarId: "primary", eventId });
     return { deleted: true, eventId };
   }
 
   // ── Drive ──
 
-  async listFiles(userId: string, params: { query?: string; pageSize?: number } = {}) {
+  async listFiles(
+    userId: string,
+    params: { query?: string; pageSize?: number } = {},
+  ) {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: 'v3', auth });
+    const drive = google.drive({ version: "v3", auth });
 
     const result = await drive.files.list({
       q: params.query || undefined,
       pageSize: params.pageSize || 10,
-      fields: 'files(id, name, mimeType, size, modifiedTime, webViewLink, owners)',
-      orderBy: 'modifiedTime desc',
+      fields:
+        "files(id, name, mimeType, size, modifiedTime, webViewLink, owners)",
+      orderBy: "modifiedTime desc",
       includeItemsFromAllDrives: true,
       supportsAllDrives: true,
     });
@@ -342,11 +372,12 @@ class GoogleWorkspaceService {
 
   async getFileInfo(userId: string, fileId: string) {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: 'v3', auth });
+    const drive = google.drive({ version: "v3", auth });
 
     const result = await drive.files.get({
       fileId,
-      fields: 'id, name, mimeType, size, modifiedTime, webViewLink, owners, shared',
+      fields:
+        "id, name, mimeType, size, modifiedTime, webViewLink, owners, shared",
     });
 
     return result.data;
@@ -355,10 +386,14 @@ class GoogleWorkspaceService {
   /**
    * Find a folder by exact name (optionally scoped to a parent folder).
    */
-  async findFolderByName(userId: string, name: string, parentId?: string): Promise<string | null> {
+  async findFolderByName(
+    userId: string,
+    name: string,
+    parentId?: string,
+  ): Promise<string | null> {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: 'v3', auth });
-    const escaped = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const drive = google.drive({ version: "v3", auth });
+    const escaped = name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     let q = `name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     if (parentId) {
       q += ` and '${parentId}' in parents`;
@@ -366,7 +401,7 @@ class GoogleWorkspaceService {
     const result = await drive.files.list({
       q,
       pageSize: 10,
-      fields: 'files(id, name)',
+      fields: "files(id, name)",
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
     });
@@ -375,19 +410,56 @@ class GoogleWorkspaceService {
   }
 
   /**
-   * Resolve "Client Payment" > "Pending" for receipt uploads.
+   * Create a folder in Drive (root if parentId omitted).
+   */
+  async createDriveFolder(
+    userId: string,
+    name: string,
+    parentId?: string,
+  ): Promise<string> {
+    const auth = await this.getAuthedClient(userId);
+    const drive = google.drive({ version: "v3", auth });
+    const requestBody: { name: string; mimeType: string; parents?: string[] } =
+      {
+        name,
+        mimeType: "application/vnd.google-apps.folder",
+      };
+    if (parentId) {
+      requestBody.parents = [parentId];
+    }
+    const createRes = await drive.files.create({
+      requestBody,
+      fields: "id",
+      supportsAllDrives: true,
+    });
+    const id = createRes.data.id;
+    if (!id) {
+      throw new Error(`Drive folder create failed for "${name}"`);
+    }
+    console.log(
+      `[GoogleWorkspace] Created Drive folder "${name}" id=${id}${parentId ? ` under ${parentId}` : ""}`,
+    );
+    return id;
+  }
+
+  /**
+   * Resolve "Client Payment" > "Pending" for receipt uploads. Creates folders if missing.
    */
   async resolvePaymentPendingFolderId(userId: string): Promise<string> {
-    const clientPaymentId = await this.findFolderByName(userId, 'Client Payment');
+    let clientPaymentId = await this.findFolderByName(userId, "Client Payment");
     if (!clientPaymentId) {
-      throw new Error(
-        'DRIVE_FOLDER_NOT_FOUND: Create a top-level folder named "Client Payment" in Google Drive.',
-      );
+      clientPaymentId = await this.createDriveFolder(userId, "Client Payment");
     }
-    const pendingId = await this.findFolderByName(userId, 'Pending', clientPaymentId);
+    let pendingId = await this.findFolderByName(
+      userId,
+      "Pending",
+      clientPaymentId,
+    );
     if (!pendingId) {
-      throw new Error(
-        'DRIVE_FOLDER_NOT_FOUND: Create a folder named "Pending" inside "Client Payment".',
+      pendingId = await this.createDriveFolder(
+        userId,
+        "Pending",
+        clientPaymentId,
       );
     }
     return pendingId;
@@ -398,13 +470,18 @@ class GoogleWorkspaceService {
    */
   async uploadFileFromUrl(
     userId: string,
-    params: { fileUrl: string; fileName: string; parentFolderId: string; mimeType?: string },
+    params: {
+      fileUrl: string;
+      fileName: string;
+      parentFolderId: string;
+      mimeType?: string;
+    },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: 'v3', auth });
+    const drive = google.drive({ version: "v3", auth });
 
     const httpResp = await axios.get<ArrayBuffer>(params.fileUrl, {
-      responseType: 'arraybuffer',
+      responseType: "arraybuffer",
       timeout: 60_000,
       maxContentLength: 25 * 1024 * 1024,
       validateStatus: (s) => s >= 200 && s < 400,
@@ -413,10 +490,10 @@ class GoogleWorkspaceService {
     const buffer = Buffer.from(httpResp.data);
     const mimeType =
       params.mimeType ||
-      (typeof httpResp.headers['content-type'] === 'string'
-        ? httpResp.headers['content-type'].split(';')[0].trim()
+      (typeof httpResp.headers["content-type"] === "string"
+        ? httpResp.headers["content-type"].split(";")[0].trim()
         : null) ||
-      'application/octet-stream';
+      "application/octet-stream";
 
     const body = Readable.from(buffer);
 
@@ -429,7 +506,7 @@ class GoogleWorkspaceService {
         mimeType,
         body,
       },
-      fields: 'id, name, webViewLink, mimeType',
+      fields: "id, name, webViewLink, mimeType",
       supportsAllDrives: true,
     });
 
@@ -443,9 +520,13 @@ class GoogleWorkspaceService {
 
   // ── Google Sheets (requires spreadsheets scope for create/write) ──
 
-  async getSpreadsheetValues(userId: string, spreadsheetId: string, range: string) {
+  async getSpreadsheetValues(
+    userId: string,
+    spreadsheetId: string,
+    range: string,
+  ) {
     const auth = await this.getAuthedClient(userId);
-    const sheets = google.sheets({ version: 'v4', auth });
+    const sheets = google.sheets({ version: "v4", auth });
 
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -463,9 +544,9 @@ class GoogleWorkspaceService {
     params: { title: string; sheetTitle?: string; rows: string[][] },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const sheets = google.sheets({ version: 'v4', auth });
+    const sheets = google.sheets({ version: "v4", auth });
 
-    const sheetTitle = params.sheetTitle ?? 'Orders';
+    const sheetTitle = params.sheetTitle ?? "Orders";
     const createRes = await sheets.spreadsheets.create({
       requestBody: {
         properties: { title: params.title },
@@ -487,13 +568,15 @@ class GoogleWorkspaceService {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range,
-      valueInputOption: 'USER_ENTERED',
+      valueInputOption: "USER_ENTERED",
       requestBody: { values: params.rows },
     });
 
     return {
       spreadsheetId,
-      spreadsheetUrl: createRes.data.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+      spreadsheetUrl:
+        createRes.data.spreadsheetUrl ??
+        `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
       title: params.title,
     };
   }
@@ -503,19 +586,24 @@ class GoogleWorkspaceService {
    */
   async appendSpreadsheetRows(
     userId: string,
-    params: { spreadsheetId: string; sheetName: string; rows: string[][]; lastColumnLetter?: string },
+    params: {
+      spreadsheetId: string;
+      sheetName: string;
+      rows: string[][];
+      lastColumnLetter?: string;
+    },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const sheets = google.sheets({ version: 'v4', auth });
-    const col = params.lastColumnLetter ?? 'N';
+    const sheets = google.sheets({ version: "v4", auth });
+    const col = params.lastColumnLetter ?? "N";
     const escaped = params.sheetName.replace(/'/g, "''");
     const range = `'${escaped}'!A:${col}`;
 
     const result = await sheets.spreadsheets.values.append({
       spreadsheetId: params.spreadsheetId,
       range,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
       requestBody: { values: params.rows },
     });
 
@@ -542,9 +630,9 @@ class GoogleWorkspaceService {
     },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const sheets = google.sheets({ version: 'v4', auth });
+    const sheets = google.sheets({ version: "v4", auth });
     const escaped = params.sheetName.replace(/'/g, "''");
-    const col = params.matchColumnLetter.trim().toUpperCase() || 'A';
+    const col = params.matchColumnLetter.trim().toUpperCase() || "A";
     const matchRange = `'${escaped}'!${col}:${col}`;
 
     const columnValues = await sheets.spreadsheets.values.get({
@@ -556,23 +644,49 @@ class GoogleWorkspaceService {
     let rowNumber = -1;
     for (let i = 0; i < rows.length; i++) {
       const cell = rows[i]?.[0];
-      const v = cell == null ? '' : String(cell).trim();
+      const v = cell == null ? "" : String(cell).trim();
       if (v === needle) {
         rowNumber = i + 1;
         break;
       }
     }
     if (rowNumber < 1) {
-      throw new Error(`No row found where ${col} equals "${params.matchValue}"`);
+      throw new Error(
+        `No row found where ${col} equals "${params.matchValue}"`,
+      );
     }
 
-    const lastCol = params.lastColumnLetter?.trim().toUpperCase() || 'S';
+    const lastCol = params.lastColumnLetter?.trim().toUpperCase() || "S";
+    const colCount = spreadsheetColumnLettersToCount(lastCol);
+
+    const readRange = `'${escaped}'!A${rowNumber}:${lastCol}${rowNumber}`;
+    const existingRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: params.spreadsheetId,
+      range: readRange,
+    });
+    const existingFlat = (existingRes.data.values?.[0] ?? []).map((c) =>
+      c == null ? "" : String(c),
+    );
+
+    const incoming = params.row.map((c) => (c == null ? "" : String(c)));
+    const merged: string[] = [];
+    for (let i = 0; i < colCount; i++) {
+      const inc = incoming[i] ?? "";
+      const ex = existingFlat[i] ?? "";
+      const incTrim = inc.trim();
+      if (incTrim === "" && ex.trim() !== "") {
+        merged.push(ex);
+      } else {
+        merged.push(inc);
+      }
+    }
+
     const updateRange = `'${escaped}'!A${rowNumber}:${lastCol}${rowNumber}`;
     await sheets.spreadsheets.values.update({
       spreadsheetId: params.spreadsheetId,
       range: updateRange,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [params.row] },
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [merged] },
     });
 
     return {

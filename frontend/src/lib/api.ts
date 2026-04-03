@@ -346,6 +346,14 @@ async function streamAgentChat(
 }
 
 export const assistantsApi = {
+  /** Tool ids allowed for skill `requiredTools` — from backend registry (excludes execute_skill, ask_clarification). */
+  getSkillToolOptions: async (): Promise<{ id: string; label: string }[]> => {
+    const { data } = await api.get<{ tools: { id: string; label: string }[] }>(
+      "/assistants/skill-tool-options",
+    );
+    return data.tools ?? [];
+  },
+
   list: async (status?: "active" | "inactive"): Promise<Assistant[]> => {
     const params = status ? { status } : {};
     const { data } = await api.get("/assistants", { params });

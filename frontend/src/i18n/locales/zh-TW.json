@@ -577,7 +577,7 @@
       "closePanel": "關閉設定",
       "you": "您",
       "typing": "正在輸入...",
-      "typePlaceholder": "輸入訊息...",
+      "typePlaceholder": "輸入訊息或貼上圖片／音訊...",
       "settings": "設定",
       "files": "檔案",
       "dragFiles": "將檔案拖曳到這裡或點擊上傳",
@@ -627,6 +627,7 @@
       "skillEditorTabSkillContent": "技能內容",
       "skillFieldTriggerHints": "觸發詞（逗號分隔）",
       "skillFieldToolsAccess": "工具權限",
+      "skillToolOptionsLoadFailed": "無法載入工具列表。請重新整理頁面或確認 API 是否正常運作。",
       "skillFieldIdleReminder": "閒置提醒",
       "skillFieldIdleReminderHint": "若使用者在延遲時間內未回覆，將自動提醒。",
       "skillFieldReminderDelay": "延遲（分鐘）",
@@ -660,6 +661,8 @@
       }
     },
     "staffProfile": {
+      "tabBasic": "基本設定",
+      "tabSkills": "員工技能",
       "sectionTitle": "團隊成員",
       "displayName": "姓名",
       "roleTitle": "職稱",

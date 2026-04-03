@@ -1,6 +1,10 @@
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { Response, NextFunction } from 'express';
 import { assistantService } from '../services/assistant.service.js';
 import { agentEngine, buildPlaygroundContext } from '../agent/index.js';
+import { getSkillPermissionToolOptions } from '../agent/tools/index.js';
 import type { AuthRequest } from '../types/index.js';
 import type { ChatMessage, AgentEvent } from '../agent/types.js';
 
@@ -17,6 +21,20 @@ export async function listAssistants(
     });
     
     res.json({ assistants });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Tools available for skill `requiredTools` — must match agent registry (see getSkillPermissionToolOptions). */
+export async function listSkillToolOptions(
+  _req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const tools = getSkillPermissionToolOptions();
+    res.json({ tools });
   } catch (error) {
     next(error);
   }
@@ -522,6 +540,41 @@ export async function renameFolder(
   }
 }
 
+/** Save Playground upload under uploads/agent-chat/ for stable URLs when PUBLIC_API_URL or a public host is used. */
+async function persistPlaygroundUpload(
+  buffer: Buffer,
+  mimetype: string,
+  origName: string,
+): Promise<string> {
+  const uploadsRoot = process.env.UPLOAD_PATH || path.resolve(process.cwd(), 'uploads');
+  const dir = path.join(uploadsRoot, 'agent-chat');
+  await fs.mkdir(dir, { recursive: true });
+  const ext =
+    path.extname(origName) ||
+    (mimetype.startsWith('image/')
+      ? '.jpg'
+      : mimetype === 'application/pdf'
+        ? '.pdf'
+        : '.bin');
+  const name = `${randomUUID()}${ext}`;
+  await fs.writeFile(path.join(dir, name), buffer);
+  return `/uploads/agent-chat/${name}`;
+}
+
+/**
+ * Always return a short HTTP(S) URL to this server's `/uploads/...` copy of the file.
+ * Embedding base64 in the agent user message exceeds model context limits (~200k+ tokens).
+ * `document_data_capture` resolves same-origin localhost `/uploads/` URLs by reading the file server-side.
+ */
+function resolvePlaygroundMediaUrlForAgent(req: AuthRequest, relativePath: string): string {
+  const publicBase = process.env.PUBLIC_API_URL?.replace(/\/$/, '');
+  const host = req.get('host') || 'localhost';
+  if (publicBase) {
+    return `${publicBase}${relativePath}`;
+  }
+  return `${req.protocol}://${host}${relativePath}`;
+}
+
 export async function agentChat(
   req: AuthRequest,
   res: Response,
@@ -569,28 +622,80 @@ export async function agentChat(
 
     let effectiveContent = lastUserMsg.content || '';
 
-    // If a file was uploaded, analyze it and include the description
+    // If a file was uploaded, analyze it and include text / description for the agent
     if (file) {
-      const mediaType = file.mimetype.startsWith('image/') ? 'image' : 'audio';
-      const base64Data = file.buffer.toString('base64');
-      const dataUrl = `data:${file.mimetype};base64,${base64Data}`;
+      const mimetype = file.mimetype || '';
+      const origName = file.originalname || 'attachment';
 
-      sendEvent({ type: 'status', status: mediaType === 'image' ? 'analyzing_image' : 'analyzing_audio' });
-      console.log(`[AgentChat] Analyzing ${mediaType} file: ${file.originalname} (${file.size} bytes)`);
-
-      try {
-        const analysisResult = await analyzeMedia(mediaType, dataUrl);
-        
-        if (mediaType === 'image') {
-          effectiveContent = `The user shared an image${effectiveContent ? ` with message: "${effectiveContent}"` : ''}. Image description: ${analysisResult}`;
-        } else {
-          effectiveContent = `The user sent an audio message. Transcription: ${analysisResult}`;
+      if (mimetype.startsWith('image/')) {
+        const base64Data = file.buffer.toString('base64');
+        const dataUrl = `data:${mimetype};base64,${base64Data}`;
+        const relativePath = await persistPlaygroundUpload(file.buffer, mimetype, origName);
+        const urlForAgent = resolvePlaygroundMediaUrlForAgent(req, relativePath);
+        sendEvent({ type: 'status', status: 'analyzing_image' });
+        console.log(`[AgentChat] Analyzing image: ${origName} (${file.size} bytes) → ${urlForAgent}`);
+        const urlLine = `Image URL: ${urlForAgent}`;
+        try {
+          const analysisResult = await analyzeMedia('image', dataUrl);
+          effectiveContent =
+            `The user shared an image${effectiveContent ? ` with message: "${effectiveContent}"` : ''}. ${urlLine} Image description: ${analysisResult}`;
+          console.log(`[AgentChat] Image analysis complete: ${analysisResult.substring(0, 100)}...`);
+        } catch (analysisError: unknown) {
+          const msg = analysisError instanceof Error ? analysisError.message : String(analysisError);
+          console.error(`[AgentChat] Image analysis failed:`, msg);
+          effectiveContent =
+            `The user shared an image${effectiveContent ? ` with message: "${effectiveContent}"` : ''}. ${urlLine} (Note: optional image description failed: ${msg})`;
         }
-        
-        console.log(`[AgentChat] Media analysis complete: ${analysisResult.substring(0, 100)}...`);
-      } catch (analysisError: any) {
-        console.error(`[AgentChat] Media analysis failed:`, analysisError.message);
-        effectiveContent = `The user shared a ${mediaType} file${effectiveContent ? `: "${effectiveContent}"` : ''}. (Note: Media analysis failed, responding based on available context)`;
+      } else if (mimetype.startsWith('audio/')) {
+        const base64Data = file.buffer.toString('base64');
+        const dataUrl = `data:${mimetype};base64,${base64Data}`;
+        sendEvent({ type: 'status', status: 'analyzing_audio' });
+        console.log(`[AgentChat] Analyzing audio: ${origName} (${file.size} bytes)`);
+        try {
+          const analysisResult = await analyzeMedia('audio', dataUrl);
+          effectiveContent = `The user sent an audio message. Transcription: ${analysisResult}`;
+          console.log(`[AgentChat] Audio analysis complete: ${analysisResult.substring(0, 100)}...`);
+        } catch (analysisError: unknown) {
+          const msg = analysisError instanceof Error ? analysisError.message : String(analysisError);
+          console.error(`[AgentChat] Audio analysis failed:`, msg);
+          effectiveContent = `The user shared an audio file${effectiveContent ? `: "${effectiveContent}"` : ''}. (Note: Transcription failed, responding based on available context)`;
+        }
+      } else if (isPlainTextDocumentMime(mimetype) || looksLikePlainTextFile(origName)) {
+        sendEvent({ type: 'status', status: 'thinking' });
+        const raw = file.buffer.toString('utf8');
+        const truncated = truncateForAgentContext(raw);
+        effectiveContent = `The user shared a text document (${origName})${effectiveContent ? ` with message: "${effectiveContent}"` : ''}.\n\n--- Document content ---\n${truncated}\n--- End ---`;
+        console.log(`[AgentChat] Inlined text document: ${origName} (${file.size} bytes)`);
+      } else if (mimetype === 'application/pdf' || origName.toLowerCase().endsWith('.pdf')) {
+        sendEvent({ type: 'status', status: 'thinking' });
+        const pdfDataUrl = `data:application/pdf;base64,${file.buffer.toString('base64')}`;
+        const relativePath = await persistPlaygroundUpload(
+          file.buffer,
+          mimetype || 'application/pdf',
+          origName,
+        );
+        const pdfUrlForAgent = resolvePlaygroundMediaUrlForAgent(req, relativePath);
+        const pdfUrlLine = `PDF URL: ${pdfUrlForAgent}`;
+        try {
+          const { PDFParse } = await import('pdf-parse');
+          const parser = new PDFParse({ data: file.buffer });
+          const textResult = await parser.getText();
+          await parser.destroy();
+          const text = (textResult.text || '').trim();
+          const truncated = truncateForAgentContext(text);
+          effectiveContent =
+            `The user shared a PDF (${origName})${effectiveContent ? ` with message: "${effectiveContent}"` : ''}. ${pdfUrlLine}\n\n--- PDF text (reference only) ---\n${truncated || '[No extractable text in PDF]'}\n--- End ---`;
+          console.log(`[AgentChat] Extracted PDF text: ${origName} (${text.length} chars)`);
+        } catch (pdfError: unknown) {
+          const msg = pdfError instanceof Error ? pdfError.message : String(pdfError);
+          console.error(`[AgentChat] PDF parse failed:`, msg);
+          effectiveContent =
+            `The user attached PDF "${origName}". ${pdfUrlLine} (Note: local PDF text extraction failed: ${msg})`;
+        }
+      } else {
+        sendEvent({ type: 'status', status: 'thinking' });
+        effectiveContent = `The user attached a file: ${origName} (type: ${mimetype || 'unknown'}, ${file.size} bytes). This binary format is not supported in chat; ask them to provide a PDF, plain text (.txt/.md), or paste the content.${effectiveContent ? ` They also wrote: "${effectiveContent}"` : ''}`;
+        console.log(`[AgentChat] Unsupported attachment type: ${mimetype} ${origName}`);
       }
     }
 
@@ -666,6 +771,22 @@ export async function agentChat(
     }
     next(error);
   }
+}
+
+const MAX_AGENT_DOCUMENT_CHARS = 150_000;
+
+function truncateForAgentContext(text: string): string {
+  if (text.length <= MAX_AGENT_DOCUMENT_CHARS) return text;
+  return `${text.slice(0, MAX_AGENT_DOCUMENT_CHARS)}\n...[truncated]`;
+}
+
+function isPlainTextDocumentMime(mimetype: string): boolean {
+  if (mimetype.startsWith('text/')) return true;
+  return ['application/json', 'application/xml', 'text/xml'].includes(mimetype);
+}
+
+function looksLikePlainTextFile(name: string): boolean {
+  return /\.(txt|md|csv|json|xml|yaml|yml|log|tsv)$/i.test(name);
 }
 
 /**

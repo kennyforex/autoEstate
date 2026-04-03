@@ -595,17 +595,9 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     return "document";
   };
 
-  // Handle file selection from file picker
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Check file size - different limits for different types
-    // Videos/large media: WhatsApp API has ~10MB limit for base64
-    // Documents: can be larger
+  const canAcceptPendingFileSize = (file: File): boolean => {
     const isVideo = file.type.startsWith("video/");
     const maxSize = isVideo ? 10 * 1024 * 1024 : 25 * 1024 * 1024;
-
     if (file.size > maxSize) {
       if (isVideo) {
         alert(
@@ -614,54 +606,62 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       } else {
         alert("File size must be less than 25MB");
       }
-      return;
+      return false;
     }
+    return true;
+  };
 
-    // Convert to base64
+  const applyPendingFileFromFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      const base64 = result.split(",")[1]; // Remove data:...;base64, prefix
+      const base64 = result.split(",")[1];
+      const displayName =
+        file.name ||
+        (file.type.startsWith("image/")
+          ? "pasted-image.png"
+          : file.type.startsWith("video/")
+            ? "pasted-video"
+            : "pasted-file");
       setPendingFile({
         preview: result,
         base64,
         mimeType: file.type,
-        fileName: file.name,
+        fileName: displayName,
         fileType: getFileType(file.type),
       });
     };
     reader.readAsDataURL(file);
+  };
 
-    // Reset the input so the same file can be selected again
+  // Handle file selection from file picker
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!canAcceptPendingFileSize(file)) return;
+    applyPendingFileFromFile(file);
     e.target.value = "";
   };
 
-  // Handle paste event for images
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData.items;
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const tryAttach = (file: File | null): boolean => {
+      if (!file) return false;
+      if (!canAcceptPendingFileSize(file)) return false;
+      e.preventDefault();
+      applyPendingFileFromFile(file);
+      return true;
+    };
 
-    for (const item of items) {
-      if (item.type.startsWith("image/")) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (!file) continue;
+    const files = e.clipboardData.files;
+    if (files && files.length > 0) {
+      if (tryAttach(files[0])) return;
+    }
 
-        // Convert to base64
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          const base64 = result.split(",")[1]; // Remove data:image/...;base64, prefix
-          setPendingFile({
-            preview: result,
-            base64,
-            mimeType: file.type,
-            fileName: file.name || "pasted-image.png",
-            fileType: "image",
-          });
-        };
-        reader.readAsDataURL(file);
-        break;
-      }
+    for (let i = 0; i < e.clipboardData.items.length; i++) {
+      const item = e.clipboardData.items[i];
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (tryAttach(file)) return;
     }
   };
 
@@ -1107,40 +1107,54 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
       <div className="p-4 border-t border-border">
         {/* File Preview */}
         {pendingFile && (
-          <div className="mb-3 relative inline-block">
+          <div className="mb-3 flex flex-wrap items-end gap-2">
             {pendingFile.fileType === "image" ? (
-              <img
-                src={pendingFile.preview}
-                alt="Pending upload"
-                className="max-h-32 rounded-lg border border-border"
-              />
+              <div className="relative inline-block">
+                <img
+                  src={pendingFile.preview}
+                  alt=""
+                  className="h-16 w-16 rounded-lg border border-border object-cover bg-gray-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setPendingFile(null)}
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-800 text-white shadow-sm hover:bg-gray-900"
+                  title="Remove"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
             ) : pendingFile.fileType === "video" ? (
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-border">
-                <Film className="w-8 h-8 text-primary" />
-                <div>
-                  <p className="text-sm font-medium text-text-primary truncate max-w-[200px]">
-                    {pendingFile.fileName}
-                  </p>
-                  <p className="text-xs text-text-secondary">Video</p>
-                </div>
+              <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-gray-50 py-1 pl-2.5 pr-1">
+                <Film className="h-4 w-4 shrink-0 text-gray-500" />
+                <span className="min-w-0 truncate text-sm text-text-primary">
+                  {pendingFile.fileName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPendingFile(null)}
+                  className="rounded-full p-1 text-text-secondary hover:bg-gray-200 hover:text-text-primary"
+                  title="Remove"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
             ) : (
-              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-border">
-                <FileText className="w-8 h-8 text-primary" />
-                <div>
-                  <p className="text-sm font-medium text-text-primary truncate max-w-[200px]">
-                    {pendingFile.fileName}
-                  </p>
-                  <p className="text-xs text-text-secondary">Document</p>
-                </div>
+              <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-gray-50 py-1 pl-2.5 pr-1">
+                <File className="h-4 w-4 shrink-0 text-gray-500" />
+                <span className="min-w-0 truncate text-sm text-text-primary">
+                  {pendingFile.fileName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPendingFile(null)}
+                  className="rounded-full p-1 text-text-secondary hover:bg-gray-200 hover:text-text-primary"
+                  title="Remove"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
             )}
-            <button
-              onClick={() => setPendingFile(null)}
-              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-            >
-              <X className="w-3 h-3" />
-            </button>
           </div>
         )}
         <div className="flex items-end gap-3">
@@ -1164,7 +1178,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
               placeholder={
                 pendingFile
                   ? "Add a caption (optional)..."
-                  : "Type a message or paste an image..."
+                  : "Type a message or paste an image or file..."
               }
               className="w-full resize-none border border-border rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary"
               rows={2}

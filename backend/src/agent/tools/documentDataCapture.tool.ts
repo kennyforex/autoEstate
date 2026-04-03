@@ -1,7 +1,80 @@
+import fs from 'fs/promises';
+import path from 'path';
 import { BaseTool } from './base.js';
 import axios from 'axios';
 import { openRouterConfig } from '../../config/openrouter.js';
 import type { AgentContext, ToolResult } from '../types.js';
+
+const UPLOADS_ROOT = process.env.UPLOAD_PATH || path.resolve(process.cwd(), 'uploads');
+
+/**
+ * OpenRouter cannot fetch localhost URLs. When the agent passes our Playground/inbox
+ * `http://localhost:PORT/uploads/...` URL, read the file from disk and pass a data URL to the model.
+ */
+async function hydrateLocalUploadsUrlForOpenRouter(sourceUrl: string): Promise<
+  | { ok: true; url: string }
+  | { ok: false; error: string }
+> {
+  const trimmed = sourceUrl.trim();
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    return { ok: true, url: trimmed };
+  }
+  let u: URL;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    return { ok: true, url: trimmed };
+  }
+  const host = u.hostname.toLowerCase();
+  const isLoopback =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '[::1]' ||
+    host === '0.0.0.0';
+  if (!isLoopback) {
+    return { ok: true, url: trimmed };
+  }
+  let pathname = u.pathname;
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    /* keep raw */
+  }
+  if (!pathname.startsWith('/uploads/')) {
+    return {
+      ok: false,
+      error:
+        'document_data_capture cannot fetch localhost URLs that are not under /uploads/. Re-upload the file or use a public URL.',
+    };
+  }
+  const relative = pathname.replace(/^\/uploads\/?/, '');
+  if (!relative || relative.includes('..')) {
+    return { ok: false, error: 'Invalid /uploads/ path (possible path traversal).' };
+  }
+  const abs = path.resolve(UPLOADS_ROOT, relative);
+  const normalizedRoot = path.resolve(UPLOADS_ROOT);
+  if (!abs.startsWith(normalizedRoot + path.sep)) {
+    return { ok: false, error: 'Resolved path escapes uploads directory.' };
+  }
+  let buf: Buffer;
+  try {
+    buf = await fs.readFile(abs);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      error: `Could not read uploaded file at ${pathname}: ${msg}`,
+    };
+  }
+  const ext = path.extname(abs).toLowerCase();
+  let mime = 'application/octet-stream';
+  if (['.jpg', '.jpeg'].includes(ext)) mime = 'image/jpeg';
+  else if (ext === '.png') mime = 'image/png';
+  else if (ext === '.webp') mime = 'image/webp';
+  else if (ext === '.gif') mime = 'image/gif';
+  else if (ext === '.pdf') mime = 'application/pdf';
+  return { ok: true, url: `data:${mime};base64,${buf.toString('base64')}` };
+}
 
 const PDF_ENGINES = new Set(['native', 'cloudflare-ai', 'mistral-ocr']);
 
@@ -203,6 +276,16 @@ export class DocumentDataCaptureTool extends BaseTool {
       };
     }
 
+    const hydrated = await hydrateLocalUploadsUrlForOpenRouter(sourceUrl.trim());
+    if (!hydrated.ok) {
+      return {
+        success: false,
+        data: null,
+        summary: toolJsonSummary({ success: false, error: hydrated.error }),
+      };
+    }
+    const effectiveSourceUrl = hydrated.url;
+
     const parsedSchema = parseOutputSchema(outputSchemaRaw);
     if ('error' in parsedSchema) {
       return {
@@ -231,15 +314,15 @@ export class DocumentDataCaptureTool extends BaseTool {
       documentType === 'image'
         ? [
             { type: 'text', text: textPrompt },
-            { type: 'image_url', image_url: { url: sourceUrl } },
+            { type: 'image_url', image_url: { url: effectiveSourceUrl } },
           ]
         : [
             { type: 'text', text: textPrompt },
             {
               type: 'file',
               file: {
-                filename: pdfFilenameFromSourceUrl(sourceUrl),
-                file_data: sourceUrl,
+                filename: pdfFilenameFromSourceUrl(effectiveSourceUrl),
+                file_data: effectiveSourceUrl,
               },
             },
           ];

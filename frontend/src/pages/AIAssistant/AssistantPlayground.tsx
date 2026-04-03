@@ -28,7 +28,7 @@ import {
   FolderInput,
   X,
   Paperclip,
-  Image as ImageIcon,
+  FileAudio,
   Zap,
   UploadCloud,
   Code,
@@ -62,6 +62,18 @@ import type {
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** Playground-only: thread preview for sent attachments (not sent to API). */
+  localAttachment?: {
+    fileName: string;
+    mimeType: string;
+    objectUrl?: string;
+  };
+}
+
+function toApiMessages(
+  msgs: ChatMessage[],
+): { role: "user" | "assistant"; content: string }[] {
+  return msgs.map(({ role, content }) => ({ role, content }));
 }
 
 // Max file size for uploads (100MB) - matches backend video limit
@@ -549,6 +561,9 @@ export const AssistantPlayground: React.FC = () => {
   const [managerSubTab, setManagerSubTab] = useState<
     "settings" | "files" | "skills"
   >("settings");
+  const [staffPanelSubTab, setStaffPanelSubTab] = useState<
+    "basic" | "skills"
+  >("basic");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -571,6 +586,26 @@ export const AssistantPlayground: React.FC = () => {
   // Chat file upload state
   const [selectedChatFile, setSelectedChatFile] = useState<File | null>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const playgroundBlobUrlsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      const blobUrls = playgroundBlobUrlsRef.current;
+      blobUrls.forEach((u) => URL.revokeObjectURL(u));
+      blobUrls.clear();
+    };
+  }, []);
+
+  const chatAttachmentImageUrl = useMemo(() => {
+    if (!selectedChatFile?.type.startsWith("image/")) return null;
+    return URL.createObjectURL(selectedChatFile);
+  }, [selectedChatFile]);
+
+  useEffect(() => {
+    return () => {
+      if (chatAttachmentImageUrl) URL.revokeObjectURL(chatAttachmentImageUrl);
+    };
+  }, [chatAttachmentImageUrl]);
 
   // Folder management state
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
@@ -649,6 +684,11 @@ export const AssistantPlayground: React.FC = () => {
   const [scriptSaving, setScriptSaving] = useState(false);
   const scriptUploadRef = useRef<HTMLInputElement>(null);
   const refUploadRef = useRef<HTMLInputElement>(null);
+
+  const [skillToolOptions, setSkillToolOptions] = useState<
+    { id: string; label: string }[]
+  >([]);
+  const [skillToolOptionsLoading, setSkillToolOptionsLoading] = useState(false);
 
   const displayDeptName =
     assistant?.departmentName?.trim() || assistant?.name || "";
@@ -760,6 +800,7 @@ export const AssistantPlayground: React.FC = () => {
 
   useEffect(() => {
     if (!selectedStaffMember) return;
+    setStaffPanelSubTab("basic");
     setStaffRowDraft({
       displayName: selectedStaffMember.displayName || "",
       roleTitle: selectedStaffMember.roleTitle || "",
@@ -807,6 +848,24 @@ export const AssistantPlayground: React.FC = () => {
   useEffect(() => {
     if (id) fetchSkills();
   }, [id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setSkillToolOptionsLoading(true);
+      try {
+        const tools = await assistantsApi.getSkillToolOptions();
+        if (!cancelled) setSkillToolOptions(tools);
+      } catch (e) {
+        console.error("Failed to fetch skill tool options:", e);
+      } finally {
+        if (!cancelled) setSkillToolOptionsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -882,14 +941,32 @@ export const AssistantPlayground: React.FC = () => {
   const handleSendMessage = async () => {
     if ((!inputMessage.trim() && !selectedChatFile) || isTyping || !id) return;
 
+    const fileToSend = selectedChatFile;
     const content = inputMessage.trim();
+    let localAttachment: ChatMessage["localAttachment"];
+    if (fileToSend) {
+      const mime = fileToSend.type;
+      let objectUrl: string | undefined;
+      if (mime.startsWith("image/") || mime.startsWith("audio/")) {
+        objectUrl = URL.createObjectURL(fileToSend);
+        playgroundBlobUrlsRef.current.add(objectUrl);
+      }
+      localAttachment = {
+        fileName: fileToSend.name,
+        mimeType: mime,
+        objectUrl,
+      };
+    }
     const userMessage: ChatMessage = {
       role: "user",
       content:
-        content || (selectedChatFile ? `[File: ${selectedChatFile.name}]` : ""),
+        content || (fileToSend ? `[File: ${fileToSend.name}]` : ""),
+      ...(localAttachment ? { localAttachment } : {}),
     };
+    const apiMessages = toApiMessages([...messages, userMessage]);
     setMessages((prev) => [...prev, userMessage]);
     setInputMessage("");
+    setSelectedChatFile(null);
     setIsTyping(true);
     setAgentStatus(null);
     setAgentSteps([]);
@@ -947,18 +1024,17 @@ export const AssistantPlayground: React.FC = () => {
 
     try {
       let response;
-      if (selectedChatFile) {
+      if (fileToSend) {
         response = await assistantsApi.agentChatWithFile(
           id,
-          [...messages, userMessage],
-          selectedChatFile,
+          apiMessages,
+          fileToSend,
           handleProgress,
         );
-        setSelectedChatFile(null);
       } else {
         response = await assistantsApi.agentChat(
           id,
-          [...messages, userMessage],
+          apiMessages,
           handleProgress,
         );
       }
@@ -985,38 +1061,73 @@ export const AssistantPlayground: React.FC = () => {
     }
   };
 
+  const isAllowedChatAttachment = (file: File): boolean => {
+    if (file.type.startsWith("image/") || file.type.startsWith("audio/")) {
+      return true;
+    }
+    if (file.type.startsWith("text/")) return true;
+    const docMimes = [
+      "application/pdf",
+      "application/json",
+      "application/xml",
+      "text/xml",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ];
+    if (docMimes.includes(file.type)) return true;
+    const lower = file.name.toLowerCase();
+    return /\.(pdf|txt|md|csv|json|xml|yaml|yml|doc|docx|xls|xlsx|ppt|pptx|rtf)$/i.test(
+      lower,
+    );
+  };
+
+  const trySetChatAttachmentFromFile = (file: File): boolean => {
+    if (!isAllowedChatAttachment(file)) {
+      showError(
+        "Invalid file type",
+        "Please select an image, audio, or document (e.g. PDF, text).",
+      );
+      return false;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      showError("File too large", "Maximum file size is 10MB.");
+      return false;
+    }
+    setSelectedChatFile(file);
+    return true;
+  };
+
   const handleChatFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate file type (images for now)
-      const validTypes = [
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-        "audio/mpeg",
-        "audio/wav",
-        "audio/ogg",
-        "audio/mp4",
-      ];
-      if (
-        !validTypes.includes(file.type) &&
-        !file.type.startsWith("image/") &&
-        !file.type.startsWith("audio/")
-      ) {
-        showError("Invalid file type", "Please select an image or audio file.");
-        return;
-      }
-      // Max 10MB for chat files
-      if (file.size > 10 * 1024 * 1024) {
-        showError("File too large", "Maximum file size is 10MB.");
-        return;
-      }
-      setSelectedChatFile(file);
+      trySetChatAttachmentFromFile(file);
     }
-    // Reset input so same file can be selected again
     if (chatFileInputRef.current) {
       chatFileInputRef.current.value = "";
+    }
+  };
+
+  const handleChatPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (isTyping || selectedChatFile) return;
+    const dt = e.clipboardData;
+    if (dt.files?.length) {
+      const file = dt.files[0];
+      if (trySetChatAttachmentFromFile(file)) {
+        e.preventDefault();
+        return;
+      }
+    }
+    for (let i = 0; i < dt.items.length; i++) {
+      const item = dt.items[i];
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      if (trySetChatAttachmentFromFile(file)) {
+        e.preventDefault();
+        break;
+      }
     }
   };
 
@@ -2083,9 +2194,68 @@ ${skillForm.instructions}
                             </ReactMarkdown>
                           </div>
                         ) : (
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                            {message.content.replace(/\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g, '').trim()}
-                          </p>
+                          <div className="text-sm text-gray-700 space-y-2">
+                            {message.localAttachment && (
+                              <>
+                                {message.localAttachment.objectUrl &&
+                                  message.localAttachment.mimeType.startsWith(
+                                    "image/",
+                                  ) && (
+                                    <img
+                                      src={message.localAttachment.objectUrl}
+                                      alt=""
+                                      className="max-h-64 max-w-full rounded-lg border border-gray-200 object-contain bg-gray-50"
+                                    />
+                                  )}
+                                {message.localAttachment.objectUrl &&
+                                  message.localAttachment.mimeType.startsWith(
+                                    "audio/",
+                                  ) && (
+                                    <audio
+                                      src={message.localAttachment.objectUrl}
+                                      controls
+                                      className="w-full max-w-sm"
+                                    />
+                                  )}
+                                {!message.localAttachment.objectUrl && (
+                                  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 bg-gray-50 py-1 pl-2.5 pr-2">
+                                    {message.localAttachment.mimeType.startsWith(
+                                      "audio/",
+                                    ) ? (
+                                      <FileAudio className="h-4 w-4 shrink-0 text-gray-500" />
+                                    ) : (
+                                      <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+                                    )}
+                                    <span className="min-w-0 truncate text-sm text-gray-800">
+                                      {message.localAttachment.fileName}
+                                    </span>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                            {(() => {
+                              const stripped = message.content
+                                .replace(
+                                  /\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g,
+                                  "",
+                                )
+                                .trim();
+                              const isFileOnlyPlaceholder =
+                                /^\[File: .+\]$/.test(stripped);
+                              if (
+                                isFileOnlyPlaceholder &&
+                                message.localAttachment
+                              ) {
+                                return null;
+                              }
+                              if (!stripped) return null;
+                              return (
+                                <p className="whitespace-pre-wrap">
+                                  {stripped}
+                                </p>
+                              );
+                            })()}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -2256,27 +2426,46 @@ ${skillForm.instructions}
 
           {/* Input */}
           <div className="p-4 bg-white border-t border-gray-200">
-            {/* Selected file preview */}
+            {/* Selected file preview: image thumbnail or file chip */}
             {selectedChatFile && (
-              <div className="mb-3 flex items-center gap-2 p-2 bg-primary/5 border border-primary/20 rounded-lg">
-                {selectedChatFile.type.startsWith("image/") ? (
-                  <ImageIcon className="w-4 h-4 text-primary" />
+              <div className="mb-3 flex flex-wrap items-end gap-2">
+                {selectedChatFile.type.startsWith("image/") &&
+                chatAttachmentImageUrl ? (
+                  <div className="relative inline-block">
+                    <img
+                      src={chatAttachmentImageUrl}
+                      alt=""
+                      className="h-16 w-16 rounded-lg border border-gray-200 object-cover bg-gray-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={removeSelectedChatFile}
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-800 text-white shadow-sm hover:bg-gray-900"
+                      title="Remove"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
                 ) : (
-                  <FileText className="w-4 h-4 text-primary" />
+                  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 bg-gray-50 py-1 pl-2.5 pr-1">
+                    {selectedChatFile.type.startsWith("audio/") ? (
+                      <FileAudio className="h-4 w-4 shrink-0 text-gray-500" />
+                    ) : (
+                      <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+                    )}
+                    <span className="min-w-0 truncate text-sm text-gray-800">
+                      {selectedChatFile.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={removeSelectedChatFile}
+                      className="rounded-full p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-800"
+                      title="Remove"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
                 )}
-                <span className="text-sm text-text-primary flex-1 truncate">
-                  {selectedChatFile.name}
-                </span>
-                <span className="text-xs text-text-secondary">
-                  ({(selectedChatFile.size / 1024).toFixed(1)} KB)
-                </span>
-                <button
-                  onClick={removeSelectedChatFile}
-                  className="p-1 text-text-secondary hover:text-error hover:bg-red-50 rounded"
-                  title="Remove file"
-                >
-                  <X className="w-4 h-4" />
-                </button>
               </div>
             )}
             <div className="flex items-end gap-3">
@@ -2289,6 +2478,7 @@ ${skillForm.instructions}
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  onPaste={handleChatPaste}
                   disabled={isTyping}
                 />
               </div>
@@ -2298,13 +2488,13 @@ ${skillForm.instructions}
                 type="file"
                 className="hidden"
                 onChange={handleChatFileSelect}
-                accept="image/*,audio/*"
+                accept="image/*,audio/*,.pdf,.txt,.md,.csv,.json,.xml,.yaml,.yml,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf"
               />
               <Button
                 variant="secondary"
                 onClick={handleChatFileButtonClick}
                 disabled={isTyping || !!selectedChatFile}
-                title="Attach image or audio"
+                title="Attach image, audio, or document"
               >
                 <Paperclip className="w-4 h-4" />
               </Button>
@@ -3699,26 +3889,25 @@ ${skillForm.instructions}
                                     <label className="mb-1 block text-sm font-medium text-gray-700">
                                       {t("assistants.playground.skillFieldToolsAccess")}
                                     </label>
+                                    {skillToolOptionsLoading ? (
+                                      <p className="text-xs text-gray-400">
+                                        {t("common.loading")}
+                                      </p>
+                                    ) : skillToolOptions.length === 0 ? (
+                                      <p className="text-xs text-amber-600">
+                                        {t("assistants.playground.skillToolOptionsLoadFailed")}
+                                      </p>
+                                    ) : (
                                     <div className="flex flex-wrap gap-2">
-                                      {[
-                                        "knowledge_base",
-                                        "calendar",
-                                        "contact_lookup",
-                                        "conversation_history",
-                                        "media_analysis",
-                                        "google_gmail",
-                                        "google_calendar",
-                                        "google_drive",
-                                        "google_sheets",
-                                      ].map((tool) => {
+                                      {skillToolOptions.map((tool) => {
                                         const selected = skillForm.requiredTools
                                           .split(",")
                                           .map((s) => s.trim())
                                           .filter(Boolean)
-                                          .includes(tool);
+                                          .includes(tool.id);
                                         return (
                                           <button
-                                            key={tool}
+                                            key={tool.id}
                                             type="button"
                                             disabled={skillRo}
                                             onClick={() => {
@@ -3728,8 +3917,8 @@ ${skillForm.instructions}
                                                 .map((s) => s.trim())
                                                 .filter(Boolean);
                                               const next = selected
-                                                ? current.filter((x) => x !== tool)
-                                                : [...current, tool];
+                                                ? current.filter((x) => x !== tool.id)
+                                                : [...current, tool.id];
                                               setSkillForm({
                                                 ...skillForm,
                                                 requiredTools: next.join(", "),
@@ -3741,11 +3930,12 @@ ${skillForm.instructions}
                                                 : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
                                             } ${skillRo ? "cursor-not-allowed opacity-60" : ""}`}
                                           >
-                                            {tool.replace(/_/g, " ")}
+                                            {tool.label}
                                           </button>
                                         );
                                       })}
                                     </div>
+                                    )}
                                   </div>
                                   <div>
                                     <label className="mb-1 block text-sm font-medium text-gray-700">
@@ -3831,184 +4021,221 @@ ${skillForm.instructions}
               </div>
             </>
           ) : selectedStaffMember ? (
-            <div className="flex flex-1 flex-col min-h-0 overflow-y-auto">
-              <div className="space-y-3 p-4">
-                <p className="text-xs font-medium text-gray-500">
-                  {t("assistants.staffProfile.sectionTitle")}
-                </p>
-                <Input
-                  label={t("assistants.staffProfile.displayName")}
-                  value={staffRowDraft.displayName}
-                  onChange={(e) =>
-                    setStaffRowDraft((d) => ({ ...d, displayName: e.target.value }))
-                  }
-                />
-                <Input
-                  label={t("assistants.staffProfile.roleTitle")}
-                  value={staffRowDraft.roleTitle}
-                  onChange={(e) =>
-                    setStaffRowDraft((d) => ({ ...d, roleTitle: e.target.value }))
-                  }
-                />
-                <Textarea
-                  label={t("assistants.staffProfile.responsibilities")}
-                  value={staffRowDraft.responsibilities}
-                  onChange={(e) =>
-                    setStaffRowDraft((d) => ({ ...d, responsibilities: e.target.value }))
-                  }
-                  rows={3}
-                />
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    isLoading={isSavingStaffRow}
-                    onClick={async () => {
-                      if (!id || !selectedStaffMember) return;
-                      setIsSavingStaffRow(true);
-                      try {
-                        const updated = await assistantsApi.updateStaff(
-                          id,
-                          selectedStaffMember._id,
-                          {
-                            displayName: staffRowDraft.displayName.trim(),
-                            roleTitle: staffRowDraft.roleTitle.trim(),
-                            responsibilities: staffRowDraft.responsibilities,
-                          },
-                        );
-                        setAssistant(updated);
-                        setManagerName(
-                          updated.managerName?.trim() ||
-                            updated.name ||
-                            managerName,
-                        );
-                        showSuccess(t("common.saved"), "");
-                      } catch (e: unknown) {
-                        showError(
-                          t("common.error"),
-                          (e as { response?: { data?: { error?: string } } })?.response
-                            ?.data?.error || "Failed",
-                        );
-                      } finally {
-                        setIsSavingStaffRow(false);
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="flex shrink-0 border-b border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setStaffPanelSubTab("basic")}
+                  className={`flex-1 px-3 py-2.5 text-sm font-medium ${
+                    staffPanelSubTab === "basic"
+                      ? "border-b-2 border-gray-900 text-gray-900"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {t("assistants.staffProfile.tabBasic")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStaffPanelSubTab("skills")}
+                  className={`flex-1 px-3 py-2.5 text-sm font-medium ${
+                    staffPanelSubTab === "skills"
+                      ? "border-b-2 border-gray-900 text-gray-900"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {t("assistants.staffProfile.tabSkills")}
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin">
+                {staffPanelSubTab === "basic" ? (
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium text-gray-500">
+                      {t("assistants.staffProfile.sectionTitle")}
+                    </p>
+                    <Input
+                      label={t("assistants.staffProfile.displayName")}
+                      value={staffRowDraft.displayName}
+                      onChange={(e) =>
+                        setStaffRowDraft((d) => ({ ...d, displayName: e.target.value }))
                       }
-                    }}
-                  >
-                    {t("assistants.staffProfile.save")}
-                  </Button>
-                  {!selectedStaffMember.isManager && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="text-error border-error/40"
-                      onClick={async () => {
-                        if (!id || !selectedStaffMember) return;
-                        if (
-                          !window.confirm(t("assistants.staffProfile.deleteConfirm"))
-                        ) {
-                          return;
-                        }
-                        try {
-                          const updated = await assistantsApi.removeStaff(
-                            id,
+                    />
+                    <Input
+                      label={t("assistants.staffProfile.roleTitle")}
+                      value={staffRowDraft.roleTitle}
+                      onChange={(e) =>
+                        setStaffRowDraft((d) => ({ ...d, roleTitle: e.target.value }))
+                      }
+                    />
+                    <Textarea
+                      label={t("assistants.staffProfile.responsibilities")}
+                      value={staffRowDraft.responsibilities}
+                      onChange={(e) =>
+                        setStaffRowDraft((d) => ({
+                          ...d,
+                          responsibilities: e.target.value,
+                        }))
+                      }
+                      rows={3}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        isLoading={isSavingStaffRow}
+                        onClick={async () => {
+                          if (!id || !selectedStaffMember) return;
+                          setIsSavingStaffRow(true);
+                          try {
+                            const updated = await assistantsApi.updateStaff(
+                              id,
+                              selectedStaffMember._id,
+                              {
+                                displayName: staffRowDraft.displayName.trim(),
+                                roleTitle: staffRowDraft.roleTitle.trim(),
+                                responsibilities: staffRowDraft.responsibilities,
+                              },
+                            );
+                            setAssistant(updated);
+                            setManagerName(
+                              updated.managerName?.trim() ||
+                                updated.name ||
+                                managerName,
+                            );
+                            showSuccess(t("common.saved"), "");
+                          } catch (e: unknown) {
+                            showError(
+                              t("common.error"),
+                              (e as { response?: { data?: { error?: string } } })?.response
+                                ?.data?.error || "Failed",
+                            );
+                          } finally {
+                            setIsSavingStaffRow(false);
+                          }
+                        }}
+                      >
+                        {t("assistants.staffProfile.save")}
+                      </Button>
+                      {!selectedStaffMember.isManager && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-error border-error/40"
+                          onClick={async () => {
+                            if (!id || !selectedStaffMember) return;
+                            if (
+                              !window.confirm(t("assistants.staffProfile.deleteConfirm"))
+                            ) {
+                              return;
+                            }
+                            try {
+                              const updated = await assistantsApi.removeStaff(
+                                id,
+                                selectedStaffMember._id,
+                              );
+                              setAssistant(updated);
+                              setOrgSelection(null);
+                              showSuccess(t("common.deleted"), "");
+                            } catch (e: unknown) {
+                              showError(
+                                t("common.error"),
+                                (e as { response?: { data?: { error?: string } } })?.response
+                                  ?.data?.error || "Failed",
+                              );
+                            }
+                          }}
+                        >
+                          {t("assistants.staffProfile.remove")}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col">
+                    <div className="mb-3 shrink-0">
+                      <p className="text-xs font-semibold text-gray-800">
+                        {t("assistants.staffProfile.skillSelection")}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
+                        {t("assistants.staffProfile.skillSelectionHint")}
+                      </p>
+                    </div>
+                    {allSkills.length === 0 ? (
+                      <p className="py-2 text-xs text-gray-400">
+                        {t("assistants.staffProfile.noSkillsToAssign")}
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                        {allSkills.map((skill) => {
+                          const bound = isSkillBoundToStaff(
+                            skill._id,
                             selectedStaffMember._id,
                           );
-                          setAssistant(updated);
-                          setOrgSelection(null);
-                          showSuccess(t("common.deleted"), "");
-                        } catch (e: unknown) {
-                          showError(
-                            t("common.error"),
-                            (e as { response?: { data?: { error?: string } } })?.response
-                              ?.data?.error || "Failed",
-                          );
-                        }
-                      }}
-                    >
-                      {t("assistants.staffProfile.remove")}
-                    </Button>
-                  )}
-                </div>
-                <div className="pt-2 border-t border-gray-100">
-                  <div className="mb-3">
-                    <p className="text-xs font-semibold text-gray-800">
-                      {t("assistants.staffProfile.skillSelection")}
-                    </p>
-                    <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
-                      {t("assistants.staffProfile.skillSelectionHint")}
-                    </p>
-                  </div>
-                  {allSkills.length === 0 ? (
-                    <p className="text-xs text-gray-400 py-2">
-                      {t("assistants.staffProfile.noSkillsToAssign")}
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {allSkills.map((skill) => {
-                        const bound = isSkillBoundToStaff(
-                          skill._id,
-                          selectedStaffMember._id,
-                        );
-                        const busy = bindingSkillId === skill._id;
-                        const initial = (skill.name?.trim() || "?").slice(0, 1).toUpperCase();
-                        const desc = (skill.description || "").trim() || skill.slug;
-                        return (
-                          <button
-                            key={skill._id}
-                            type="button"
-                            aria-pressed={bound}
-                            onClick={() =>
-                              void handleToggleSkill(
-                                skill._id,
-                                selectedStaffMember._id,
-                              )
-                            }
-                            disabled={busy}
-                            className={`group flex w-full min-h-[4.25rem] items-stretch gap-3 rounded-xl border p-3 text-left transition-all ${
-                              bound
-                                ? "border-primary/35 bg-primary/[0.06] shadow-sm ring-1 ring-primary/15"
-                                : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/90"
-                            } ${busy ? "opacity-60" : ""}`}
-                          >
-                            <div
-                              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
+                          const busy = bindingSkillId === skill._id;
+                          const initial = (skill.name?.trim() || "?")
+                            .slice(0, 1)
+                            .toUpperCase();
+                          const desc =
+                            (skill.description || "").trim() || skill.slug;
+                          return (
+                            <button
+                              key={skill._id}
+                              type="button"
+                              aria-pressed={bound}
+                              onClick={() =>
+                                void handleToggleSkill(
+                                  skill._id,
+                                  selectedStaffMember._id,
+                                )
+                              }
+                              disabled={busy}
+                              className={`group flex min-h-[4.25rem] w-full items-stretch gap-3 rounded-xl border p-3 text-left transition-all ${
                                 bound
-                                  ? "bg-primary/15 text-primary"
-                                  : "bg-gray-100 text-gray-600 group-hover:bg-gray-200/80"
-                              }`}
+                                  ? "border-primary/35 bg-primary/[0.06] shadow-sm ring-1 ring-primary/15"
+                                  : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/90"
+                              } ${busy ? "opacity-60" : ""}`}
                             >
-                              {initial}
-                            </div>
-                            <div className="min-w-0 flex-1 py-0.5">
-                              <p
-                                className={`text-sm font-semibold leading-tight truncate ${
-                                  bound ? "text-primary" : "text-gray-900"
+                              <div
+                                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${
+                                  bound
+                                    ? "bg-primary/15 text-primary"
+                                    : "bg-gray-100 text-gray-600 group-hover:bg-gray-200/80"
                                 }`}
                               >
-                                {skill.name}
-                              </p>
-                              <p className="text-[11px] text-gray-500 line-clamp-2 mt-1 leading-snug">
-                                {desc}
-                              </p>
-                            </div>
-                            <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-stretch">
-                              {busy ? (
-                                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                              ) : (
-                                <ChevronRight
-                                  className={`h-4 w-4 ${
-                                    bound ? "text-primary/70" : "text-gray-300 group-hover:text-gray-400"
+                                {initial}
+                              </div>
+                              <div className="min-w-0 flex-1 py-0.5">
+                                <p
+                                  className={`truncate text-sm font-semibold leading-tight ${
+                                    bound ? "text-primary" : "text-gray-900"
                                   }`}
-                                />
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                                >
+                                  {skill.name}
+                                </p>
+                                <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-gray-500">
+                                  {desc}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-stretch">
+                                {busy ? (
+                                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                                ) : (
+                                  <ChevronRight
+                                    className={`h-4 w-4 ${
+                                      bound
+                                        ? "text-primary/70"
+                                        : "text-gray-300 group-hover:text-gray-400"
+                                    }`}
+                                  />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ) : (

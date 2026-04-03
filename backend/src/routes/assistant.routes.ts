@@ -22,6 +22,9 @@ const upload = multer({
 // All routes require authentication
 router.use(authMiddleware);
 
+// Skill editor: tool ids aligned with agent registry (must be registered before /:id)
+router.get("/skill-tool-options", assistantController.listSkillToolOptions);
+
 // List assistants
 router.get(
   "/",

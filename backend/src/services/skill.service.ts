@@ -55,8 +55,31 @@ export interface ParsedSkillStep {
   collects?: string;
 }
 
+/** Latin slug from display name (empty if name is only non-Latin). */
+function slugifyFromSkillName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/**
+ * Install path / DB slug: optional explicit `slug` in frontmatter (required when name is non-Latin).
+ */
+export function resolveInstallSlug(name: string, explicitSlug?: string): string {
+  const explicit = explicitSlug
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-|-$/g, '');
+  if (explicit) return explicit;
+  const fromName = slugifyFromSkillName(name);
+  if (fromName) return fromName;
+  throw new Error(
+    'Skill slug cannot be derived from name. Add `slug: your-english-slug` to SKILL.md frontmatter (required for non-Latin names).',
+  );
+}
+
 export function parseSkillFrontmatter(content: string): {
   name: string;
+  slug?: string;
   description: string;
   triggerHints: string[];
   scriptsMeta: Record<string, string>;
@@ -125,6 +148,7 @@ export function parseSkillFrontmatter(content: string): {
 
   return {
     name: meta.name,
+    slug: meta.slug?.trim() || undefined,
     description: meta.description,
     triggerHints: meta.triggerHints ? meta.triggerHints.split(',').map((s) => s.trim()).filter(Boolean) : [],
     scriptsMeta,
@@ -248,7 +272,7 @@ class SkillService {
     // Load SKILL.md to parse frontmatter
     const skillMdContent = await skillStorage.loadSkillMd(tempPath);
     const parsed = parseSkillFrontmatter(skillMdContent);
-    const slug = parsed.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const slug = resolveInstallSlug(parsed.name, parsed.slug);
 
     // Check existing
     const existing = await Skill.findOne({ slug });
@@ -303,7 +327,7 @@ class SkillService {
     createdBy: string,
   ): Promise<ISkillDocument> {
     const parsed = parseSkillFrontmatter(content);
-    const slug = parsed.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const slug = resolveInstallSlug(parsed.name, parsed.slug);
 
     // Create storage directory with just SKILL.md
     const storagePath = skillStorage.getSkillPath(createdBy, slug);

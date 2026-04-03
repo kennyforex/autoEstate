@@ -50,6 +50,7 @@ export class AgentEngine {
     const model = openRouterConfig.models.agent;
 
     console.log(`[Agent] Context has ${context.skills.length} skill(s): ${context.skills.map(s => s.slug).join(', ') || 'none'}`);
+    context.lastUserTurnContent = userMessage;
     this.registry.updateSkillContext(context.skills);
 
     // Use DB-backed goal stack if already loaded by context builder;
@@ -599,13 +600,31 @@ export class AgentEngine {
             signal,
           },
         );
-        return response.data;
+        const data = response.data as OpenRouterResponse;
+        if (!data?.choices?.[0]?.message) {
+          const snippet = JSON.stringify(data ?? {}).slice(0, 1500);
+          throw new Error(
+            `OpenRouter returned no choices (model=${model}). Response: ${snippet}`,
+          );
+        }
+        return data;
       } catch (error: any) {
         const status = error.response?.status;
         const errDetail = error.response?.data
           ? JSON.stringify(error.response.data)
           : `${error.code || error.name}: ${error.message}`;
         const isRetryable = !status || status === 429 || status >= 500;
+
+        // tool_choice not supported by this model — fall back to 'auto' and retry immediately
+        if (
+          (status === 400 || status === 502) &&
+          toolChoice !== 'auto' &&
+          /tool_choice|thinking mode/i.test(errDetail)
+        ) {
+          console.warn(`[Agent] Model "${model}" rejected tool_choice — falling back to auto`);
+          toolChoice = 'auto';
+          continue;
+        }
 
         if (!isRetryable || attempt === maxRetries - 1) {
           console.error(`[Agent] LLM call failed (${model}): status=${status} ${errDetail}`);

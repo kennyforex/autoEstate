@@ -48,3 +48,27 @@ export function createDefaultRegistry(): ToolRegistry {
 
   return registry;
 }
+
+/** Same exclusions as the skill sub-agent in skill.tool.ts (resolveSkillTools). */
+const SKILL_PERMISSION_EXCLUDED = new Set(['execute_skill', 'ask_clarification']);
+
+export interface SkillPermissionToolOption {
+  id: string;
+  label: string;
+}
+
+/**
+ * Tools a skill may declare in `requiredTools` (registry ids only).
+ * Used by the assistant playground UI — must stay aligned with createDefaultRegistry().
+ */
+export function getSkillPermissionToolOptions(): SkillPermissionToolOption[] {
+  const registry = createDefaultRegistry();
+  return registry
+    .list()
+    .filter((t) => !SKILL_PERMISSION_EXCLUDED.has(t.name))
+    .map((t) => ({
+      id: t.name,
+      label: t.name.replace(/_/g, ' '),
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}

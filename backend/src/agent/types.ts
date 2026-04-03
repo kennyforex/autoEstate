@@ -215,6 +215,11 @@ export interface AgentContext {
   goalStack?: GoalStack;
   /** Set only while a skill sub-agent runs tools (so tools can read that skill's SKILL.md). */
   activeSkillSlug?: string;
+  /**
+   * Verbatim user message for this agent turn (includes `Image URL:` / `PDF URL:` from Playground or inbox).
+   * The manager model often passes a short `userRequest` into `execute_skill` without attachment lines; skills merge this in.
+   */
+  lastUserTurnContent?: string;
 }
 
 // ── Agent Result ──

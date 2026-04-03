@@ -3,6 +3,21 @@ import { openRouterConfig } from "../config/openrouter.js";
 import type { AgentContext, AgentSkillInfo, RouterDecision } from "./types.js";
 
 /**
+ * Remove huge base64 data URLs from the message so the intent-classifier LLM
+ * request stays small (OpenRouter may return 400 when the prompt embeds multi-hundred-KB data).
+ */
+export function sanitizeMessageForIntentRouting(message: string): string {
+  let s = message.replace(
+    /data:(?:image\/[a-zA-Z0-9.+-]+|application\/pdf);base64,[A-Za-z0-9+/=\s]{200,}/g,
+    "[attachment: base64 omitted — user sent an image or PDF]",
+  );
+  if (s.length > 12000) {
+    s = `${s.slice(0, 12000)}\n...[truncated for routing]`;
+  }
+  return s;
+}
+
+/**
  * Intent router with LLM-based classification for new requests.
  *
  * Priority order:
@@ -126,7 +141,7 @@ async function classifyIntent(
     "- If the message could match a skill even loosely, pick that skill\n" +
     "- Consider all languages (e.g. Chinese, English, mixed)\n\n" +
     `Skills:\n${skillList}\n\n` +
-    `User message: "${userMessage}"`;
+    `User message: "${sanitizeMessageForIntentRouting(userMessage)}"`;
 
   try {
     const response = await axios.post(

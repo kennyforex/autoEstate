@@ -143,6 +143,9 @@ export function buildSystemPrompt(context: AgentContext): string {
       'continue routing through `execute_skill` with the same slug.\n' +
       '- NEVER fabricate data (prices, availability, dates, etc.) that should come from a skill.\n' +
       '- When `execute_skill` returns, **you** (the manager) must integrate the outcome into a clear reply to the customer.\n' +
+      '- If the user attached an image or PDF this turn, you may pass a **short** `userRequest` to `execute_skill`; ' +
+      'the full customer message (including `Image URL:` / `PDF URL:` lines) is still merged in for the specialist — ' +
+      'you do not need to paste attachment URLs yourself.\n' +
       '- Even if a skill previously completed, a NEW request that matches that skill\'s purpose ' +
       'MUST be handled by calling `execute_skill` again. Completed observations are only valid for ' +
       'the specific request they were collected for — NEVER extrapolate or reuse them to answer different questions.',
@@ -200,9 +203,9 @@ export function buildSystemPrompt(context: AgentContext): string {
     '- If a tool fails, try an alternative approach or inform the user.\n' +
     '- When you have enough information, respond directly without unnecessary tool calls.\n' +
     '- Never fabricate information. If you don\'t know, say so or search the knowledge base.\n' +
-    '- When using media_analysis, use ONLY the actual media URL provided in the message (e.g., "Image URL: https://..."). ' +
+    '- When using media_analysis, use ONLY the actual media URL provided in the message (e.g., "Image URL: https://..." or "Image URL: data:image/...;base64,..."). ' +
     'Do NOT use image descriptions or any other text as the mediaDataUrl.\n' +
-    '- When using document_data_capture, use ONLY the real sourceUrl from the message context (same rules as media URLs). ' +
+    '- When using document_data_capture, use ONLY the real sourceUrl from the message: lines starting with "Image URL:" (images) or "PDF URL:" (PDFs), including full data: URLs from Playground uploads. ' +
     'Pass outputSchema as a JSON string of the OpenRouter json_schema object: {"name","strict","schema"} (see OpenRouter structured outputs), ' +
     'or legacy: stringified inner schema only. Requirements text must align with schema property descriptions.',
   );
