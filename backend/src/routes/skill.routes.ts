@@ -38,6 +38,7 @@ router.put(
     body('name').optional().notEmpty().trim(),
     body('description').optional().notEmpty(),
     body('instructions').optional().isString(),
+    body('frontmatterYaml').optional().isString(),
     body('triggerHints').optional().isArray(),
     body('status').optional().isIn(['active', 'inactive']),
   ]),

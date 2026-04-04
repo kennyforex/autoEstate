@@ -26,6 +26,11 @@ export interface ISkillDocument extends Document {
   reminderDelay: number;
   maxReminders: number;
 
+  /** When true, backend scheduler may push Playground messages or run hooks per scheduleCron */
+  scheduleEnabled: boolean;
+  /** Cron expression (5-field minute-level or 6-field with seconds); dev/test may use env interval instead */
+  scheduleCron: string;
+
   steps: ISkillStepDef[];
 
   instructions?: string;
@@ -108,6 +113,16 @@ const skillSchema = new Schema<ISkillDocument>(
     maxReminders: {
       type: Number,
       default: 0,
+    },
+
+    scheduleEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    scheduleCron: {
+      type: String,
+      default: '',
+      trim: true,
     },
 
     steps: {

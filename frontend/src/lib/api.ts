@@ -19,6 +19,9 @@ import type {
   AuthResponse,
   PaginatedResponse,
   ContactWithStats,
+  ScheduledJob,
+  ScheduledJobRun,
+  ScheduledJobsStats,
 } from "./types";
 
 const API_BASE_URL =
@@ -903,12 +906,14 @@ export const skillsApi = {
         | "requiredTools"
         | "reminderDelay"
         | "maxReminders"
+        | "scheduleEnabled"
+        | "scheduleCron"
         | "nickname"
         | "staffRole"
         | "avatarPreset"
         | "customAvatarUrl"
       >
-    > & { instructions?: string },
+    > & { instructions?: string; frontmatterYaml?: string },
   ): Promise<Skill> => {
     const { data } = await api.put(`/skills/${id}`, updates);
     return data.skill || data;
@@ -1019,6 +1024,62 @@ export const skillsApi = {
   deleteScript: async (skillId: string, filename: string): Promise<Skill> => {
     const { data } = await api.delete(`/skills/${skillId}/scripts/${filename}`);
     return data.skill || data;
+  },
+};
+
+export const scheduledJobsApi = {
+  list: async (params?: {
+    assistantId?: string;
+    enabled?: boolean;
+    search?: string;
+  }): Promise<{ jobs: ScheduledJob[]; stats: ScheduledJobsStats }> => {
+    const { data } = await api.get("/scheduled-jobs", { params });
+    return data;
+  },
+
+  get: async (id: string): Promise<ScheduledJob> => {
+    const { data } = await api.get(`/scheduled-jobs/${id}`);
+    return data.job;
+  },
+
+  create: async (
+    body: Partial<ScheduledJob> & { name: string; assistantId: string; taskPrompt: string },
+  ): Promise<ScheduledJob> => {
+    const { data } = await api.post("/scheduled-jobs", body);
+    return data.job;
+  },
+
+  update: async (
+    id: string,
+    body: Partial<ScheduledJob>,
+  ): Promise<ScheduledJob> => {
+    const { data } = await api.patch(`/scheduled-jobs/${id}`, body);
+    return data.job;
+  },
+
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/scheduled-jobs/${id}`);
+  },
+
+  clone: async (id: string): Promise<ScheduledJob> => {
+    const { data } = await api.post(`/scheduled-jobs/${id}/clone`);
+    return data.job;
+  },
+
+  run: async (
+    id: string,
+    options?: { ifDue?: boolean },
+  ): Promise<{ ok: boolean; runId?: string; error?: string; skipped?: boolean }> => {
+    const { data } = await api.post(`/scheduled-jobs/${id}/run`, options ?? {});
+    return data;
+  },
+
+  listRuns: async (
+    id: string,
+    params?: { limit?: number; offset?: number },
+  ): Promise<{ runs: ScheduledJobRun[]; total: number }> => {
+    const { data } = await api.get(`/scheduled-jobs/${id}/runs`, { params });
+    return data;
   },
 };
 

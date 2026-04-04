@@ -145,11 +145,19 @@ export interface Skill {
   reminderDelay: number;
   maxReminders: number;
 
+  /** When true, backend may emit scheduled Playground messages per scheduleCron */
+  scheduleEnabled?: boolean;
+  /** Cron (5-field or 6-field with seconds); ignored when env test interval is set */
+  scheduleCron?: string;
+
   nickname?: string;
   /** Job / role label (e.g. 訂單客服), separate from nickname */
   staffRole?: string;
   avatarPreset?: string;
   customAvatarUrl?: string;
+
+  /** YAML inside SKILL.md frontmatter (between ---), from file when present. */
+  frontmatterYaml?: string;
 
   createdBy: string;
   createdAt: string;
@@ -369,4 +377,58 @@ export interface AuthResponse {
   token: string;
   /** Set when user is pending (invited); must set password on first login */
   requiresPasswordSet?: boolean;
+}
+
+/** Scheduled cron / agent jobs (backend `/api/scheduled-jobs`) */
+export type ScheduledJobScheduleKind = "interval" | "cron";
+export type ScheduledJobSessionMode = "isolated" | "main";
+export type ScheduledJobWakeMode = "now" | "next_heartbeat";
+export type ScheduledJobResultDelivery = "announce" | "none";
+export type ScheduledJobChannelSelection = "last" | "specific" | "playground";
+
+export interface ScheduledJob {
+  _id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  assistantId: string;
+  scheduleKind: ScheduledJobScheduleKind;
+  intervalMinutes?: number;
+  cronExpression?: string;
+  timezone: string;
+  sessionMode: ScheduledJobSessionMode;
+  wakeMode: ScheduledJobWakeMode;
+  taskPrompt: string;
+  timeoutSeconds?: number;
+  resultDelivery: ScheduledJobResultDelivery;
+  channelSelection: ScheduledJobChannelSelection;
+  channelId?: string;
+  recipientOverride?: string;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  lastStatus?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduledJobRun {
+  _id: string;
+  jobId: string;
+  trigger: "manual" | "schedule" | "wake_on_save";
+  startedAt: string;
+  finishedAt?: string;
+  status: "running" | "success" | "failed" | "skipped";
+  error?: string;
+  summarySnippet?: string;
+  deliveryStatus?: "sent" | "skipped" | "failed";
+  deliveryDetail?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduledJobsStats {
+  enabledCount: number;
+  total: number;
+  nextWakeAt?: string;
 }

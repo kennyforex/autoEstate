@@ -1,7 +1,10 @@
 import { BaseTool } from './base.js';
 import { googleWorkspaceService } from '../../services/googleWorkspace.service.js';
 import { skillStorage } from '../../services/skillStorage.service.js';
-import { parsePaymentPendingFolderIdFromSkillMarkdown } from '../../utils/skillMdConfig.js';
+import {
+  normalizeFrontmatterScalar,
+  parsePaymentPendingFolderIdFromSkillMarkdown,
+} from '../../utils/skillMdConfig.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
 async function resolveUploadParentFolderId(
@@ -9,7 +12,8 @@ async function resolveUploadParentFolderId(
   context: AgentContext,
   userId: string,
 ): Promise<string> {
-  if (argsParentId?.trim()) return argsParentId.trim();
+  const fromArgs = normalizeFrontmatterScalar(String(argsParentId ?? '').trim());
+  if (fromArgs?.trim()) return fromArgs.trim();
   if (context.activeSkillSlug) {
     const info = context.skills.find((s) => s.slug === context.activeSkillSlug);
     if (info?.storagePath) {

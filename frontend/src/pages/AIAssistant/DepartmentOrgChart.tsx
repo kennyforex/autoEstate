@@ -16,7 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Library, Plus } from "lucide-react";
 
-export type OrgSelection = "manager" | string;
+export type OrgSelection = "team" | "manager" | string;
 
 export interface DepartmentOrgChartProps {
   departmentName: string;
@@ -77,7 +77,9 @@ function OrgCard({ data }: { data: OrgNodeData }) {
       : "";
   const variant =
     data.variant === "dept"
-      ? "border-indigo-200 bg-white"
+      ? data.selected
+        ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200/90 shadow-md"
+        : "border-indigo-200 bg-white"
       : data.variant === "manager"
         ? data.selected
           ? "border-slate-900 bg-slate-900 text-white"
@@ -184,6 +186,7 @@ export const DepartmentOrgChart: React.FC<DepartmentOrgChartProps> = ({
   className = "",
 }) => {
   const initialNodes = useMemo((): Node[] => {
+    const teamSel = selection === "team";
     const mgrSel = selection === "manager";
     const mgrActive = activeHighlight === "manager";
     const mgrProcessing = processingHighlight === "manager";
@@ -195,7 +198,7 @@ export const DepartmentOrgChart: React.FC<DepartmentOrgChartProps> = ({
         data: {
           variant: "dept" as const,
           title: departmentName || "—",
-          selected: false,
+          selected: teamSel,
           active: false,
           processing: false,
           badge: labels.badgeDepartment,
@@ -306,7 +309,11 @@ export const DepartmentOrgChart: React.FC<DepartmentOrgChartProps> = ({
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      if (node.id === "dept" || node.id === "manager") {
+      if (node.id === "dept") {
+        onSelect("team");
+        return;
+      }
+      if (node.id === "manager") {
         onSelect("manager");
         return;
       }

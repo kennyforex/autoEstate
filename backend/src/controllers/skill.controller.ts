@@ -2,6 +2,11 @@ import { Response, NextFunction } from 'express';
 import type { AuthRequest } from '../types/index.js';
 import { skillService } from '../services/skill.service.js';
 import { skillStorage } from '../services/skillStorage.service.js';
+import {
+  skillMdBodyAfterFrontmatter,
+  skillMdFrontmatterInner,
+} from '../utils/skillMdConfig.js';
+import { reloadSkillSchedules } from '../services/skillSchedule.scheduler.js';
 
 export async function listSkills(
   req: AuthRequest,
@@ -15,12 +20,6 @@ export async function listSkills(
   } catch (error) {
     next(error);
   }
-}
-
-/** Body of SKILL.md after YAML frontmatter (for editor when DB `instructions` is stale). */
-function skillMdBodyAfterFrontmatter(raw: string): string {
-  const m = raw.match(/^---\s*\n[\s\S]*?\n---\s*\n?([\s\S]*)$/);
-  return m ? m[1] : raw;
 }
 
 export async function getSkill(
@@ -42,6 +41,9 @@ export async function getSkill(
         if (body.trim()) {
           payload.instructions = body;
         }
+        const fm = skillMdFrontmatterInner(raw);
+        (payload as Record<string, unknown>).frontmatterYaml =
+          fm !== undefined ? fm : '';
       } catch {
         /* keep DB instructions */
       }
@@ -90,11 +92,14 @@ export async function updateSkill(
       name,
       description,
       instructions,
+      frontmatterYaml,
       triggerHints,
       status,
       requiredTools,
       reminderDelay,
       maxReminders,
+      scheduleEnabled,
+      scheduleCron,
       nickname,
       staffRole,
       avatarPreset,
@@ -104,11 +109,14 @@ export async function updateSkill(
       name,
       description,
       instructions,
+      frontmatterYaml,
       triggerHints,
       status,
       requiredTools,
       reminderDelay,
       maxReminders,
+      scheduleEnabled,
+      scheduleCron,
       nickname,
       staffRole,
       avatarPreset,
@@ -118,6 +126,7 @@ export async function updateSkill(
       res.status(404).json({ error: 'Skill not found' });
       return;
     }
+    reloadSkillSchedules();
     res.json({ skill });
   } catch (error) {
     next(error);
@@ -135,6 +144,7 @@ export async function deleteSkill(
       res.status(404).json({ error: 'Skill not found' });
       return;
     }
+    reloadSkillSchedules();
     res.json({ message: 'Skill deleted successfully' });
   } catch (error) {
     next(error);
@@ -155,6 +165,7 @@ export async function installSkill(
 
     const content = file.buffer.toString('utf-8');
     const skill = await skillService.installFromMarkdown(content, req.user!.userId);
+    reloadSkillSchedules();
     res.status(201).json({ skill, installed: true });
   } catch (error: any) {
     if (error.message?.includes('missing') || error.message?.includes('Invalid')) {
@@ -184,6 +195,7 @@ export async function installSkillZip(
     }
 
     const skill = await skillService.installFromZip(file.buffer, req.user!.userId);
+    reloadSkillSchedules();
     res.status(201).json({ skill, installed: true });
   } catch (error: any) {
     if (error.message?.includes('SKILL.md') || error.message?.includes('Invalid') || error.message?.includes('missing')) {

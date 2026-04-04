@@ -282,9 +282,29 @@ class MessageService {
       }
 
       return response.data?.key?.id || null;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to send message via WhatsApp:", error);
-      throw new Error("Failed to send message");
+      const ax = error as {
+        response?: { status?: number; data?: { message?: string | string[] } };
+      };
+      const status = ax.response?.status;
+      if (status === 404) {
+        throw new Error(
+          `Evolution API 404: WhatsApp instance "${instanceName}" was not found. ` +
+            `Open your Evolution dashboard and confirm the instance name matches this channel in Channels (reconnect or copy the exact name).`,
+        );
+      }
+      const msg =
+        typeof ax.response?.data?.message === "string"
+          ? ax.response.data.message
+          : Array.isArray(ax.response?.data?.message)
+            ? ax.response.data.message.join(", ")
+            : undefined;
+      throw new Error(
+        msg
+          ? `Failed to send WhatsApp message (${status ?? "?"}): ${msg}`
+          : "Failed to send message",
+      );
     }
   }
 

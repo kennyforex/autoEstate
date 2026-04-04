@@ -32,3 +32,21 @@ export { Company, type ICompanyDocument } from "./Company.js";
 export { AILog, type IAILogDocument, type ITokens } from "./AILog.js";
 export { Skill, type ISkillDocument } from "./Skill.js";
 export { AgentSession, type IAgentSessionDocument } from "./AgentSession.js";
+export {
+  PaymentReminderLog,
+  type IPaymentReminderLogDocument,
+} from "./PaymentReminderLog.js";
+export {
+  ScheduledJob,
+  type IScheduledJobDocument,
+  type ScheduledJobScheduleKind,
+  type ScheduledJobSessionMode,
+  type ScheduledJobWakeMode,
+  type ScheduledJobResultDelivery,
+  type ScheduledJobChannelSelection,
+} from "./ScheduledJob.js";
+export {
+  ScheduledJobRun,
+  type IScheduledJobRunDocument,
+  type ScheduledJobRunStatus,
+} from "./ScheduledJobRun.js";

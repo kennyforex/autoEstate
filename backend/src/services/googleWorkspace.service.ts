@@ -497,10 +497,17 @@ class GoogleWorkspaceService {
 
     const body = Readable.from(buffer);
 
+    const parentId = params.parentFolderId?.trim();
+    if (!parentId) {
+      throw new Error(
+        "Drive upload parent folder is missing. Omit parentFolderId to use SKILL.md paymentPendingFolderId or the default Client Payment > Pending folder.",
+      );
+    }
+
     const createRes = await drive.files.create({
       requestBody: {
         name: params.fileName,
-        parents: [params.parentFolderId],
+        parents: [parentId],
       },
       media: {
         mimeType,

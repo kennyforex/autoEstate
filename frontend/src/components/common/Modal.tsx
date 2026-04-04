@@ -12,6 +12,8 @@ interface ModalProps {
   footer?: React.ReactNode;
   /** When true, modal body scrolls with max height (useful for tall forms). */
   bodyScroll?: boolean;
+  /** Extra classes on the modal panel (e.g. min-height for tall editors). */
+  className?: string;
 }
 
 const sizeClasses: Record<'sm' | 'md' | 'lg' | 'xl', string> = {
@@ -30,6 +32,7 @@ export const Modal: React.FC<ModalProps> = ({
   showClose = true,
   footer,
   bodyScroll = false,
+  className = '',
 }) => {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -66,6 +69,7 @@ export const Modal: React.FC<ModalProps> = ({
         className={`
           relative z-10 bg-white rounded-lg shadow-modal w-full flex flex-col
           ${isFull ? 'min-h-0 flex-1 overflow-hidden' : `mx-4 max-h-[90vh] ${sizeClasses[size as keyof typeof sizeClasses]}`}
+          ${className}
         `}
       >
         {/* Header */}

@@ -66,6 +66,20 @@ export function initializeSocketHandlers(
     socket.on("disconnect", () => {
       console.log(`🔌 Client disconnected: ${socket.id}`);
     });
+
+    socket.on("playground:subscribe", (assistantId: string) => {
+      const id = typeof assistantId === "string" ? assistantId.trim() : "";
+      if (!id) return;
+      socket.join(`playground:${id}`);
+      console.log(`🎮 Client ${socket.id} subscribed to playground:${id}`);
+    });
+
+    socket.on("playground:unsubscribe", (assistantId: string) => {
+      const id = typeof assistantId === "string" ? assistantId.trim() : "";
+      if (!id) return;
+      socket.leave(`playground:${id}`);
+      console.log(`🎮 Client ${socket.id} left playground:${id}`);
+    });
   });
 
   console.log("✅ Socket.IO handlers initialized");

@@ -9,6 +9,10 @@ import { connectDatabase } from "./config/database.js";
 import { initializeSocketHandlers } from "./socket/handlers.js";
 import { errorHandler } from "./middleware/error.middleware.js";
 import routes from "./routes/index.js";
+import { initPaymentReminderScheduler } from "./services/paymentReminder.scheduler.js";
+import { initSkillScheduleScheduler } from "./services/skillSchedule.scheduler.js";
+import { initScheduledJobScheduler } from "./services/scheduledJob.scheduler.js";
+import { initScheduledJobPlaygroundIo } from "./services/scheduledJobPlayground.js";
 
 import type {
   ServerToClientEvents,
@@ -91,6 +95,10 @@ async function startServer() {
       console.log(`📡 WebSocket server ready`);
       console.log(`🔗 Health check: http://localhost:${PORT}/health`);
       console.log(`📁 Uploads served from: ${uploadsDir} -> /uploads`);
+      initPaymentReminderScheduler();
+      initSkillScheduleScheduler(io);
+      initScheduledJobPlaygroundIo(io);
+      initScheduledJobScheduler();
     });
   } catch (error) {
     console.error("Failed to start server:", error);

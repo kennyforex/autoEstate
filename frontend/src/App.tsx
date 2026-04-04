@@ -6,7 +6,13 @@ import { SetPassword } from "./pages/SetPassword";
 import { Dashboard } from "./pages/Dashboard";
 import { Inbox } from "./pages/Inbox";
 import { AILogs } from "./pages/AILogs";
-import { AssistantList, AssistantPlayground } from "./pages/AIAssistant";
+import {
+  AssistantList,
+  AssistantPlayground,
+  AssistantSkillLibrary,
+  ScheduledTaskFormPage,
+  ScheduledTasksListPage,
+} from "./pages/AIAssistant";
 import { ChannelList, WhatsAppConfig } from "./pages/Channels";
 import { Contacts } from "./pages/Contacts";
 import {
@@ -39,6 +45,22 @@ function App() {
 
             {/* AI Assistant routes */}
             <Route path="ai-assistant" element={<AssistantList />} />
+            <Route
+              path="ai-assistant/scheduled-tasks/new"
+              element={<ScheduledTaskFormPage />}
+            />
+            <Route
+              path="ai-assistant/scheduled-tasks/:jobId/edit"
+              element={<ScheduledTaskFormPage />}
+            />
+            <Route
+              path="ai-assistant/scheduled-tasks"
+              element={<ScheduledTasksListPage />}
+            />
+            <Route
+              path="ai-assistant/:id/skill-library"
+              element={<AssistantSkillLibrary />}
+            />
             <Route path="ai-assistant/:id" element={<AssistantPlayground />} />
 
             {/* AI Logs route */}

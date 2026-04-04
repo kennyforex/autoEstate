@@ -5,6 +5,7 @@ import { skillStorage } from '../../services/skillStorage.service.js';
 import type { AgentContext, AgentSkillInfo, ToolResult, OpenAITool, SkillExecutionResult } from '../types.js';
 import {
   parseOrderSheetIdFromSkillMarkdown,
+  parseOrderSheetTabFromSkillMarkdown,
   parsePaymentPendingFolderIdFromSkillMarkdown,
 } from '../../utils/skillMdConfig.js';
 import type { ToolRegistry } from './registry.js';
@@ -202,6 +203,7 @@ export class SkillExecutionTool extends BaseTool {
     }
 
     const sheetIdHint = parseOrderSheetIdFromSkillMarkdown(rawSkillMd);
+    const sheetTabHint = parseOrderSheetTabFromSkillMarkdown(rawSkillMd);
     const paymentFolderIdHint = parsePaymentPendingFolderIdFromSkillMarkdown(rawSkillMd);
 
     // Strip YAML frontmatter for instruction body
@@ -223,6 +225,10 @@ export class SkillExecutionTool extends BaseTool {
       systemPrompt +=
         `\n## Google Sheet (from this skill's SKILL.md frontmatter)\n` +
         `Spreadsheet document ID for \`google_sheets\` **append_row** — omit \`spreadsheetId\` in the tool call: \`${sheetIdHint}\`\n`;
+    }
+    if (sheetTabHint) {
+      systemPrompt +=
+        `\nWorksheet **tab name** for \`google_sheets\` (\`read_range\`, \`append_row\`, \`update_row*\`): \`${sheetTabHint}\` — must match the tab where orders are stored.\n`;
     }
     if (paymentFolderIdHint) {
       systemPrompt +=

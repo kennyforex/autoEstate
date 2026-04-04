@@ -15,8 +15,24 @@ const NUDGE_MESSAGES = [
   'Hey! Did you still want to proceed?',
 ];
 
+/** Matches `slug: payment-collection` in SKILL.md for 追收款項 */
+const PAYMENT_COLLECTION_SLUG = 'payment-collection';
+
+const PAYMENT_NUDGE_MESSAGES = [
+  '您好，請問方便處理訂單尾款嗎？如有疑問請話我知。',
+  'Just checking — would you like to complete payment for your order? Happy to help.',
+  '提醒：尚有訂單款項未付，方便時請回覆或付款，謝謝。',
+];
+
 function pickNudge(): string {
   return NUDGE_MESSAGES[Math.floor(Math.random() * NUDGE_MESSAGES.length)];
+}
+
+function pickNudgeForSkill(skillSlug: string): string {
+  if (skillSlug === PAYMENT_COLLECTION_SLUG) {
+    return PAYMENT_NUDGE_MESSAGES[Math.floor(Math.random() * PAYMENT_NUDGE_MESSAGES.length)];
+  }
+  return pickNudge();
 }
 
 export interface ReminderConfig {
@@ -113,7 +129,7 @@ class ReminderService {
         return;
       }
 
-      const nudge = pickNudge();
+      const nudge = pickNudgeForSkill(reminder.skillSlug);
 
       // Send via WhatsApp
       const evolutionMessageId = await messageService.sendViaWhatsApp(

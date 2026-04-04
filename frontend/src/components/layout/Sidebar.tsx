@@ -10,6 +10,7 @@ import {
   ScrollText,
   Users,
   Plug2,
+  Clock,
 } from "lucide-react";
 import { Avatar } from "../common/Avatar";
 import { useAuth } from "../../context/AuthContext";
@@ -43,6 +44,11 @@ const getNavItems = (): NavItem[] => [
     path: "/ai-assistant",
     icon: <Sparkles className="w-6 h-6" />,
     labelKey: "sidebar.aiAssistant",
+  },
+  {
+    path: "/ai-assistant/scheduled-tasks",
+    icon: <Clock className="w-6 h-6" />,
+    labelKey: "sidebar.scheduledTasks",
   },
   {
     path: "/channels",
@@ -161,7 +167,16 @@ export const Sidebar: React.FC = () => {
   }, [location.pathname]);
 
   const isActive = (path: string) => {
-    return location.pathname.startsWith(path);
+    const p = location.pathname;
+    if (path === "/ai-assistant") {
+      if (p === "/ai-assistant") return true;
+      if (p.startsWith("/ai-assistant/scheduled-tasks")) return false;
+      return /^\/ai-assistant\/[^/]+/.test(p);
+    }
+    if (path === "/ai-assistant/scheduled-tasks") {
+      return p.startsWith("/ai-assistant/scheduled-tasks");
+    }
+    return p.startsWith(path);
   };
 
   const getBadge = (badgeKey?: string) => {

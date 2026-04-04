@@ -3,6 +3,7 @@ import { googleWorkspaceService } from '../../services/googleWorkspace.service.j
 import { skillStorage } from '../../services/skillStorage.service.js';
 import {
   parseOrderSheetIdFromSkillMarkdown,
+  parseOrderSheetTabFromSkillMarkdown,
   parseSheetFieldsFromSkillMarkdown,
 } from '../../utils/skillMdConfig.js';
 import { spreadsheetColumnLettersToCount } from '../../utils/spreadsheetColumns.js';
@@ -73,6 +74,62 @@ async function resolveSpreadsheetId(
  * Resolve sheetFields from the active skill's SKILL.md.
  * Returns ordered field names (index = column position: 0=A, 1=B, …) or undefined.
  */
+async function resolveOrderSheetTab(context: AgentContext): Promise<string | undefined> {
+  if (context.activeSkillSlug) {
+    const info = context.skills.find((s) => s.slug === context.activeSkillSlug);
+    if (info?.storagePath) {
+      const raw = await readSkillMd(info.storagePath);
+      if (raw) {
+        const tab = parseOrderSheetTabFromSkillMarkdown(raw);
+        if (tab) return tab;
+      }
+    }
+  }
+  for (const s of context.skills) {
+    if (!s.storagePath) continue;
+    const raw = await readSkillMd(s.storagePath);
+    if (raw) {
+      const tab = parseOrderSheetTabFromSkillMarkdown(raw);
+      if (tab) return tab;
+    }
+  }
+  return undefined;
+}
+
+/** Prefer SKILL.md `orderSheetTab` over tool args so the tab matches booking / append_row. */
+async function resolveSheetNameForAction(
+  argsSheetName: string | undefined,
+  context: AgentContext,
+): Promise<string> {
+  const fromYaml = await resolveOrderSheetTab(context);
+  if (fromYaml?.trim()) return fromYaml.trim();
+  const a = argsSheetName?.trim();
+  if (a) return a;
+  return 'Cake orders';
+}
+
+/** Quote worksheet title for Google Sheets A1 ranges. */
+function quoteSheetTitleForRange(title: string): string {
+  const t = title.replace(/'/g, "''");
+  return `'${t}'`;
+}
+
+/**
+ * When `orderSheetTab` is set in SKILL.md, rewrite the range to use that tab
+ * (fixes bad model output like `Orders!A1:U` when the real tab is `Cake orders`).
+ */
+function applyCanonicalSheetTabToRange(range: string, canonicalTab: string | undefined): string {
+  const r = range.trim();
+  if (!canonicalTab?.trim()) return r;
+  const quoted = quoteSheetTitleForRange(canonicalTab.trim());
+  if (!r.includes('!')) {
+    return `${quoted}!${r}`;
+  }
+  const bang = r.indexOf('!');
+  const cellPart = r.slice(bang + 1).trim();
+  return `${quoted}!${cellPart}`;
+}
+
 async function resolveSheetFields(context: AgentContext): Promise<string[] | undefined> {
   if (context.activeSkillSlug) {
     const info = context.skills.find((s) => s.slug === context.activeSkillSlug);
@@ -124,6 +181,76 @@ function mapDataToRow(
   return { row, unmatched };
 }
 
+/** Skill sub-agents only receive `summary` (not `data`); include values here so the model can quote cells. */
+const READ_RANGE_MAX_ROWS = 50;
+const READ_RANGE_MAX_SUMMARY_CHARS = 14_000;
+
+function mapRowToNamedFields(row: string[], fields: string[]): Record<string, string> {
+  const o: Record<string, string> = {};
+  for (let i = 0; i < fields.length; i++) {
+    o[fields[i]] = String(row[i] ?? "").trim();
+  }
+  return o;
+}
+
+/**
+ * Build a summary that includes raw grid + rows mapped to `sheetFields` when column count matches.
+ */
+function buildReadRangeSummary(
+  values: unknown[][],
+  fields: string[] | undefined,
+  rangeLabel: string,
+): string {
+  const rows: string[][] = values.map((row) =>
+    (row ?? []).map((c) => (c == null ? "" : String(c))),
+  );
+  const total = rows.length;
+  const slice = rows.slice(0, READ_RANGE_MAX_ROWS);
+  let out = `Read ${total} row(s) from ${rangeLabel}${total > READ_RANGE_MAX_ROWS ? ` (showing first ${READ_RANGE_MAX_ROWS} rows)` : ""}.\n\n`;
+
+  out += "Raw rows (each inner array is one row, cells left-to-right A, B, C…):\n";
+  let rawJson = JSON.stringify(slice);
+  if (rawJson.length > READ_RANGE_MAX_SUMMARY_CHARS / 2) {
+    rawJson = rawJson.slice(0, Math.floor(READ_RANGE_MAX_SUMMARY_CHARS / 2)) + "…[truncated]";
+  }
+  out += rawJson;
+
+  if (fields?.length) {
+    let startRow = 0;
+    const first = rows[0];
+    if (
+      first?.length === fields.length &&
+      String(first[0] ?? "")
+        .trim()
+        .toLowerCase() === fields[0].trim().toLowerCase()
+    ) {
+      startRow = 1;
+    }
+
+    const mapped: Record<string, string>[] = [];
+    for (let r = startRow; r < rows.length && mapped.length < READ_RANGE_MAX_ROWS; r++) {
+      const row = rows[r];
+      if (!row?.length) continue;
+      if (row.length < fields.length) continue;
+      mapped.push(mapRowToNamedFields(row, fields));
+    }
+
+    if (mapped.length > 0) {
+      out +=
+        "\n\nRows mapped to skill sheetFields (use these exact values when replying — do not guess):\n";
+      const mappedStr = JSON.stringify(mapped, null, 2);
+      out += mappedStr.length > READ_RANGE_MAX_SUMMARY_CHARS / 2
+        ? mappedStr.slice(0, Math.floor(READ_RANGE_MAX_SUMMARY_CHARS / 2)) + "…[truncated]"
+        : mappedStr;
+    }
+  }
+
+  if (out.length > READ_RANGE_MAX_SUMMARY_CHARS) {
+    out = out.slice(0, READ_RANGE_MAX_SUMMARY_CHARS) + "\n…[summary truncated]";
+  }
+  return out;
+}
+
 export class GoogleSheetsTool extends BaseTool {
   readonly name = 'google_sheets';
   readonly description =
@@ -138,7 +265,7 @@ export class GoogleSheetsTool extends BaseTool {
         type: 'string',
         enum: ['append_row', 'read_range', 'update_row', 'update_row_by_order_id'],
         description:
-          'append_row adds a new row; read_range reads cell values; update_row and update_row_by_order_id find and update an existing row by matching a key (default column A). Use update_row_by_order_id when the skill matches Order ID in column A.',
+          'append_row adds a new row — use once per new order only; for payment/receipt updates on an existing order, use update_row or update_row_by_order_id (never append a second row for the same Order ID). read_range reads cell values. update_row and update_row_by_order_id find and update an existing row by matching a key (default column A). Use update_row_by_order_id when the skill matches Order ID in column A.',
       },
       spreadsheetId: {
         type: 'string',
@@ -147,7 +274,8 @@ export class GoogleSheetsTool extends BaseTool {
       },
       sheetName: {
         type: 'string',
-        description: 'Worksheet tab name, e.g. Sheet1 or Orders',
+        description:
+          'Worksheet tab name (e.g. Cake orders). If the skill SKILL.md has `orderSheetTab`, the server uses that tab and ignores a wrong sheetName.',
       },
       range: {
         type: 'string',
@@ -209,7 +337,7 @@ export class GoogleSheetsTool extends BaseTool {
               summary: 'Missing spreadsheet ID. Set `orderSheetId` in SKILL.md frontmatter or pass spreadsheetId.',
             };
           }
-          const sheetName = (args.sheetName as string) || 'Cake orders';
+          const sheetName = await resolveSheetNameForAction(args.sheetName as string | undefined, context);
 
           let row: string[];
           let lastCol: string;
@@ -281,17 +409,21 @@ export class GoogleSheetsTool extends BaseTool {
         }
 
         case 'read_range': {
-          const range = args.range as string;
+          let range = (args.range as string)?.trim();
           const spreadsheetId = await resolveSpreadsheetId(args.spreadsheetId as string | undefined, context);
           if (!spreadsheetId || !range) {
             return {
               success: false,
               data: null,
-              summary: 'read_range requires range (e.g. Cake orders!A1:T20).',
+              summary: 'read_range requires range (e.g. A1:U500 or Cake orders!A1:T20).',
             };
           }
+          const canonicalTab = await resolveOrderSheetTab(context);
+          range = applyCanonicalSheetTabToRange(range, canonicalTab);
           const values = await googleWorkspaceService.getSpreadsheetValues(userId, spreadsheetId, range);
-          return { success: true, data: values, summary: `Read ${values.length} row(s).` };
+          const fields = await resolveSheetFields(context);
+          const summary = buildReadRangeSummary(values as unknown[][], fields, range);
+          return { success: true, data: values, summary };
         }
 
         case 'update_row':
@@ -304,7 +436,7 @@ export class GoogleSheetsTool extends BaseTool {
               summary: 'Missing spreadsheet ID. Set `orderSheetId` in SKILL.md frontmatter or pass spreadsheetId.',
             };
           }
-          const sheetName = (args.sheetName as string) || 'Cake orders';
+          const sheetName = await resolveSheetNameForAction(args.sheetName as string | undefined, context);
 
           let row: string[];
           let lastCol: string;

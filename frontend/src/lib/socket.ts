@@ -24,12 +24,21 @@ interface ServerToClientEvents {
       observation?: string;
     };
   }) => void;
+  'playground:message': (data: {
+    assistantId: string;
+    content: string;
+    skillSlug?: string;
+    kind?: 'scheduled_test';
+    ts?: number;
+  }) => void;
 }
 
 interface ClientToServerEvents {
   'conversation:subscribe': (conversationId: string) => void;
   'conversation:unsubscribe': (conversationId: string) => void;
   'message:read': (messageId: string) => void;
+  'playground:subscribe': (assistantId: string) => void;
+  'playground:unsubscribe': (assistantId: string) => void;
 }
 
 let socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;

@@ -3,6 +3,10 @@ import { Skill, type ISkillDocument } from '../models/Skill.js';
 import { Assistant } from '../models/index.js';
 import { assistantService } from './assistant.service.js';
 import { skillStorage, type SkillDirectoryStructure } from './skillStorage.service.js';
+import {
+  replaceSkillMdFrontmatter,
+  skillMdBodyAfterFrontmatter,
+} from '../utils/skillMdConfig.js';
 
 export interface CreateSkillInput {
   name: string;
@@ -22,10 +26,14 @@ export interface UpdateSkillInput {
   name?: string;
   description?: string;
   instructions?: string;
+  /** YAML between --- delimiters (no --- lines). Merged into SKILL.md on disk. */
+  frontmatterYaml?: string;
   triggerHints?: string[];
   requiredTools?: string[];
   reminderDelay?: number;
   maxReminders?: number;
+  scheduleEnabled?: boolean;
+  scheduleCron?: string;
   status?: 'active' | 'inactive';
   nickname?: string;
   staffRole?: string;
@@ -86,6 +94,8 @@ export function parseSkillFrontmatter(content: string): {
   steps: ParsedSkillStep[];
   reminderDelay: number;
   maxReminders: number;
+  scheduleEnabled: boolean;
+  scheduleCron: string;
 } {
   const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
 
@@ -146,6 +156,9 @@ export function parseSkillFrontmatter(content: string): {
     }
   }
 
+  const se = meta.scheduleEnabled?.trim().toLowerCase();
+  const scheduleEnabled = se === 'true' || se === '1' || se === 'yes';
+
   return {
     name: meta.name,
     slug: meta.slug?.trim() || undefined,
@@ -155,6 +168,8 @@ export function parseSkillFrontmatter(content: string): {
     steps,
     reminderDelay: meta.reminderDelay ? parseInt(meta.reminderDelay, 10) || 0 : 0,
     maxReminders: meta.maxReminders ? parseInt(meta.maxReminders, 10) || 0 : 0,
+    scheduleEnabled,
+    scheduleCron: meta.scheduleCron?.trim() || '',
   };
 }
 
@@ -191,37 +206,45 @@ class SkillService {
   }
 
   async update(id: string, input: UpdateSkillInput): Promise<ISkillDocument | null> {
-    const { instructions, ...dbFields } = input;
+    const { instructions, frontmatterYaml, ...dbFields } = input;
 
-    // If instructions are being updated, save to SKILL.md file
-    if (instructions !== undefined) {
+    const touchFile = instructions !== undefined || frontmatterYaml !== undefined;
+
+    if (touchFile) {
       const skill = await Skill.findById(id).lean();
       if (skill?.storagePath) {
         try {
           const fs = await import('fs/promises');
           const path = await import('path');
           const skillMdPath = path.join(skill.storagePath, 'SKILL.md');
-          // Read existing SKILL.md to preserve frontmatter
           let existingContent = '';
           try {
             existingContent = await fs.readFile(skillMdPath, 'utf-8');
-          } catch { /* file may not exist */ }
-
-          // Rebuild SKILL.md: keep frontmatter, replace body
-          const frontmatterMatch = existingContent.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
-          if (frontmatterMatch) {
-            const newContent = `${frontmatterMatch[0]}\n${instructions}`;
-            await fs.writeFile(skillMdPath, newContent, 'utf-8');
-          } else {
-            // No existing frontmatter — write full file
-            await fs.writeFile(skillMdPath, instructions, 'utf-8');
+          } catch {
+            /* file may not exist */
           }
+
+          let newContent = existingContent;
+          if (frontmatterYaml !== undefined) {
+            newContent = replaceSkillMdFrontmatter(newContent, frontmatterYaml);
+          }
+          if (instructions !== undefined) {
+            const fm = newContent.match(/^---\s*\n[\s\S]*?\n---\s*\n?/);
+            if (fm) {
+              newContent = `${fm[0]}${instructions}`;
+            } else {
+              newContent = instructions;
+            }
+          }
+
+          await fs.writeFile(skillMdPath, newContent, 'utf-8');
+          (dbFields as any).instructions = skillMdBodyAfterFrontmatter(newContent);
         } catch (err: any) {
           console.error('[SkillService] Failed to update SKILL.md:', err.message);
         }
+      } else if (instructions !== undefined) {
+        (dbFields as any).instructions = instructions;
       }
-      // Also store in DB legacy field for easy retrieval
-      (dbFields as any).instructions = instructions;
     }
 
     return Skill.findByIdAndUpdate(id, { $set: dbFields }, { new: true });
@@ -298,6 +321,8 @@ class SkillService {
       existing.steps = parsed.steps;
       existing.reminderDelay = parsed.reminderDelay;
       existing.maxReminders = parsed.maxReminders;
+      existing.scheduleEnabled = parsed.scheduleEnabled;
+      existing.scheduleCron = parsed.scheduleCron;
       await existing.save();
       return existing;
     }
@@ -314,6 +339,10 @@ class SkillService {
       scripts: finalStructure.scripts,
     });
     skill.steps = parsed.steps;
+    skill.reminderDelay = parsed.reminderDelay;
+    skill.maxReminders = parsed.maxReminders;
+    skill.scheduleEnabled = parsed.scheduleEnabled;
+    skill.scheduleCron = parsed.scheduleCron;
     await skill.save();
     return skill;
   }
@@ -357,6 +386,8 @@ class SkillService {
       existing.instructions = instructionsBody;
       existing.reminderDelay = parsed.reminderDelay;
       existing.maxReminders = parsed.maxReminders;
+      existing.scheduleEnabled = parsed.scheduleEnabled;
+      existing.scheduleCron = parsed.scheduleCron;
       await existing.save();
       return existing;
     }
@@ -374,6 +405,10 @@ class SkillService {
     });
     skill.instructions = instructionsBody;
     skill.steps = parsed.steps;
+    skill.reminderDelay = parsed.reminderDelay;
+    skill.maxReminders = parsed.maxReminders;
+    skill.scheduleEnabled = parsed.scheduleEnabled;
+    skill.scheduleCron = parsed.scheduleCron;
     await skill.save();
     return skill;
   }

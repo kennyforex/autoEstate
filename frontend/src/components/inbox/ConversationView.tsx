@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { format, isSameDay } from "date-fns";
 import {
   Star,
@@ -27,7 +28,6 @@ import type {
   Contact,
   Tag as TagType,
   Channel,
-  Assistant,
 } from "../../lib/types";
 import { conversationsApi, uploadApi, tagsApi } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
@@ -224,6 +224,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   onUpdate,
   onCountsChange,
 }) => {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>(
     conversation.messages || [],
   );
@@ -291,7 +292,16 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   const channel = conversation.channelId as Channel;
   const assistant =
     typeof channel?.assistantId === "object" ? channel.assistantId : undefined;
-  const assistantName = assistant?.name;
+  const managerPersonaLabel = useMemo(() => {
+    return (
+      assistant?.managerName?.trim() ||
+      assistant?.name?.trim() ||
+      ""
+    );
+  }, [assistant?.managerName, assistant?.name]);
+  const managerDisplayName =
+    managerPersonaLabel ||
+    t("assistants.playground.agentWorkflow.defaultManager");
 
   useEffect(() => {
     setMessages(conversation.messages || []);
@@ -1021,7 +1031,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                   <MessageBubble
                     message={message}
                     onImageDoubleClick={setPopupImageUrl}
-                    assistantName={assistantName}
+                    assistantName={managerDisplayName}
                   />
                 </React.Fragment>
               );
@@ -1037,7 +1047,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                   <div className="flex items-center gap-1.5 mb-1">
                     <Sparkles className="w-3 h-3 text-text-secondary" />
                     <span className="text-xs text-text-secondary">
-                      {assistantName || "AI Agent"}
+                      {managerDisplayName}
                     </span>
                   </div>
                   <div className="bg-dark-surface text-white rounded-lg p-4">
@@ -1045,12 +1055,21 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-sm">
                         {aiStatus.status === "analyzing_image"
-                          ? "Analyzing image"
+                          ? t(
+                              "assistants.playground.agentWorkflow.managerAnalyzingImage",
+                              { name: managerDisplayName },
+                            )
                           : aiStatus.status === "analyzing_audio"
-                            ? "Analyzing audio"
+                            ? t(
+                                "assistants.playground.agentWorkflow.managerAnalyzingAudio",
+                                { name: managerDisplayName },
+                              )
                             : agentSteps.length > 0
                               ? `Step ${agentSteps.length} of 10`
-                              : "Thinking"}
+                              : t(
+                                  "assistants.playground.agentWorkflow.managerThinking",
+                                  { name: managerDisplayName },
+                                )}
                       </span>
                       <div className="flex gap-1">
                         <span
