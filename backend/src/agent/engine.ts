@@ -18,6 +18,7 @@ import type {
   SkillGoal,
   GoalStack,
 } from './types.js';
+import { disposePlaywrightSession } from './playwrightSession.js';
 import { routeIntent } from './router.js';
 
 
@@ -51,6 +52,7 @@ export class AgentEngine {
 
     console.log(`[Agent] Context has ${context.skills.length} skill(s): ${context.skills.map(s => s.slug).join(', ') || 'none'}`);
     context.lastUserTurnContent = userMessage;
+    context.ephemeral ??= {};
     this.registry.updateSkillContext(context.skills);
 
     // Use DB-backed goal stack if already loaded by context builder;
@@ -73,6 +75,7 @@ export class AgentEngine {
 
     onEvent?.({ type: 'agent_start' });
 
+    try {
     let routingRetryUsed = false;
     const loopState: AgentLoopState = {
       steps,
@@ -215,6 +218,9 @@ export class AgentEngine {
         'I apologize, but I was unable to fully resolve your request. ' +
         'Let me connect you with a team member for assistance.',
     });
+    } finally {
+      await disposePlaywrightSession(context);
+    }
   }
 
   // ── Tool Execution Pipeline ──
@@ -315,7 +321,8 @@ export class AgentEngine {
     }
     let execResults: ExecutionResult[];
 
-    if (this.config.toolExecution === 'parallel' && approved.length > 1) {
+    const webBrowserInBatch = approved.some((e) => e.toolName === 'web_browser');
+    if (this.config.toolExecution === 'parallel' && approved.length > 1 && !webBrowserInBatch) {
       const settled = await Promise.allSettled(
         approved.map(async (entry) => {
           if (signal?.aborted) throw new Error('Aborted');

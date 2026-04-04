@@ -201,6 +201,19 @@ export type RouterDecision =
   | { action: 'suggest_skill'; slug: string }
   | { action: 'llm_decide' };
 
+/** Shared Chromium session for multiple web_browser tool calls in one AgentEngine.run(). */
+export interface PlaywrightRunSession {
+  browser: import('playwright').Browser;
+  context: import('playwright').BrowserContext;
+  page: import('playwright').Page;
+  openedAt: number;
+}
+
+/** In-memory only for one AgentEngine.run(); not persisted. */
+export interface AgentContextEphemeral {
+  playwright?: PlaywrightRunSession;
+}
+
 export interface AgentContext {
   conversationId: string;
   assistantId: string;
@@ -213,6 +226,8 @@ export interface AgentContext {
   session?: AgentSessionData;
   markdownEnabled?: boolean;
   goalStack?: GoalStack;
+  /** Per-run state (e.g. Playwright); isolated per chat — new object each AgentEngine.run(). */
+  ephemeral?: AgentContextEphemeral;
   /** Set only while a skill sub-agent runs tools (so tools can read that skill's SKILL.md). */
   activeSkillSlug?: string;
   /**

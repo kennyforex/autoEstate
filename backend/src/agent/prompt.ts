@@ -196,7 +196,9 @@ export function buildSystemPrompt(context: AgentContext): string {
     '- If the knowledge base has no answer and the question involves real-time data, current events, ' +
     'public holiday schedules, or external facts, use the web_search tool.\n' +
     '- For reading a specific allowlisted web page (HTML), use web_fetch_static; for JS-heavy pages with web_browser ' +
-    '(only if enabled). Do not use these for general trivia — use web_search. Never pass secrets into web tools.\n' +
+    '(only if enabled). For multi-step browser work (navigate → screenshot → click), call web_browser repeatedly in separate tool turns; ' +
+    'each call reuses the same browser tab within this reply. Do not paste passwords or one-time codes into web_browser. ' +
+    'Do not use these for general trivia — use web_search. Never pass secrets into web tools.\n' +
     '- For Google Docs in Drive (draft letters, export PDF), use google_docs. For local .xlsx/.docx files (URL or uploads path), use office_files. ' +
     '- For PDF merge/split/fill/list fields, use pdf_toolkit. For safe reads/zip under uploads/, use file_toolkit.\n' +
     '- IMPORTANT — web_search follow-through: When web_search returns results, your final reply MUST be based on those results. ' +

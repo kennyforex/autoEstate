@@ -21,3 +21,18 @@ export const WEB_FETCH_MAX_SELECTOR_KEYS = intEnv('WEB_FETCH_MAX_SELECTOR_KEYS',
 
 /** Playwright navigation timeout ms (default 45s). */
 export const WEB_BROWSER_NAV_TIMEOUT_MS = intEnv('WEB_BROWSER_NAV_TIMEOUT_MS', 45_000);
+
+/** Max duration for a single web_browser action (click, wait, screenshot, etc.), ms (default 60s). */
+export const WEB_BROWSER_MAX_ACTION_MS = intEnv('WEB_BROWSER_MAX_ACTION_MS', 60_000);
+
+/** Max PNG size written by web_browser screenshot (default 12 MiB). */
+export const WEB_BROWSER_SCREENSHOT_MAX_BYTES = intEnv('WEB_BROWSER_SCREENSHOT_MAX_BYTES', 12 * 1024 * 1024);
+
+/** Max bytes saved by web_browser download (default 25 MiB). */
+export const WEB_BROWSER_DOWNLOAD_MAX_BYTES = intEnv('WEB_BROWSER_DOWNLOAD_MAX_BYTES', 25 * 1024 * 1024);
+
+/** Max CSS selector string length for web_browser (default 4000). */
+export const WEB_BROWSER_MAX_SELECTOR_LENGTH = intEnv('WEB_BROWSER_MAX_SELECTOR_LENGTH', 4000);
+
+/** Max relative filename segment length for saved captures (default 200). */
+export const WEB_BROWSER_MAX_FILENAME_LENGTH = intEnv('WEB_BROWSER_MAX_FILENAME_LENGTH', 200);
