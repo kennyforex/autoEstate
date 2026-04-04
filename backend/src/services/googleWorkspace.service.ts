@@ -707,6 +707,105 @@ class GoogleWorkspaceService {
     const connection = await GoogleConnection.findOne({ userId });
     return !!connection;
   }
+
+  // ── Google Docs (requires documents OAuth scope) ──
+
+  async createGoogleDocument(userId: string, title: string) {
+    const auth = await this.getAuthedClient(userId);
+    const docs = google.docs({ version: "v1", auth });
+    const res = await docs.documents.create({
+      requestBody: { title: title.trim() || "Untitled" },
+    });
+    const documentId = res.data.documentId;
+    if (!documentId) {
+      throw new Error("Google Docs create returned no documentId");
+    }
+    return {
+      documentId,
+      title: res.data.title ?? title,
+      documentUrl: `https://docs.google.com/document/d/${documentId}/edit`,
+    };
+  }
+
+  async appendGoogleDocText(userId: string, documentId: string, text: string) {
+    const auth = await this.getAuthedClient(userId);
+    const docs = google.docs({ version: "v1", auth });
+    await docs.documents.batchUpdate({
+      documentId,
+      requestBody: {
+        requests: [
+          {
+            insertText: {
+              text,
+              endOfSegmentLocation: { segmentId: "" },
+            },
+          },
+        ],
+      },
+    });
+    return { documentId, appendedChars: text.length };
+  }
+
+  async getGoogleDocPlainText(userId: string, documentId: string): Promise<string> {
+    const auth = await this.getAuthedClient(userId);
+    const drive = google.drive({ version: "v3", auth });
+    const res = await drive.files.export(
+      {
+        fileId: documentId,
+        mimeType: "text/plain",
+      },
+      { responseType: "arraybuffer" },
+    );
+    return Buffer.from(res.data as ArrayBuffer).toString("utf-8");
+  }
+
+  async exportGoogleDocAsPdfBuffer(userId: string, documentId: string): Promise<Buffer> {
+    const auth = await this.getAuthedClient(userId);
+    const drive = google.drive({ version: "v3", auth });
+    const res = await drive.files.export(
+      {
+        fileId: documentId,
+        mimeType: "application/pdf",
+      },
+      { responseType: "arraybuffer" },
+    );
+    return Buffer.from(res.data as ArrayBuffer);
+  }
+
+  /**
+   * Upload raw bytes as a new file on Drive (e.g. exported PDF from Docs or pdf_tool).
+   */
+  async uploadDriveBytes(
+    userId: string,
+    params: {
+      fileName: string;
+      mimeType: string;
+      body: Buffer;
+      parentFolderId: string;
+    },
+  ) {
+    const auth = await this.getAuthedClient(userId);
+    const drive = google.drive({ version: "v3", auth });
+    const body = Readable.from(params.body);
+    const createRes = await drive.files.create({
+      requestBody: {
+        name: params.fileName,
+        parents: [params.parentFolderId],
+      },
+      media: {
+        mimeType: params.mimeType,
+        body,
+      },
+      fields: "id, name, webViewLink, mimeType",
+      supportsAllDrives: true,
+    });
+    return {
+      id: createRes.data.id!,
+      name: createRes.data.name!,
+      webViewLink: createRes.data.webViewLink ?? undefined,
+      mimeType: createRes.data.mimeType ?? undefined,
+    };
+  }
 }
 
 export const googleWorkspaceService = new GoogleWorkspaceService();

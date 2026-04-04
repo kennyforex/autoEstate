@@ -2,8 +2,11 @@ import axios from 'axios';
 import { BaseTool } from './base.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
-const BRAVE_API_KEY = process.env.BRAVE_SEARCH_API_KEY || '';
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search';
+
+function getBraveApiKey(): string {
+  return process.env.BRAVE_SEARCH_API_KEY || '';
+}
 
 interface BraveWebResult {
   title: string;
@@ -49,7 +52,7 @@ export class WebSearchTool extends BaseTool {
       return { success: false, data: null, summary: 'Error: query parameter is required' };
     }
 
-    if (!BRAVE_API_KEY) {
+    if (!getBraveApiKey()) {
       return {
         success: false,
         data: null,
@@ -68,7 +71,7 @@ export class WebSearchTool extends BaseTool {
         headers: {
           'Accept': 'application/json',
           'Accept-Encoding': 'gzip',
-          'X-Subscription-Token': BRAVE_API_KEY,
+          'X-Subscription-Token': getBraveApiKey(),
         },
         timeout: 15_000,
         signal,

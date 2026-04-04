@@ -11,6 +11,12 @@ export { GoogleGmailTool } from './googleGmail.tool.js';
 export { GoogleCalendarTool } from './googleCalendar.tool.js';
 export { GoogleDriveTool } from './googleDrive.tool.js';
 export { GoogleSheetsTool } from './googleSheets.tool.js';
+export { GoogleDocsTool } from './googleDocs.tool.js';
+export { PdfToolkitTool } from './pdfToolkit.tool.js';
+export { OfficeFilesTool } from './officeFiles.tool.js';
+export { FileToolkitTool } from './fileToolkit.tool.js';
+export { WebFetchStaticTool } from './webFetchStatic.tool.js';
+export { WebBrowserTool } from './webBrowser.tool.js';
 export { SkillExecutionTool } from './skill.tool.js';
 export { WebSearchTool } from './webSearch.tool.js';
 
@@ -25,6 +31,12 @@ import { GoogleGmailTool } from './googleGmail.tool.js';
 import { GoogleCalendarTool } from './googleCalendar.tool.js';
 import { GoogleDriveTool } from './googleDrive.tool.js';
 import { GoogleSheetsTool } from './googleSheets.tool.js';
+import { GoogleDocsTool } from './googleDocs.tool.js';
+import { PdfToolkitTool } from './pdfToolkit.tool.js';
+import { OfficeFilesTool } from './officeFiles.tool.js';
+import { FileToolkitTool } from './fileToolkit.tool.js';
+import { WebFetchStaticTool } from './webFetchStatic.tool.js';
+import { WebBrowserTool } from './webBrowser.tool.js';
 import { SkillExecutionTool } from './skill.tool.js';
 import { WebSearchTool } from './webSearch.tool.js';
 
@@ -40,6 +52,12 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new GoogleGmailTool());
   registry.register(new GoogleDriveTool());
   registry.register(new GoogleSheetsTool());
+  registry.register(new GoogleDocsTool());
+  registry.register(new PdfToolkitTool());
+  registry.register(new OfficeFilesTool());
+  registry.register(new FileToolkitTool());
+  registry.register(new WebFetchStaticTool());
+  registry.register(new WebBrowserTool());
   registry.register(new WebSearchTool());
 
   const skillTool = new SkillExecutionTool();

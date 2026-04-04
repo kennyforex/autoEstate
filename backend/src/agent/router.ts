@@ -6,6 +6,27 @@ import type { AgentContext, AgentSkillInfo, RouterDecision } from "./types.js";
  * Remove huge base64 data URLs from the message so the intent-classifier LLM
  * request stays small (OpenRouter may return 400 when the prompt embeds multi-hundred-KB data).
  */
+/**
+ * User explicitly wants the main agent to use web search / fetch tools or general news,
+ * not a continuation of an installed skill (e.g. cake booking).
+ * When true, we skip "suggest_skill" so execute_skill is not injected for the wrong skill.
+ */
+export function wantsGeneralWebOrNewsIntent(message: string): boolean {
+  const s = message.trim();
+  if (!s) return false;
+  if (/\bweb_search\b/i.test(s)) return true;
+  if (/\bweb_fetch_static\b|\bweb_browser\b/i.test(s)) return true;
+  if (/\bweb search\b/i.test(s)) return true;
+  if (/\bsearch the web\b|\bsearch online\b/i.test(s)) return true;
+  // Chinese: news / headlines / HK news queries
+  if (/今日新聞|頭條新聞|最新新聞|香港新聞|即時新聞|搜尋.*新聞|查.*新聞|新聞.*列表/i.test(s)) {
+    return true;
+  }
+  if (/yahoo\.|google\.com\/search|搜尋引擎|網上.*新聞/i.test(s)) return true;
+  if (/\btoday'?s news\b|\bnews today\b|\blatest news\b/i.test(s)) return true;
+  return false;
+}
+
 export function sanitizeMessageForIntentRouting(message: string): string {
   let s = message.replace(
     /data:(?:image\/[a-zA-Z0-9.+-]+|application\/pdf);base64,[A-Za-z0-9+/=\s]{200,}/g,
@@ -86,6 +107,14 @@ export async function routeIntent(
     }
   }
 
+  // // 1.5 General web / news / explicit tool names — never continue a product skill by mistake
+  // if (wantsGeneralWebOrNewsIntent(userMessage)) {
+  //   console.log(
+  //     `[Router] General web/news intent — llm_decide (skip suggest_skill / forced wrong skill)`,
+  //   );
+  //   return { action: "llm_decide" };
+  // }
+
   // 2. Continue an active (in-progress) skill conversation
   const recent = context.messageHistory.slice(-4);
   for (let i = recent.length - 1; i >= 0; i--) {
@@ -137,8 +166,10 @@ async function classifyIntent(
     "decide which skill (if any) should handle the request.\n\n" +
     "Rules:\n" +
     '- Return ONLY valid JSON: { "slug": "<skill-slug>" } or { "slug": "none" }\n' +
-    '- Choose "none" ONLY if the message clearly does NOT relate to ANY skill\n' +
-    "- If the message could match a skill even loosely, pick that skill\n" +
+    '- Choose "none" for: general news/headlines, web search, weather, sports scores, trivia, ' +
+    "or anything that is NOT described by a skill below (even if the user wrote in Chinese/English).\n" +
+    '- Choose a skill slug ONLY when the user wants that skill\'s product/service/workflow ' +
+    "(e.g. ordering, booking, payments described in the skill).\n" +
     "- Consider all languages (e.g. Chinese, English, mixed)\n\n" +
     `Skills:\n${skillList}\n\n` +
     `User message: "${sanitizeMessageForIntentRouting(userMessage)}"`;

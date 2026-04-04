@@ -195,9 +195,16 @@ export function buildSystemPrompt(context: AgentContext): string {
     '- Use the knowledge_base tool to look up domain-specific information before answering factual questions.\n' +
     '- If the knowledge base has no answer and the question involves real-time data, current events, ' +
     'public holiday schedules, or external facts, use the web_search tool.\n' +
-    '- IMPORTANT: When you receive results from web_search, you MUST summarize the key findings and present ' +
-    'them to the user in a helpful way. NEVER ignore tool results or say you cannot answer after ' +
-    'successfully retrieving search results. The search results ARE your source of truth — synthesize them.\n' +
+    '- For reading a specific allowlisted web page (HTML), use web_fetch_static; for JS-heavy pages with web_browser ' +
+    '(only if enabled). Do not use these for general trivia — use web_search. Never pass secrets into web tools.\n' +
+    '- For Google Docs in Drive (draft letters, export PDF), use google_docs. For local .xlsx/.docx files (URL or uploads path), use office_files. ' +
+    '- For PDF merge/split/fill/list fields, use pdf_toolkit. For safe reads/zip under uploads/, use file_toolkit.\n' +
+    '- IMPORTANT — web_search follow-through: When web_search returns results, your final reply MUST be based on those results. ' +
+    'Do not apologize, do not say you cannot browse the web, and do not give a generic "I am only a language model" refusal. ' +
+    'Structure the answer as a clear list (e.g. numbered 1–10 or bullets): for each item include a short headline or takeaway, ' +
+    'then the source site or publication name, and the page URL when the tool output includes it. ' +
+    'If snippets are thin, still summarize what is available and offer one follow-up search query the user could try. ' +
+    'Write in the same language the user used unless they asked otherwise.\n' +
     '- If the user\'s request is unclear or missing critical details, use ask_clarification to ask a follow-up question.\n' +
     '- Prefer concise tool queries to stay within context limits.\n' +
     '- If a tool fails, try an alternative approach or inform the user.\n' +
