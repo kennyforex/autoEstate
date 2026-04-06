@@ -66,7 +66,7 @@ const companySchema = new Schema<ICompanyDocument>(
 // Never send smtpPass to client; expose whether it's set
 companySchema.set("toJSON", {
   transform: function (_doc, ret) {
-    const obj = ret as Record<string, unknown>;
+    const obj = ret as unknown as Record<string, unknown>;
     obj.smtpPasswordSet = !!obj.smtpPass;
     delete obj.smtpPass;
     return obj;

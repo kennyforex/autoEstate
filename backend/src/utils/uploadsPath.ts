@@ -34,3 +34,35 @@ export async function readUploadsFile(relative: string): Promise<{ ok: true; buf
     return { ok: false, error: msg };
   }
 }
+
+/**
+ * Write a file under the uploads root (creates parent directories).
+ */
+export async function writeUploadsFile(
+  relative: string,
+  buffer: Buffer,
+): Promise<{ ok: true; uploadsRelative: string } | { ok: false; error: string }> {
+  const resolved = resolveUploadsRelativePath(relative);
+  if (!resolved.ok) return resolved;
+  try {
+    await fs.mkdir(path.dirname(resolved.abs), { recursive: true });
+    await fs.writeFile(resolved.abs, buffer);
+    const trimmed = relative.trim().replace(/^\/+/, '');
+    return { ok: true, uploadsRelative: trimmed };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
+/**
+ * Public URL for a file under uploads/ (same convention as browser-capture helpers).
+ */
+export function getPublicUploadsUrl(relativeUnderUploads: string): string {
+  const rel = relativeUnderUploads.startsWith('/') ? relativeUnderUploads : `/${relativeUnderUploads}`;
+  const base =
+    process.env.PUBLIC_API_URL?.replace(/\/$/, '') ||
+    process.env.BACKEND_PUBLIC_URL?.replace(/\/$/, '') ||
+    '';
+  return base ? `${base}/uploads${rel}` : `/uploads${rel}`;
+}

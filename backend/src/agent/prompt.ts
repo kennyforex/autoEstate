@@ -168,6 +168,18 @@ export function buildSystemPrompt(context: AgentContext): string {
       );
     }
 
+    if (context.routerHint) {
+      const h = context.routerHint;
+      parts.push('');
+      parts.push('### Routing hint (soft)');
+      parts.push(
+        `A fast intent check suggests skill \`${h.slug}\` may match this message ` +
+          `(confidence ${h.confidence.toFixed(2)}). ` +
+          'If that fits what the user wants, call `execute_skill` with that slug. ' +
+          'If they clearly need something else (e.g. web search, general knowledge, or another skill), use the appropriate tools instead — this hint is not mandatory.',
+      );
+    }
+
     if (context.goalStack && context.goalStack.goals.length > 0) {
       parts.push('');
       parts.push('### Current Goal Stack');
@@ -199,7 +211,8 @@ export function buildSystemPrompt(context: AgentContext): string {
     '(only if enabled). For multi-step browser work (navigate → screenshot → click), call web_browser repeatedly in separate tool turns; ' +
     'each call reuses the same browser tab within this reply. Do not paste passwords or one-time codes into web_browser. ' +
     'Do not use these for general trivia — use web_search. Never pass secrets into web tools.\n' +
-    '- For Google Docs in Drive (draft letters, export PDF), use google_docs. For local .xlsx/.docx files (URL or uploads path), use office_files. ' +
+    '- For Google Docs in Drive (draft letters, export PDF), use google_docs. For local .xlsx/.docx files (URL or uploads path), use office_files ' +
+    '(docx_fill_template can save merged files under uploads/; docx_to_pdf converts a saved .docx to .pdf with LibreOffice on the server). ' +
     '- For PDF merge/split/fill/list fields, use pdf_toolkit. For safe reads/zip under uploads/, use file_toolkit.\n' +
     '- IMPORTANT — web_search follow-through: When web_search returns results, your final reply MUST be based on those results. ' +
     'Do not apologize, do not say you cannot browse the web, and do not give a generic "I am only a language model" refusal. ' +
@@ -211,6 +224,7 @@ export function buildSystemPrompt(context: AgentContext): string {
     '- Prefer concise tool queries to stay within context limits.\n' +
     '- If a tool fails, try an alternative approach or inform the user.\n' +
     '- When you have enough information, respond directly without unnecessary tool calls.\n' +
+    '- Before your **final** reply to the customer, briefly verify: (1) Did you use tools/skills the question required? (2) Are prices/dates/facts from tools or skills, not guessed? (3) If you promised follow-up actions, are they consistent with tool results?\n' +
     '- Never fabricate information. If you don\'t know, say so or search the knowledge base.\n' +
     '- When using media_analysis, use ONLY the actual media URL provided in the message (e.g., "Image URL: https://..." or "Image URL: data:image/...;base64,..."). ' +
     'Do NOT use image descriptions or any other text as the mediaDataUrl.\n' +

@@ -620,6 +620,7 @@
         "managerThinking": "{{name}} is thinking",
         "managerAssigns": "{{manager}} assigns this to {{worker}}",
         "workerWorking": "{{worker}} is working",
+        "workerWorkingOnSkill": "{{worker}} is running “{{skill}}”",
         "workerDone": "{{worker}} has completed the task (replied)",
         "managerHandling": "{{name}} is handling this directly",
         "managerHandled": "{{name}} has finished (replied)"

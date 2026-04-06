@@ -688,16 +688,6 @@ export const AssistantPlayground: React.FC = () => {
     [assistant?.staff],
   );
 
-  const staffChartItems = useMemo(
-    () =>
-      employeeStaffList.map((s) => ({
-        id: s._id,
-        label: s.displayName?.trim() || s._id,
-        subtitle: s.roleTitle?.trim() || undefined,
-      })),
-    [employeeStaffList],
-  );
-
   const activeOrgHighlight = useMemo((): OrgSelection | null => {
     if (!activeResponsibleStaffId) return null;
     if (managerStaffId && activeResponsibleStaffId === managerStaffId) {
@@ -720,10 +710,47 @@ export const AssistantPlayground: React.FC = () => {
     return null;
   }, [processingStaffId, managerStaffId, employeeStaffList]);
 
+  /** While a skill/worker is processing, only that node should ring — not the manager “thinking” pulse. */
+  const liveChartActiveHighlight = useMemo((): OrgSelection | null => {
+    if (processingOrgHighlight) return null;
+    if (isTyping && managerStaffId) return "manager";
+    return activeOrgHighlight;
+  }, [processingOrgHighlight, isTyping, managerStaffId, activeOrgHighlight]);
+
   const lastExecuteSkillStep = useMemo(() => {
     const xs = agentSteps.filter((s) => s.tool === "execute_skill");
     return xs[xs.length - 1];
   }, [agentSteps]);
+
+  const processingSkillDisplayName = useMemo(() => {
+    const slug = lastExecuteSkillStep?.skillSlug;
+    if (!slug) return null;
+    return skillLib.allSkills.find((sk) => sk.slug === slug)?.name ?? null;
+  }, [lastExecuteSkillStep?.skillSlug, skillLib.allSkills]);
+
+  const staffChartItems = useMemo(
+    () =>
+      employeeStaffList.map((s) => {
+        const showActivity =
+          isTyping &&
+          processingStaffId === s._id &&
+          Boolean(processingSkillDisplayName);
+        return {
+          id: s._id,
+          label: s.displayName?.trim() || s._id,
+          subtitle: s.roleTitle?.trim() || undefined,
+          ...(showActivity && processingSkillDisplayName
+            ? { activity: processingSkillDisplayName }
+            : {}),
+        };
+      }),
+    [
+      employeeStaffList,
+      isTyping,
+      processingStaffId,
+      processingSkillDisplayName,
+    ],
+  );
 
   const delegateStaffId = useMemo(() => {
     if (!lastExecuteSkillStep?.skillSlug) return null;
@@ -2041,10 +2068,18 @@ export const AssistantPlayground: React.FC = () => {
                                   <span
                                     className={`text-sm leading-snug ${skillRunning ? "text-gray-900 font-medium" : "text-gray-500"}`}
                                   >
-                                    {t(
-                                      "assistants.playground.agentWorkflow.workerWorking",
-                                      { worker },
-                                    )}
+                                    {processingSkillDisplayName
+                                      ? t(
+                                          "assistants.playground.agentWorkflow.workerWorkingOnSkill",
+                                          {
+                                            worker,
+                                            skill: processingSkillDisplayName,
+                                          },
+                                        )
+                                      : t(
+                                          "assistants.playground.agentWorkflow.workerWorking",
+                                          { worker },
+                                        )}
                                   </span>
                                 </div>
                                 {skillDone ? (
@@ -2165,7 +2200,7 @@ export const AssistantPlayground: React.FC = () => {
               managerName={managerName}
               staffItems={staffChartItems}
               selection={orgSelection}
-              activeHighlight={activeOrgHighlight}
+              activeHighlight={liveChartActiveHighlight}
               processingHighlight={processingOrgHighlight}
               onSelect={setOrgSelection}
               onPaneClick={() => setOrgSelection(null)}

@@ -59,12 +59,24 @@ export interface ToolResult {
   summary: string;
 }
 
+// ── Citations (KB tool → agent result / steps) ──
+
+export type AgentCitationBundle = Array<{
+  position: number;
+  references: Array<{
+    file: { id: string; name: string };
+    pages: number[];
+  }>;
+}>;
+
 // ── Agent Step / Trace ──
 
 export interface AgentStep {
   thought: string;
   action?: { tool: string; args: Record<string, unknown> };
   observation?: string;
+  /** Populated when a tool (e.g. knowledge_base) returns structured citations */
+  citations?: AgentCitationBundle;
   timestamp: Date;
 }
 
@@ -199,7 +211,11 @@ export interface SkillExecutionResult {
 export type RouterDecision =
   | { action: 'force_skill'; slug: string; reason: string }
   | { action: 'suggest_skill'; slug: string }
-  | { action: 'llm_decide' };
+  | {
+      action: 'llm_decide';
+      /** Soft routing: classifier picked a skill but confidence was below force threshold */
+      hint?: { slug: string; reason: string; confidence: number };
+    };
 
 /** Shared Chromium session for multiple web_browser tool calls in one AgentEngine.run(). */
 export interface PlaywrightRunSession {
@@ -235,6 +251,8 @@ export interface AgentContext {
    * The manager model often passes a short `userRequest` into `execute_skill` without attachment lines; skills merge this in.
    */
   lastUserTurnContent?: string;
+  /** Set for a single `AgentEngine.run` when router returns a soft hint (not persisted). */
+  routerHint?: { slug: string; reason: string; confidence: number };
 }
 
 // ── Agent Result ──
@@ -245,13 +263,7 @@ export interface AgentResult {
   /** Staff member whose skill produced this reply (playground org chart). */
   activeStaffId?: string;
   activeSkillSlug?: string;
-  citations?: Array<{
-    position: number;
-    references: Array<{
-      file: { id: string; name: string };
-      pages: number[];
-    }>;
-  }>;
+  citations?: AgentCitationBundle;
   session?: AgentSessionData;
   steps: AgentStep[];
   model?: string;
@@ -325,6 +337,10 @@ export interface AgentEngineConfig {
   temperature: number;
   maxTokens: number;
   maxHistoryTokens: number;
+  /** When trimming history, keep at least this many messages (chronological tail priority). */
+  minHistoryMessages: number;
+  /** Truncate each tool result string appended to the LLM context beyond this length. */
+  maxToolResultChars: number;
   llmMaxRetries: number;
   toolExecution: 'parallel' | 'sequential';
   beforeToolCall?: BeforeToolCallHook;

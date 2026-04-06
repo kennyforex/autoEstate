@@ -405,7 +405,7 @@ async function testMidEstimateSwitchToBooking() {
       ],
       activeGoalId: 'g2',
     },
-  });
+  }, 'Toyota Camry 2020');
   assert(
     r2.action === 'suggest_skill' && (r2 as any).slug === 'car-service-booking',
     'S2: booking now active → suggest booking',

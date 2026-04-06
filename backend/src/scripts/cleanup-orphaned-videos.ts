@@ -13,13 +13,12 @@
 import fs from "fs/promises";
 import path from "path";
 import { connectDatabase } from "../config/database.js";
-import { videoConfig } from "../config/video.config.js";
+import { videoLimits } from "../config/video.config.js";
 import { Assistant } from "../models/index.js";
 
 async function cleanupOrphanedVideos(): Promise<void> {
-  const storageDir = path.isAbsolute(videoConfig.storage.directory)
-    ? videoConfig.storage.directory
-    : path.join(process.cwd(), videoConfig.storage.directory);
+  const raw = videoLimits.storageDirectory;
+  const storageDir = path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
 
   try {
     const exists = await fs

@@ -197,9 +197,6 @@ export const AssistantList: React.FC = () => {
                   </div>
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {t('assistants.model')}
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                   {t('assistants.actions')}
                 </th>
               </tr>
@@ -234,9 +231,6 @@ export const AssistantList: React.FC = () => {
                   </td>
                   <td className="px-4 py-4 text-sm text-gray-500">
                     {format(new Date(assistant.updatedAt), "MMM d, yyyy")}
-                  </td>
-                  <td className="px-4 py-4 text-sm text-gray-500 font-mono">
-                    {assistant.model}
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-1">

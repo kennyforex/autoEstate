@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { Button } from './Button';
 
@@ -54,7 +55,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   const isFull = size === 'full';
 
-  return (
+  return createPortal(
     <div
       className={`fixed inset-0 z-50 ${isFull ? 'flex flex-col p-3' : 'flex items-center justify-center'}`}
     >
@@ -62,8 +63,9 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         className="absolute inset-0 bg-black/50"
         onClick={onClose}
+        aria-hidden
       />
-      
+
       {/* Modal */}
       <div
         className={`
@@ -71,6 +73,8 @@ export const Modal: React.FC<ModalProps> = ({
           ${isFull ? 'min-h-0 flex-1 overflow-hidden' : `mx-4 max-h-[90vh] ${sizeClasses[size as keyof typeof sizeClasses]}`}
           ${className}
         `}
+        role="dialog"
+        aria-modal="true"
       >
         {/* Header */}
         {(title || showClose) && (
@@ -80,6 +84,7 @@ export const Modal: React.FC<ModalProps> = ({
             )}
             {showClose && (
               <button
+                type="button"
                 onClick={onClose}
                 className="p-1 text-text-secondary hover:text-text-primary hover:bg-gray-100 rounded"
               >
@@ -88,14 +93,14 @@ export const Modal: React.FC<ModalProps> = ({
             )}
           </div>
         )}
-        
+
         {/* Content */}
         <div
           className={`px-6 py-4 ${bodyScroll ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : ''}`}
         >
           {children}
         </div>
-        
+
         {/* Footer */}
         {footer && (
           <div className="flex shrink-0 items-center justify-end gap-3 px-6 py-4 border-t border-border">
@@ -103,7 +108,8 @@ export const Modal: React.FC<ModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

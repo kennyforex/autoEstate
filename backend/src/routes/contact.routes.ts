@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import type { PipelineStage } from "mongoose";
 import { Contact, Channel } from "../models/index.js";
 import { profilePictureService } from "../services/profilePicture.service.js";
 
@@ -56,7 +57,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
     const sortField = validSortFields.includes(sortBy as string) ? sortBy : "lastChatDate";
     const sortDirection = sortOrder === "asc" ? 1 : -1;
 
-    const pipeline: Record<string, unknown>[] = [
+    const pipeline: PipelineStage[] = [
       ...(Object.keys(matchStage).length > 0 ? [{ $match: matchStage }] : []),
       // Lookup conversations to get last message date
       {

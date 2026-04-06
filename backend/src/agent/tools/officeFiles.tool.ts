@@ -3,8 +3,14 @@ import ExcelJS from 'exceljs';
 import PizZip from 'pizzip';
 import { BaseTool } from './base.js';
 import { AGENT_TEXT_OUTPUT_MAX_CHARS } from '../../config/agentToolsSandbox.js';
+import { convertDocxFileToPdf } from '../../utils/docxToPdf.js';
 import { fetchUrlToBuffer } from '../../utils/fetchUrlBounded.js';
-import { readUploadsFile } from '../../utils/uploadsPath.js';
+import {
+  getPublicUploadsUrl,
+  readUploadsFile,
+  resolveUploadsRelativePath,
+  writeUploadsFile,
+} from '../../utils/uploadsPath.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
 async function loadBuffer(args: Record<string, unknown>): Promise<{ ok: true; buffer: Buffer } | { ok: false; error: string }> {
@@ -24,7 +30,7 @@ async function loadBuffer(args: Record<string, unknown>): Promise<{ ok: true; bu
 export class OfficeFilesTool extends BaseTool {
   readonly name = 'office_files';
   readonly description =
-    'Read or edit Excel (.xlsx) workbooks or fill a Word (.docx) template with data. ' +
+    'Read or edit Excel (.xlsx) workbooks or fill a Word (.docx) template with data, or convert .docx to .pdf (LibreOffice). ' +
     'Sources must be a public HTTPS URL or a path under server uploads/. ' +
     'For collaborative editing in the cloud prefer google_sheets / google_docs.';
   readonly parameters = {
@@ -32,8 +38,9 @@ export class OfficeFilesTool extends BaseTool {
     properties: {
       action: {
         type: 'string',
-        enum: ['xlsx_read', 'xlsx_append_row', 'xlsx_set_cell', 'docx_fill_template'],
-        description: 'xlsx_read: sample rows | xlsx_append_row: add row | xlsx_set_cell: A1 notation | docx_fill_template: merge fields',
+        enum: ['xlsx_read', 'xlsx_append_row', 'xlsx_set_cell', 'docx_fill_template', 'docx_to_pdf'],
+        description:
+          'xlsx_read | xlsx_append_row | xlsx_set_cell | docx_fill_template (Docxtemplater merge) | docx_to_pdf (needs LibreOffice on server)',
       },
       source_url: { type: 'string', description: 'HTTPS URL to .xlsx or .docx' },
       uploads_path: { type: 'string', description: 'Path relative to uploads/' },
@@ -50,6 +57,21 @@ export class OfficeFilesTool extends BaseTool {
         type: 'string',
         description:
           'docx_fill_template: JSON object of placeholder keys to values (Word docx with {tags} for docxtemplater)',
+      },
+      output_docx_uploads_path: {
+        type: 'string',
+        description:
+          'docx_fill_template: optional path under uploads/ to save the merged .docx (e.g. quotations/q-20260404-abc.docx). When set, summary includes public URL; base64 omitted unless include_docx_base64 is true.',
+      },
+      include_docx_base64: {
+        type: 'boolean',
+        description:
+          'docx_fill_template: if true, include data.docxBase64 in the result (large). Default false when output_docx_uploads_path is set, true otherwise.',
+      },
+      output_pdf_uploads_path: {
+        type: 'string',
+        description:
+          'docx_to_pdf: required — path under uploads/ for the generated .pdf (e.g. quotations/q-20260404-abc.pdf)',
       },
     },
     required: ['action'],
@@ -162,13 +184,83 @@ export class OfficeFilesTool extends BaseTool {
           }
           const zip = new PizZip(loaded.buffer);
           const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
-          doc.setData(data);
-          doc.render();
+          doc.render(data);
           const out = doc.getZip().generate({ type: 'nodebuffer' }) as Buffer;
+
+          const outRel = (args.output_docx_uploads_path as string | undefined)?.trim();
+          const includeB64Arg = args.include_docx_base64;
+          const includeB64 =
+            typeof includeB64Arg === 'boolean'
+              ? includeB64Arg
+              : !outRel;
+
+          const resultData: Record<string, unknown> = { sizeBytes: out.length };
+          if (includeB64) {
+            resultData.docxBase64 = out.toString('base64');
+          }
+
+          if (outRel) {
+            const written = await writeUploadsFile(outRel, out);
+            if (!written.ok) {
+              return { success: false, data: null, summary: written.error };
+            }
+            resultData.outputDocxUploadsPath = written.uploadsRelative;
+            resultData.outputDocxPublicUrl = getPublicUploadsUrl(written.uploadsRelative);
+          }
+
+          let summary: string;
+          if (outRel) {
+            summary =
+              `Merged docx (${out.length} bytes). Saved to uploads/${resultData.outputDocxUploadsPath}. ` +
+              `Public URL: ${resultData.outputDocxPublicUrl}. ` +
+              (includeB64 ? 'Base64 in data.docxBase64.' : 'Omitted data.docxBase64 (set include_docx_base64 true if needed).');
+          } else {
+            summary = `Rendered docx (${out.length} bytes). Base64 in data.docxBase64.`;
+          }
+
           return {
             success: true,
-            data: { docxBase64: out.toString('base64'), sizeBytes: out.length },
-            summary: `Rendered docx (${out.length} bytes). Base64 in data.docxBase64.`,
+            data: resultData,
+            summary,
+          };
+        }
+
+        case 'docx_to_pdf': {
+          const docxRel = (args.uploads_path as string | undefined)?.trim();
+          const pdfRel = (args.output_pdf_uploads_path as string | undefined)?.trim();
+          if (!docxRel || !pdfRel) {
+            return {
+              success: false,
+              data: null,
+              summary: 'docx_to_pdf requires uploads_path (.docx) and output_pdf_uploads_path (.pdf)',
+            };
+          }
+          if (!/\.docx$/i.test(docxRel)) {
+            return { success: false, data: null, summary: 'uploads_path must end with .docx' };
+          }
+          if (!/\.pdf$/i.test(pdfRel)) {
+            return { success: false, data: null, summary: 'output_pdf_uploads_path must end with .pdf' };
+          }
+          const docxResolved = resolveUploadsRelativePath(docxRel);
+          if (!docxResolved.ok) {
+            return { success: false, data: null, summary: docxResolved.error };
+          }
+          const pdfResolved = resolveUploadsRelativePath(pdfRel);
+          if (!pdfResolved.ok) {
+            return { success: false, data: null, summary: pdfResolved.error };
+          }
+          const conv = await convertDocxFileToPdf(docxResolved.abs, pdfResolved.abs);
+          if (!conv.ok) {
+            return { success: false, data: null, summary: `docx_to_pdf failed: ${conv.error}` };
+          }
+          const pdfRelNorm = pdfRel.replace(/^\/+/, '');
+          return {
+            success: true,
+            data: {
+              outputPdfUploadsPath: pdfRelNorm,
+              outputPdfPublicUrl: getPublicUploadsUrl(pdfRelNorm),
+            },
+            summary: `PDF written to uploads/${pdfRelNorm}. Public URL: ${getPublicUploadsUrl(pdfRelNorm)}`,
           };
         }
 

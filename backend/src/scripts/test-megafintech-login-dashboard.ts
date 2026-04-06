@@ -68,6 +68,8 @@ async function main(): Promise<void> {
 
     await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
 
+    //wait for 4 seconds
+    await page.waitForTimeout(4000);
     const outDir = path.join(getUploadsRoot(), 'browser-captures', 'megafintech-login-test');
     await fs.mkdir(outDir, { recursive: true });
     const file = path.join(outDir, `${randomUUID()}-dashboard.png`);

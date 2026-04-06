@@ -18,19 +18,15 @@ export async function getSmtpConfig(): Promise<SmtpConfig | null> {
   const company = await Company.findOne().select(
     "smtpHost smtpPort smtpUser smtpPass emailFrom appUrl",
   );
-  if (
-    !company?.smtpHost ||
-    !company?.smtpUser ||
-    !(company as { smtpPass?: string }).smtpPass
-  ) {
+  const pass = (company as { smtpPass?: string }).smtpPass;
+  if (!company?.smtpHost || !company?.smtpUser || !pass) {
     return null;
   }
-  const smtpPass = (company as { smtpPass?: string }).smtpPass;
   return {
     smtpHost: company.smtpHost,
     smtpPort: company.smtpPort ?? 587,
     smtpUser: company.smtpUser,
-    smtpPass,
+    smtpPass: pass,
     emailFrom: company.emailFrom,
     appUrl: company.appUrl,
   };

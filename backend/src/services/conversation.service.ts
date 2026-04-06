@@ -514,9 +514,11 @@ class ConversationService {
 
     // Emit socket event if available
     if (this.io) {
-      this.io.emit("conversation:updated", {
-        conversationId: conversation._id.toString(),
-        conversation,
+      (
+        this.io as unknown as { emit: (event: string, data: unknown) => void }
+      ).emit("conversation:update", {
+        _id: conversation._id.toString(),
+        dismissedInsights: conversation.dismissedInsights,
       });
     }
 

@@ -6,7 +6,8 @@ export interface ITokens {
   total?: number;
 }
 
-export interface IAILogDocument extends Document {
+/** `model` on Document is Mongoose's model() — omit so we can store LLM model id on `model`. */
+export interface IAILogDocument extends Omit<Document, "model"> {
   _id: mongoose.Types.ObjectId;
   type:
     | "classification"

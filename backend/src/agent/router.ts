@@ -2,6 +2,15 @@ import axios from "axios";
 import { openRouterConfig } from "../config/openrouter.js";
 import type { AgentContext, AgentSkillInfo, RouterDecision } from "./types.js";
 
+/** Min classifier confidence (0–1) to auto-force `execute_skill` without main model veto. */
+function forceSkillMinConfidence(): number {
+  const raw = process.env.AGENT_ROUTER_FORCE_SKILL_MIN_CONFIDENCE;
+  if (raw === undefined || raw === "") return 0.85;
+  const n = parseFloat(raw);
+  if (Number.isNaN(n)) return 0.85;
+  return Math.max(0, Math.min(1, n));
+}
+
 /**
  * Remove huge base64 data URLs from the message so the intent-classifier LLM
  * request stays small (OpenRouter may return 400 when the prompt embeds multi-hundred-KB data).
@@ -107,13 +116,13 @@ export async function routeIntent(
     }
   }
 
-  // // 1.5 General web / news / explicit tool names — never continue a product skill by mistake
-  // if (wantsGeneralWebOrNewsIntent(userMessage)) {
-  //   console.log(
-  //     `[Router] General web/news intent — llm_decide (skip suggest_skill / forced wrong skill)`,
-  //   );
-  //   return { action: "llm_decide" };
-  // }
+  // 1.5 General web / news / explicit tool names — never continue a product skill by mistake
+  if (wantsGeneralWebOrNewsIntent(userMessage)) {
+    console.log(
+      `[Router] General web/news intent — llm_decide (skip suggest_skill / classifier force)`,
+    );
+    return { action: "llm_decide" };
+  }
 
   // 2. Continue an active (in-progress) skill conversation
   const recent = context.messageHistory.slice(-4);
@@ -131,25 +140,42 @@ export async function routeIntent(
 
   // 3. LLM-based intent classification for new requests
   const classified = await classifyIntent(userMessage, context.skills);
-  if (classified) {
+  if (classified?.slug) {
+    const minConf = forceSkillMinConfidence();
+    if (classified.confidence >= minConf) {
+      return {
+        action: "force_skill",
+        slug: classified.slug,
+        reason: `LLM classifier matched skill (confidence ${classified.confidence.toFixed(2)} ≥ ${minConf})`,
+      };
+    }
     return {
-      action: "force_skill",
-      slug: classified,
-      reason: "LLM classifier matched skill",
+      action: "llm_decide",
+      hint: {
+        slug: classified.slug,
+        reason:
+          "LLM classifier suggests this skill; confidence is below automatic routing threshold — main agent decides",
+        confidence: classified.confidence,
+      },
     };
   }
 
   return { action: "llm_decide" };
 }
 
+export interface ClassifyIntentResult {
+  slug: string | null;
+  confidence: number;
+}
+
 /**
  * Use a fast LLM to classify the user's message against available skills.
- * Returns the matched skill slug, or null if no skill matches.
+ * Returns slug and confidence, or null slug if no skill matches.
  */
 async function classifyIntent(
   userMessage: string,
   skills: AgentSkillInfo[],
-): Promise<string | null> {
+): Promise<ClassifyIntentResult | null> {
   const skillList = skills
     .map((s) => {
       const own =
@@ -165,7 +191,8 @@ async function classifyIntent(
     "You are an intent classifier. Given a user message and a list of available skills, " +
     "decide which skill (if any) should handle the request.\n\n" +
     "Rules:\n" +
-    '- Return ONLY valid JSON: { "slug": "<skill-slug>" } or { "slug": "none" }\n' +
+    '- Return ONLY valid JSON: { "slug": "<skill-slug>" | "none", "confidence": <number 0.0–1.0> }\n' +
+    '- "confidence": how certain you are that this skill should handle the message (1.0 = clear match, 0.4 = weak guess).\n' +
     '- Choose "none" for: general news/headlines, web search, weather, sports scores, trivia, ' +
     "or anything that is NOT described by a skill below (even if the user wrote in Chinese/English).\n" +
     '- Choose a skill slug ONLY when the user wants that skill\'s product/service/workflow ' +
@@ -181,7 +208,7 @@ async function classifyIntent(
         model: process.env.OPENROUTER_ROUTER_MODEL || "deepseek/deepseek-chat",
         messages: [{ role: "user", content: prompt }],
         temperature: 0,
-        max_tokens: 50,
+        max_tokens: 80,
       },
       {
         headers: {
@@ -195,7 +222,7 @@ async function classifyIntent(
     );
 
     const content = response.data.choices?.[0]?.message?.content || "";
-    const jsonMatch = content.match(/\{[\s\S]*?\}/);
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.log(
         `[Router] LLM classifier returned non-JSON: ${content.substring(0, 100)}`,
@@ -203,7 +230,7 @@ async function classifyIntent(
       return null;
     }
     const parsed = JSON.parse(jsonMatch[0]);
-    const slug = parsed?.slug;
+    const slug = parsed?.slug as string | undefined;
 
     if (!slug || slug === "none") {
       console.log(`[Router] LLM classifier: no skill match`);
@@ -218,8 +245,15 @@ async function classifyIntent(
       return null;
     }
 
-    console.log(`[Router] LLM classifier matched skill: "${slug}"`);
-    return slug;
+    let confidence = 0.9;
+    if (typeof parsed.confidence === "number" && !Number.isNaN(parsed.confidence)) {
+      confidence = Math.max(0, Math.min(1, parsed.confidence));
+    }
+
+    console.log(
+      `[Router] LLM classifier matched skill: "${slug}" (confidence ${confidence})`,
+    );
+    return { slug, confidence };
   } catch (err: any) {
     console.warn(
       `[Router] LLM classification failed (falling back to llm_decide): ${err.message}`,

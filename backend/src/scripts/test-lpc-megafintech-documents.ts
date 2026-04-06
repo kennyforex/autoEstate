@@ -11,13 +11,10 @@
  */
 
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import "dotenv/config";
 import { DocumentDataCaptureTool } from "../agent/tools/documentDataCapture.tool.js";
 import type { AgentContext } from "../agent/types.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const RECEIPT_JPEG_URL =
   "https://lpc.megafintech-hk.com:3014/upload/2026/0324/files/undefined/20260321_CHAN%20YUEN%20MEI%20MARYANN_DN26030706_%245%2C419.98_TRANSFER.jpeg";
@@ -35,7 +32,7 @@ async function pdfHttpUrlToDataUrl(href: string): Promise<string> {
 }
 
 function loadFixture(name: string): string {
-  const p = join(__dirname, "fixtures", name);
+  const p = join(process.cwd(), "src/scripts/fixtures", name);
   return readFileSync(p, "utf8").trim();
 }
 

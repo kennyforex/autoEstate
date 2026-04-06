@@ -666,6 +666,7 @@
         "managerThinking": "{{name}} is thinking（在思考）",
         "managerAssigns": "{{manager}} 交任務給 {{worker}} 負責",
         "workerWorking": "{{worker}} 正在工作",
+        "workerWorkingOnSkill": "{{worker}} 正在執行「{{skill}}」",
         "workerDone": "{{worker}} 已完成任務（已回覆）",
         "managerHandling": "{{name}} 親自處理中",
         "managerHandled": "{{name}} 已完成（已回覆）"

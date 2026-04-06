@@ -130,13 +130,14 @@ export class WebBrowserTool extends BaseTool {
           'screenshot',
           'download',
           'wait_for_selector',
+          'wait_timeout',
           'scroll',
           'select_option',
         ],
         description:
           'navigate: goto URL | get_text: body text (optional url to navigate first) | get_selector_text: text from selector | ' +
           'goto_text/goto_selector: legacy one-shot (url + optional selector) | fill/type/click/press/download/scroll/select_option: interaction | ' +
-          'screenshot: PNG to uploads | wait_for_selector | download: URL fetch or click-triggered',
+          'screenshot: PNG to uploads | wait_for_selector | wait_timeout: pause ms (use wait_ms or timeout_ms) | download: URL fetch or click-triggered',
       },
       url: { type: 'string', description: 'Target URL for navigate, goto_*, get_text (optional), download (direct GET)' },
       selector: { type: 'string', description: 'CSS selector for element actions' },
@@ -144,7 +145,8 @@ export class WebBrowserTool extends BaseTool {
       key: { type: 'string', description: 'For press, e.g. Enter, Tab' },
       full_page: { type: 'boolean', description: 'screenshot: capture full scrollable page' },
       clear_first: { type: 'boolean', description: 'fill: clear field first' },
-      timeout_ms: { type: 'number', description: 'Override timeout for wait/click/nav (bounded by sandbox)' },
+      timeout_ms: { type: 'number', description: 'Override timeout for wait/click/nav (bounded by sandbox); for wait_timeout also usable as wait duration' },
+      wait_ms: { type: 'number', description: 'wait_timeout: milliseconds to pause (preferred; capped by sandbox)' },
       wait_until: {
         type: 'string',
         enum: ['load', 'domcontentloaded', 'networkidle', 'commit'],
@@ -370,6 +372,30 @@ export class WebBrowserTool extends BaseTool {
           if (typeof sel !== 'string') return sel;
           await page.waitForSelector(sel, { timeout: timeoutAction, state: 'visible' });
           return { success: true, data: { selector: sel }, summary: `Element visible: ${sel}` };
+        }
+
+        case 'wait_timeout': {
+          const raw =
+            (args.wait_ms as number | undefined) ??
+            (args.timeout_ms as number | undefined) ??
+            1000;
+          const ms = Math.min(Math.max(0, Math.floor(Number(raw))), WEB_BROWSER_MAX_ACTION_MS);
+          if (!Number.isFinite(ms)) {
+            return { success: false, data: null, summary: 'wait_timeout requires a numeric wait_ms or timeout_ms' };
+          }
+          const step = 250;
+          let remaining = ms;
+          while (remaining > 0) {
+            if (signal?.aborted) throw new Error('Aborted');
+            const chunk = Math.min(step, remaining);
+            await new Promise<void>((resolve) => setTimeout(resolve, chunk));
+            remaining -= chunk;
+          }
+          return {
+            success: true,
+            data: { wait_ms: ms },
+            summary: `Waited ${ms}ms`,
+          };
         }
 
         case 'scroll': {

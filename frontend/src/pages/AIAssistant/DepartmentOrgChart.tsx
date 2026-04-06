@@ -22,7 +22,13 @@ export interface DepartmentOrgChartProps {
   departmentName: string;
   managerName: string;
   /** Bound staff skills only */
-  staffItems: Array<{ id: string; label: string; subtitle?: string }>;
+  staffItems: Array<{
+    id: string;
+    label: string;
+    subtitle?: string;
+    /** Live line while that staff’s skill is running (e.g. skill display name) */
+    activity?: string;
+  }>;
   /** null = no node highlighted (settings panel closed) */
   selection: OrgSelection | null;
   /** Latest chat turn: which org node is “on duty” (animated ring); independent of selection */
@@ -53,6 +59,8 @@ type OrgNodeData = {
   variant: "dept" | "manager" | "staff";
   title: string;
   subtitle?: string;
+  /** Staff: current skill / action while processing */
+  activity?: string;
   selected: boolean;
   /** Responsible for latest agent reply (chat) */
   active: boolean;
@@ -71,8 +79,10 @@ function OrgCard({ data }: { data: OrgNodeData }) {
     : "";
   const activeRing =
     !data.processing && data.active
-      ? data.variant === "manager" && data.selected
-        ? "ring-2 ring-sky-300 ring-offset-2 ring-offset-slate-900 animate-pulse"
+      ? data.variant === "manager"
+        ? data.selected
+          ? "ring-2 ring-violet-400 ring-offset-2 ring-offset-slate-900 animate-pulse shadow-[0_0_10px_rgba(167,139,250,0.38)]"
+          : "ring-2 ring-violet-500/85 ring-offset-2 ring-offset-white animate-pulse shadow-[0_0_12px_rgba(139,92,246,0.32)]"
         : "ring-2 ring-blue-500/80 ring-offset-2 ring-offset-white animate-pulse"
       : "";
   const variant =
@@ -151,6 +161,14 @@ function OrgCard({ data }: { data: OrgNodeData }) {
       {data.subtitle && (
         <div className="text-[10px] text-gray-500 truncate mt-0.5">
           {data.subtitle}
+        </div>
+      )}
+      {data.variant === "staff" && data.activity && (
+        <div
+          className="text-[10px] font-medium text-violet-700 truncate mt-0.5 leading-tight"
+          title={data.activity}
+        >
+          {data.activity}
         </div>
       )}
     </div>
@@ -243,6 +261,7 @@ export const DepartmentOrgChart: React.FC<DepartmentOrgChartProps> = ({
           variant: "staff" as const,
           title: s.label,
           subtitle: s.subtitle,
+          ...(s.activity ? { activity: s.activity } : {}),
           selected: isSel,
           active: isActive,
           processing: isProcessing,

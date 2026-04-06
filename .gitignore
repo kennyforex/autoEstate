@@ -30,3 +30,6 @@ npm-debug.log*
 coverage/
 tmp/
 temp/
+
+# Local design exports (often too large for GitHub)
+designs/*.zip

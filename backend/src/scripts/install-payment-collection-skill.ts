@@ -10,15 +10,12 @@
 import "dotenv/config";
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
 import mongoose from "mongoose";
 import { skillService } from "../services/skill.service.js";
 import { GoogleConnection } from "../models/GoogleConnection.js";
 import { Skill } from "../models/Skill.js";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/ffcs";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   await mongoose.connect(MONGODB_URI);
@@ -29,7 +26,7 @@ async function main() {
     process.exit(1);
   }
   const userId = conn.userId.toString();
-  const mdPath = path.join(__dirname, "../../skills/payment-collection/SKILL.md");
+  const mdPath = path.join(process.cwd(), "skills/payment-collection/SKILL.md");
   const content = await fs.readFile(mdPath, "utf-8");
   const skill = await skillService.installFromMarkdown(content, userId);
   await Skill.updateOne(

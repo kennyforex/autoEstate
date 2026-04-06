@@ -18,13 +18,12 @@ import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { execSync } from "child_process";
 import path from "path";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SKILLS_DIR = path.resolve(__dirname, "../../skills");
+/** Run from backend/ (see package.json scripts). */
+const SKILLS_DIR = path.resolve(process.cwd(), "skills");
 
 function openRouterModel(modelName: string) {
   return new ChatOpenAI({

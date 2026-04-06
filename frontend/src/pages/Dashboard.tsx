@@ -222,9 +222,9 @@ export const Dashboard: React.FC = () => {
               <h3 className="text-base font-semibold text-gray-900 mb-4">
                 {t('dashboard.overview')}
               </h3>
-              <div className="h-[280px]">
+              <div className="relative z-0 h-[280px] overflow-hidden">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
+                  <BarChart data={chartData} accessibilityLayer={false}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
                     <XAxis
                       dataKey="date"
@@ -238,6 +238,7 @@ export const Dashboard: React.FC = () => {
                       axisLine={false}
                     />
                     <Tooltip
+                      cursor={false}
                       contentStyle={{
                         backgroundColor: '#fff',
                         border: '1px solid #E5E7EB',
@@ -263,9 +264,9 @@ export const Dashboard: React.FC = () => {
               </h3>
               {pieData.length > 0 ? (
                 <>
-                  <div className="h-[180px]">
+                  <div className="relative z-0 h-[180px] overflow-hidden">
                     <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
+                      <PieChart accessibilityLayer={false}>
                         <Pie
                           data={pieData}
                           cx="50%"
@@ -283,6 +284,7 @@ export const Dashboard: React.FC = () => {
                           ))}
                         </Pie>
                         <Tooltip
+                          cursor={false}
                           contentStyle={{
                             backgroundColor: '#fff',
                             border: '1px solid #E5E7EB',

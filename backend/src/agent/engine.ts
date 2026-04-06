@@ -17,6 +17,7 @@ import type {
   ChatMessage,
   SkillGoal,
   GoalStack,
+  AgentCitationBundle,
 } from './types.js';
 import { disposePlaywrightSession } from './playwrightSession.js';
 import { routeIntent } from './router.js';
@@ -28,6 +29,8 @@ const DEFAULT_CONFIG: AgentEngineConfig = {
   temperature: 0.3,
   maxTokens: 4096,
   maxHistoryTokens: 6000,
+  minHistoryMessages: 4,
+  maxToolResultChars: 12_000,
   llmMaxRetries: 3,
   toolExecution: 'parallel',
 };
@@ -66,6 +69,9 @@ export class AgentEngine {
 
     const routerDecision = await routeIntent(context, userMessage);
     console.log(`[Agent] Router: ${JSON.stringify(routerDecision)}`);
+
+    context.routerHint =
+      routerDecision.action === 'llm_decide' && routerDecision.hint ? routerDecision.hint : undefined;
 
     const tools = this.registry.toOpenAIFormat();
     const startTime = Date.now();
@@ -219,6 +225,7 @@ export class AgentEngine {
         'Let me connect you with a team member for assistance.',
     });
     } finally {
+      delete context.routerHint;
       await disposePlaywrightSession(context);
     }
   }
@@ -254,7 +261,12 @@ export class AgentEngine {
       } catch (e: any) {
         const errorMsg = `Invalid JSON arguments for tool "${toolName}": ${e.message}`;
         messages.push({ role: 'tool', content: errorMsg, tool_call_id: toolCall.id });
-        steps.push({ thought: `Arg parse failed for ${toolName}`, observation: errorMsg, timestamp: new Date() });
+        steps.push({
+          thought: `Arg parse failed for ${toolName}`,
+          action: { tool: toolName, args: {} },
+          observation: errorMsg,
+          timestamp: new Date(),
+        });
         onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
         continue;
       }
@@ -264,7 +276,12 @@ export class AgentEngine {
       if (!tool) {
         const errorMsg = `Unknown tool "${toolName}". Available tools: ${this.registry.names().join(', ')}`;
         messages.push({ role: 'tool', content: errorMsg, tool_call_id: toolCall.id });
-        steps.push({ thought: `Unknown tool: ${toolName}`, observation: errorMsg, timestamp: new Date() });
+        steps.push({
+          thought: `Unknown tool: ${toolName}`,
+          action: { tool: toolName, args: {} },
+          observation: errorMsg,
+          timestamp: new Date(),
+        });
         onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
         continue;
       }
@@ -276,7 +293,12 @@ export class AgentEngine {
         if (missing.length > 0) {
           const errorMsg = `Missing required parameters for "${toolName}": ${missing.join(', ')}`;
           messages.push({ role: 'tool', content: errorMsg, tool_call_id: toolCall.id });
-          steps.push({ thought: `Validation failed for ${toolName}`, observation: errorMsg, timestamp: new Date() });
+          steps.push({
+            thought: `Validation failed for ${toolName}`,
+            action: { tool: toolName, args },
+            observation: errorMsg,
+            timestamp: new Date(),
+          });
           onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
           continue;
         }
@@ -303,7 +325,12 @@ export class AgentEngine {
         if (hookResult && 'block' in hookResult) {
           const errorMsg = `Tool "${entry.toolName}" blocked: ${hookResult.reason}`;
           messages.push({ role: 'tool', content: errorMsg, tool_call_id: entry.toolCall.id });
-          steps.push({ thought: `Blocked: ${entry.toolName}`, observation: errorMsg, timestamp: new Date() });
+          steps.push({
+            thought: `Blocked: ${entry.toolName}`,
+            action: { tool: entry.toolName, args: entry.args },
+            observation: errorMsg,
+            timestamp: new Date(),
+          });
           onEvent?.({ type: 'tool_error', toolName: entry.toolName, error: errorMsg });
           continue;
         }
@@ -364,6 +391,7 @@ export class AgentEngine {
         messages.push({ role: 'tool', content: errorMsg, tool_call_id: entry.toolCall.id });
         steps.push({
           thought: `Tool ${entry.toolName} failed`,
+          action: { tool: entry.toolName, args: entry.args },
           observation: `Error: ${error}`,
           timestamp: new Date(),
         });
@@ -372,9 +400,17 @@ export class AgentEngine {
         continue;
       }
 
+      const compactSummary = this.compactContentForContext(
+        result.summary,
+        this.config.maxToolResultChars,
+      );
+      const kbCitations = this.citationsFromKnowledgeToolResult(entry.toolName, result);
+
       steps.push({
         thought: `Observed result from ${entry.toolName}`,
-        observation: result.summary.substring(0, 2000),
+        action: { tool: entry.toolName, args: entry.args },
+        observation: compactSummary.substring(0, 2000),
+        ...(kbCitations ? { citations: kbCitations } : {}),
         timestamp: new Date(),
       });
       onEvent?.({ type: 'tool_end', toolName: entry.toolName, result });
@@ -389,7 +425,11 @@ export class AgentEngine {
           loopState,
         });
         if (hookResult && 'shortCircuit' in hookResult) {
-          messages.push({ role: 'tool', content: result.summary, tool_call_id: entry.toolCall.id });
+          messages.push({
+            role: 'tool',
+            content: compactSummary,
+            tool_call_id: entry.toolCall.id,
+          });
           return hookResult.result;
         }
         if (hookResult && 'outOfScope' in hookResult) {
@@ -401,6 +441,7 @@ export class AgentEngine {
           messages.push({ role: 'tool', content: rerouteMsg, tool_call_id: entry.toolCall.id });
           steps.push({
             thought: `Skill "${hookResult.failedSkillSlug}" out of scope — re-routing`,
+            action: { tool: entry.toolName, args: entry.args },
             observation: hookResult.reason,
             timestamp: new Date(),
           });
@@ -413,7 +454,11 @@ export class AgentEngine {
           // Ping-pong guard: if this skill already signalled UNHANDLED_INTENT, stop the loop
           if (loopState.unhandledSkillSlugs.has(sourceSlug)) {
             console.log(`[Agent] Ping-pong detected: "${sourceSlug}" signalled UNHANDLED_INTENT again — accepting response as-is`);
-            messages.push({ role: 'tool', content: result.summary, tool_call_id: entry.toolCall.id });
+            messages.push({
+              role: 'tool',
+              content: compactSummary,
+              tool_call_id: entry.toolCall.id,
+            });
             return hookResult.partialResult;
           }
 
@@ -421,7 +466,11 @@ export class AgentEngine {
 
           // Skill processed its part but user also asked something outside its scope.
           // 1. Record the skill's partial response as a tool result
-          messages.push({ role: 'tool', content: result.summary, tool_call_id: entry.toolCall.id });
+          messages.push({
+            role: 'tool',
+            content: compactSummary,
+            tool_call_id: entry.toolCall.id,
+          });
 
           // 2. Store the partial response so the engine can emit it later
           loopState.pendingPartialResult = hookResult.partialResult;
@@ -439,6 +488,7 @@ export class AgentEngine {
           });
           steps.push({
             thought: `Skill "${sourceSlug}" partial — routing unhandled intent`,
+            action: { tool: entry.toolName, args: entry.args },
             observation: hookResult.intentDescription,
             timestamp: new Date(),
           });
@@ -449,7 +499,7 @@ export class AgentEngine {
 
       messages.push({
         role: 'tool',
-        content: result.summary,
+        content: compactSummary,
         tool_call_id: entry.toolCall.id,
       });
     }
@@ -482,16 +532,57 @@ export class AgentEngine {
 
   private trimHistoryToTokenBudget(history: ChatMessage[]): ChatMessage[] {
     const budget = this.config.maxHistoryTokens;
+    const minKeep = this.config.minHistoryMessages;
     let msgs = [...history];
 
     const estimateTokens = (list: ChatMessage[]) =>
       list.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+
+    if (estimateTokens(msgs) <= budget) return msgs;
+
+    const originalLen = msgs.length;
+    while (estimateTokens(msgs) > budget && msgs.length > minKeep) {
+      msgs = msgs.slice(1);
+    }
+
+    const dropped = originalLen - msgs.length;
+    if (dropped > 0 && msgs.length > 0) {
+      const first = msgs[0];
+      msgs = [
+        {
+          ...first,
+          content: `[${dropped} earlier message(s) omitted for context length]\n\n${first.content}`,
+        },
+        ...msgs.slice(1),
+      ];
+    }
 
     while (estimateTokens(msgs) > budget && msgs.length > 2) {
       msgs = msgs.slice(1);
     }
 
     return msgs;
+  }
+
+  /** Keep tool outputs bounded so the chat context does not explode. */
+  private compactContentForContext(text: string, maxChars: number): string {
+    if (text.length <= maxChars) return text;
+    return (
+      text.slice(0, maxChars) +
+      `\n...[truncated ${text.length - maxChars} characters for context limit]`
+    );
+  }
+
+  private citationsFromKnowledgeToolResult(
+    toolName: string,
+    result: ToolResult,
+  ): AgentCitationBundle | undefined {
+    if (toolName !== 'knowledge_base' || !result.success) return undefined;
+    const data = result.data;
+    if (!data || typeof data !== 'object') return undefined;
+    const raw = (data as { citations?: unknown }).citations;
+    if (!Array.isArray(raw) || raw.length === 0) return undefined;
+    return raw as AgentCitationBundle;
   }
 
   private createSyntheticSkillCall(slug: string, userRequest: string): OpenRouterToolCall {
@@ -648,11 +739,10 @@ export class AgentEngine {
   }
 
   private extractCitations(steps: AgentStep[]): AgentResult['citations'] {
-    const citations: AgentResult['citations'] = [];
+    const merged: AgentCitationBundle = [];
     for (const step of steps) {
-      if (!step.action || step.action.tool !== 'knowledge_base') continue;
-      if (!step.observation) continue;
+      if (step.citations?.length) merged.push(...step.citations);
     }
-    return citations.length > 0 ? citations : undefined;
+    return merged.length > 0 ? merged : undefined;
   }
 }

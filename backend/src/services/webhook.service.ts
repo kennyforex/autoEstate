@@ -229,7 +229,7 @@ class WebhookService {
         conversation.resolvedBy = null;
         conversation.isArchived = false; // Unarchive if archived
         await conversation.save();
-        statusChanged = oldStatus !== conversation.status;
+        statusChanged = true;
         console.log(`[Webhook] Reopened resolved conversation: ${conversation._id}`);
       } else if (conversation.status === 'open' && conversation.isArchived) {
         // Unarchive active conversations that were archived

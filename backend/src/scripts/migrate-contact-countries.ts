@@ -52,7 +52,7 @@ async function migrateContacts(): Promise<void> {
       { country: null },
       { country: "" },
     ],
-    phoneNumber: { $exists: true, $ne: null, $ne: "" },
+    phoneNumber: { $exists: true, $nin: [null, ""] },
   }).toArray();
 
   console.log(`Found ${contactsToUpdate.length} contacts to update`);

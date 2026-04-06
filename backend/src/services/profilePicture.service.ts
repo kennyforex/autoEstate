@@ -31,12 +31,7 @@ class ProfilePictureService {
 
     for (const endpoint of endpoints) {
       try {
-        let response;
-        if (endpoint.method === 'GET') {
-          response = await evolutionClient.get(endpoint.url, { params: endpoint.params });
-        } else {
-          response = await evolutionClient.post(endpoint.url, endpoint.payload);
-        }
+        const response = await evolutionClient.post(endpoint.url, endpoint.payload);
 
         // Try multiple response fields
         const profilePictureUrl = response.data?.profilePictureUrl || 

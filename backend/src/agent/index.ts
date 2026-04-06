@@ -1,7 +1,8 @@
 export { AgentEngine } from './engine.js';
 export { buildAgentContext, buildPlaygroundContext } from './context.js';
 export { buildSystemPrompt } from './prompt.js';
-export { routeIntent } from './router.js';
+export { routeIntent, wantsGeneralWebOrNewsIntent } from './router.js';
+export type { ClassifyIntentResult } from './router.js';
 export { createDefaultRegistry, ToolRegistry, BaseTool } from './tools/index.js';
 export type {
   AgentContext,
@@ -18,6 +19,7 @@ export type {
   GoalStatus,
   SkillExecutionResult,
   RouterDecision,
+  AgentCitationBundle,
 } from './types.js';
 
 import { AgentEngine } from './engine.js';
