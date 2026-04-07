@@ -97,7 +97,8 @@ export const ScheduledTasksListPage: React.FC = () => {
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
+    <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="max-w-6xl mx-auto">
       <PageHeader
         title={t("assistants.scheduledTasks.title")}
         subtitle={t("assistants.scheduledTasks.subtitle")}
@@ -279,6 +280,7 @@ export const ScheduledTasksListPage: React.FC = () => {
       >
         <ScheduledJobRunsList runs={historyRuns} loading={historyLoading} />
       </Modal>
+      </div>
     </div>
   );
 };

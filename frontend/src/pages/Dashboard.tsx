@@ -159,6 +159,7 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="max-w-6xl mx-auto">
       <PageHeader
         title={t('dashboard.title')}
         actions={
@@ -418,6 +419,7 @@ export const Dashboard: React.FC = () => {
           )}
         </>
       )}
+      </div>
     </div>
   );
 };

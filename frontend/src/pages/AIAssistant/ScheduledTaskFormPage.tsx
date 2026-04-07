@@ -175,26 +175,31 @@ export const ScheduledTaskFormPage: React.FC = () => {
 
   if (pageLoading) {
     return (
-      <div className="p-6 max-w-3xl mx-auto flex justify-center py-24 text-text-secondary">
-        <Loader2 className="w-10 h-10 animate-spin" />
+      <div className="p-6 bg-gray-50 min-h-screen">
+        <div className="max-w-6xl mx-auto flex justify-center py-24 text-text-secondary">
+          <Loader2 className="w-10 h-10 animate-spin" />
+        </div>
       </div>
     );
   }
 
   if (!isCreate && loadError) {
     return (
-      <div className="p-6 max-w-3xl mx-auto space-y-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate(LIST_PATH)}>
-          <ArrowLeft className="w-4 h-4 mr-1" />
-          {t("assistants.scheduledTasks.backToList")}
-        </Button>
-        <p className="text-error">{loadError}</p>
+      <div className="p-6 bg-gray-50 min-h-screen">
+        <div className="max-w-6xl mx-auto space-y-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate(LIST_PATH)}>
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            {t("assistants.scheduledTasks.backToList")}
+          </Button>
+          <p className="text-error">{loadError}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="max-w-6xl mx-auto">
       <div className="mb-6">
         <Button variant="ghost" size="sm" onClick={() => navigate(LIST_PATH)} className="-ml-2 mb-2">
           <ArrowLeft className="w-4 h-4 mr-1" />
@@ -441,6 +446,7 @@ export const ScheduledTaskFormPage: React.FC = () => {
           <ScheduledJobRunsList runs={runs} loading={runsLoading} maxHeightClass="max-h-96" />
         </section>
       )}
+    </div>
     </div>
   );
 };

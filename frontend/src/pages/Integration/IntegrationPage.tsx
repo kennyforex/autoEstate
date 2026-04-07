@@ -98,7 +98,8 @@ export function IntegrationPage() {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto p-6">
+      <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="max-w-6xl mx-auto">
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-1/4 mb-4"></div>
           <div className="h-4 bg-gray-200 rounded w-1/2 mb-8"></div>
@@ -113,11 +114,13 @@ export function IntegrationPage() {
           </div>
         </div>
       </div>
+      </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="max-w-6xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-gray-900">
           {t("integration.title")}
@@ -238,6 +241,7 @@ export function IntegrationPage() {
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }
