@@ -1,7 +1,7 @@
 /**
- * Bootstrap-only: generates backend/skills/mille-create-quotation/template.docx (OOXML + Docxtemplater tags).
+ * Bootstrap-only: generates backend/skills/mille-create-quotation/assets/mille-quotation.docx (OOXML + Docxtemplater tags).
  * Includes a simple header/footer and bold title — replace with a hand-crafted Word file for full branding.
- * Do not run this without backing up template.docx if you have customized it in Word.
+ * Do not run this without backing up assets/mille-quotation.docx if you have customized it in Word.
  *
  *   npx tsx src/scripts/generate-mille-quotation-template.ts
  */
@@ -10,7 +10,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import PizZip from 'pizzip';
 
-const outPath = path.join(process.cwd(), 'skills/mille-create-quotation/template.docx');
+const outPath = path.join(process.cwd(), 'skills/mille-create-quotation/assets/mille-quotation.docx');
 
 const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">

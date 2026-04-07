@@ -4,9 +4,9 @@ Use this file when you need extra context beyond **SKILL.md**. Output `**LOAD_RE
 
 ## Merge template (Word)
 
-- The **runtime** file used by `office_files` → `docx_fill_template` is: `**uploads_path: templates/mille-quotation.docx`** (under server `uploads/`).
-- The **source copy** in the repo is `**template.docx`** in this skill folder. Install/deploy copies it to `uploads/templates/` when you run `install-mille-create-quotation-skill.ts`.
-- To change layout, logos, headers, or footers: edit `**template.docx`** in Microsoft Word (recommended) or regenerate the bootstrap file with `generate-mille-quotation-template.ts` (do **not** overwrite a customized template without a backup).
+- The **runtime** file used by `office_files` → `docx_fill_template` is: `**uploads_path: assets/mille-quotation.docx`** (relative to this skill’s install folder; resolved when running inside `execute_skill`).
+- The **source copy** in the repo or zip is **`assets/mille-quotation.docx`** next to `SKILL.md`. Install/deploy copies it into the skill directory when you run `install-mille-create-quotation-skill.ts` or upload a skill zip.
+- To change layout, logos, headers, or footers: edit **`assets/mille-quotation.docx`** in Microsoft Word (recommended) or regenerate the bootstrap file with `generate-mille-quotation-template.ts` (do **not** overwrite a customized template without a backup).
 
 ## Branding tone
 
@@ -30,5 +30,5 @@ The bootstrap template places `**{quote_ref}`** in the **header** and `**{valid_
 
 ## Tools
 
-1. `docx_fill_template` with `uploads_path: templates/mille-quotation.docx`, optional `output_docx_uploads_path`, `include_docx_base64: false` when saving under `uploads/`.
+1. `docx_fill_template` with `uploads_path: assets/mille-quotation.docx`, optional `output_docx_uploads_path`, `include_docx_base64: false` when saving under `uploads/`.
 2. `docx_to_pdf` with matching `.docx` → `.pdf` paths (requires LibreOffice on the server).

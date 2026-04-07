@@ -8,6 +8,10 @@ import * as skillController from '../controllers/skill.controller.js';
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024 } }); // 1 MB max for single files
 const uploadZip = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10 MB max for zip
+const uploadSkillAsset = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+}); // skill assets (e.g. Word templates)
 
 router.use(authMiddleware);
 
@@ -109,6 +113,38 @@ router.delete(
   '/:id/reference',
   validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
   skillController.deleteReference,
+);
+
+router.get(
+  '/:id/assets',
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.listAssets,
+);
+
+router.post(
+  '/:id/assets/upload',
+  uploadSkillAsset.single('file'),
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.uploadAsset,
+);
+
+router.put(
+  '/:id/assets/:filename',
+  validate([
+    param('id').isMongoId().withMessage('Invalid skill ID'),
+    param('filename').notEmpty().withMessage('Filename is required'),
+    body('newName').notEmpty().withMessage('newName is required').trim(),
+  ]),
+  skillController.renameAsset,
+);
+
+router.delete(
+  '/:id/assets/:filename',
+  validate([
+    param('id').isMongoId().withMessage('Invalid skill ID'),
+    param('filename').notEmpty().withMessage('Filename is required'),
+  ]),
+  skillController.deleteAsset,
 );
 
 router.get(

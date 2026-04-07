@@ -1,3 +1,4 @@
+import path from 'path';
 import Docxtemplater from 'docxtemplater';
 import ExcelJS from 'exceljs';
 import PizZip from 'pizzip';
@@ -7,13 +8,52 @@ import { convertDocxFileToPdf } from '../../utils/docxToPdf.js';
 import { fetchUrlToBuffer } from '../../utils/fetchUrlBounded.js';
 import {
   getPublicUploadsUrl,
+  getUploadsRoot,
   readUploadsFile,
   resolveUploadsRelativePath,
   writeUploadsFile,
 } from '../../utils/uploadsPath.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
-async function loadBuffer(args: Record<string, unknown>): Promise<{ ok: true; buffer: Buffer } | { ok: false; error: string }> {
+/**
+ * When uploads_path starts with `assets/`, resolve against the active skill's storagePath
+ * (under uploads/skills/...) so SKILL.md does not need user-specific paths.
+ */
+function resolveSkillAssetToUploadsRelative(
+  uploadsPathTrimmed: string,
+  context: AgentContext,
+): { ok: true; relative: string } | { ok: false; error: string } {
+  const slug = context.activeSkillSlug;
+  if (!slug) {
+    return {
+      ok: false,
+      error:
+        'uploads_path starting with assets/ requires an active skill context (use office_files inside execute_skill). ' +
+        'Otherwise use a full path under uploads/ (e.g. templates/... or quotations/...).',
+    };
+  }
+  const skill = context.skills.find((s) => s.slug === slug);
+  if (!skill?.storagePath) {
+    return { ok: false, error: 'Active skill has no storagePath; cannot resolve assets/' };
+  }
+  const skillRoot = path.resolve(skill.storagePath);
+  const absFile = path.resolve(skillRoot, uploadsPathTrimmed);
+  const skillRootWithSep = skillRoot.endsWith(path.sep) ? skillRoot : skillRoot + path.sep;
+  if (absFile !== skillRoot && !absFile.startsWith(skillRootWithSep)) {
+    return { ok: false, error: 'Invalid path (escapes skill directory)' };
+  }
+  const uploadsRoot = getUploadsRoot();
+  const rel = path.relative(uploadsRoot, absFile);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    return { ok: false, error: 'Resolved asset path is outside uploads root' };
+  }
+  return { ok: true, relative: rel.split(path.sep).join('/') };
+}
+
+async function loadBuffer(
+  args: Record<string, unknown>,
+  context: AgentContext,
+): Promise<{ ok: true; buffer: Buffer } | { ok: false; error: string }> {
   const url = (args.source_url as string | undefined)?.trim();
   const uploadsPath = (args.uploads_path as string | undefined)?.trim();
   if (url) {
@@ -22,7 +62,15 @@ async function loadBuffer(args: Record<string, unknown>): Promise<{ ok: true; bu
     return { ok: true, buffer: got.buffer };
   }
   if (uploadsPath) {
-    return readUploadsFile(uploadsPath);
+    const trimmed = uploadsPath.replace(/^\/+/, '');
+    if (trimmed.toLowerCase().startsWith('assets/')) {
+      const resolved = resolveSkillAssetToUploadsRelative(trimmed, context);
+      if (!resolved.ok) {
+        return { ok: false, error: resolved.error };
+      }
+      return readUploadsFile(resolved.relative);
+    }
+    return readUploadsFile(trimmed);
   }
   return { ok: false, error: 'Provide source_url (https) or uploads_path (under uploads/)' };
 }
@@ -32,6 +80,7 @@ export class OfficeFilesTool extends BaseTool {
   readonly description =
     'Read or edit Excel (.xlsx) workbooks or fill a Word (.docx) template with data, or convert .docx to .pdf (LibreOffice). ' +
     'Sources must be a public HTTPS URL or a path under server uploads/. ' +
+    'During execute_skill, uploads_path may start with assets/ to load a file from that skill directory (e.g. assets/template.docx). ' +
     'For collaborative editing in the cloud prefer google_sheets / google_docs.';
   readonly parameters = {
     type: 'object',
@@ -43,7 +92,11 @@ export class OfficeFilesTool extends BaseTool {
           'xlsx_read | xlsx_append_row | xlsx_set_cell | docx_fill_template (Docxtemplater merge) | docx_to_pdf (needs LibreOffice on server)',
       },
       source_url: { type: 'string', description: 'HTTPS URL to .xlsx or .docx' },
-      uploads_path: { type: 'string', description: 'Path relative to uploads/' },
+      uploads_path: {
+        type: 'string',
+        description:
+          'Path relative to uploads/, or assets/... relative to the active skill folder when running inside execute_skill (e.g. assets/report.docx)',
+      },
       sheet_name: { type: 'string', description: 'Worksheet name (xlsx); defaults to first sheet' },
       max_rows: { type: 'number', description: 'xlsx_read: max rows to return (default 200)' },
       row_values: {
@@ -77,13 +130,13 @@ export class OfficeFilesTool extends BaseTool {
     required: ['action'],
   };
 
-  async execute(args: Record<string, unknown>, _context: AgentContext, signal?: AbortSignal): Promise<ToolResult> {
+  async execute(args: Record<string, unknown>, context: AgentContext, signal?: AbortSignal): Promise<ToolResult> {
     const action = args.action as string;
 
     try {
       switch (action) {
         case 'xlsx_read': {
-          const loaded = await loadBuffer(args);
+          const loaded = await loadBuffer(args, context);
           if (!loaded.ok) {
             return { success: false, data: null, summary: loaded.error };
           }
@@ -117,7 +170,7 @@ export class OfficeFilesTool extends BaseTool {
         }
 
         case 'xlsx_append_row': {
-          const loaded = await loadBuffer(args);
+          const loaded = await loadBuffer(args, context);
           if (!loaded.ok) {
             return { success: false, data: null, summary: loaded.error };
           }
@@ -142,7 +195,7 @@ export class OfficeFilesTool extends BaseTool {
         }
 
         case 'xlsx_set_cell': {
-          const loaded = await loadBuffer(args);
+          const loaded = await loadBuffer(args, context);
           if (!loaded.ok) {
             return { success: false, data: null, summary: loaded.error };
           }
@@ -168,7 +221,7 @@ export class OfficeFilesTool extends BaseTool {
         }
 
         case 'docx_fill_template': {
-          const loaded = await loadBuffer(args);
+          const loaded = await loadBuffer(args, context);
           if (!loaded.ok) {
             return { success: false, data: null, summary: loaded.error };
           }

@@ -2,7 +2,11 @@ import mongoose from 'mongoose';
 import { Skill, type ISkillDocument } from '../models/Skill.js';
 import { Assistant } from '../models/index.js';
 import { assistantService } from './assistant.service.js';
-import { skillStorage, type SkillDirectoryStructure } from './skillStorage.service.js';
+import {
+  skillStorage,
+  type SkillAssetFileInfo,
+  type SkillDirectoryStructure,
+} from './skillStorage.service.js';
 import {
   replaceSkillMdFrontmatter,
   skillMdBodyAfterFrontmatter,
@@ -579,6 +583,41 @@ class SkillService {
     const skill = await Skill.findById(skillId);
     if (!skill || !skill.storagePath) return [];
     return skillStorage.listScripts(skill.storagePath);
+  }
+
+  async listAssetFiles(skillId: string): Promise<SkillAssetFileInfo[]> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return [];
+    return skillStorage.listAssetFiles(skill.storagePath);
+  }
+
+  async uploadAssetFile(
+    skillId: string,
+    filename: string,
+    buffer: Buffer,
+  ): Promise<SkillAssetFileInfo[] | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    await skillStorage.writeAssetFile(skill.storagePath, filename, buffer);
+    return skillStorage.listAssetFiles(skill.storagePath);
+  }
+
+  async deleteAssetFile(skillId: string, filename: string): Promise<SkillAssetFileInfo[] | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    await skillStorage.deleteAssetFile(skill.storagePath, filename);
+    return skillStorage.listAssetFiles(skill.storagePath);
+  }
+
+  async renameAssetFile(
+    skillId: string,
+    fromName: string,
+    toName: string,
+  ): Promise<SkillAssetFileInfo[] | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    await skillStorage.renameAssetFile(skill.storagePath, fromName, toName);
+    return skillStorage.listAssetFiles(skill.storagePath);
   }
 
   /**

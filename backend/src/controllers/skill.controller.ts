@@ -335,6 +335,115 @@ export async function deleteReference(
   }
 }
 
+export async function listAssets(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const files = await skillService.listAssetFiles(req.params.id);
+    res.json({ files });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function uploadAsset(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const file = (req as { file?: { buffer: Buffer; originalname: string } }).file;
+    if (!file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+    const override = (req.body?.filename as string | undefined)?.trim();
+    const filename = override || file.originalname;
+    const files = await skillService.uploadAssetFile(req.params.id, filename, file.buffer);
+    if (!files) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+    res.json({ files });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.includes('Invalid filename') ||
+      msg.includes('not allowed') ||
+      msg.includes('escapes') ||
+      msg.includes('File type')
+    ) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function deleteAsset(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    const files = await skillService.deleteAssetFile(req.params.id, filename);
+    if (!files) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+    res.json({ files });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.includes('Invalid filename') ||
+      msg.includes('not allowed') ||
+      msg.includes('escapes') ||
+      msg.includes('File not found')
+    ) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function renameAsset(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const newName = (req.body?.newName as string | undefined)?.trim();
+    if (!newName) {
+      res.status(400).json({ error: 'newName is required' });
+      return;
+    }
+    const fromName = decodeURIComponent(req.params.filename);
+    const files = await skillService.renameAssetFile(req.params.id, fromName, newName);
+    if (!files) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+    res.json({ files });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.includes('Invalid filename') ||
+      msg.includes('not allowed') ||
+      msg.includes('escapes') ||
+      msg.includes('not found') ||
+      msg.includes('already exists')
+    ) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    next(error);
+  }
+}
+
 export async function listScripts(
   req: AuthRequest,
   res: Response,

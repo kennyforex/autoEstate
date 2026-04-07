@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Code,
@@ -24,12 +24,22 @@ import {
 import type { AssistantSkillLibrary } from "./useAssistantSkillLibrary";
 import type { Skill } from "../../lib/types";
 
+function formatAssetSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export interface SkillLibraryPanelProps {
   lib: AssistantSkillLibrary;
 }
 
 export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => {
   const { t } = useTranslation();
+  const [assetRename, setAssetRename] = useState<{
+    name: string;
+    draft: string;
+  } | null>(null);
 
   const [skillToDeleteFromList, setSkillToDeleteFromList] =
     useState<Skill | null>(null);
@@ -79,6 +89,12 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
     setShowNewScriptForm,
     scriptSaving,
     scriptUploadRef,
+    assetUploadRef,
+    assetList,
+    assetSaving,
+    handleUploadAsset,
+    handleDeleteAsset,
+    handleRenameAsset,
     refUploadRef,
     handleSaveReference,
     handleDeleteReference,
@@ -91,6 +107,10 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
     skillToolOptions,
     skillToolOptionsLoading,
   } = lib;
+
+  useEffect(() => {
+    if (!editingSkill) setAssetRename(null);
+  }, [editingSkill]);
 
   return (
     <div className="space-y-5">
@@ -585,6 +605,10 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                           t("assistants.playground.skillEditorTabReference"),
                         ],
                         [
+                          "assets",
+                          `${t("assistants.playground.skillEditorTabAssets")} (${assetList.length})`,
+                        ],
+                        [
                           "scripts",
                           `${t("assistants.playground.skillEditorTabScripts")} (${scriptList.length})`,
                         ],
@@ -850,6 +874,96 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                       </div>
                     )}
 
+                    {skillEditorTab === "assets" &&
+                      (skillRo ? (
+                        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                          <p className="text-sm text-text-secondary">
+                            {t("assistants.playground.skillBuiltInReadOnly")}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                          <p className="mb-3 text-xs leading-relaxed text-text-secondary">
+                            {t("assistants.playground.skillAssetsHint")}
+                          </p>
+                          <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => assetUploadRef.current?.click()}
+                              className="flex items-center gap-1 text-xs text-text-secondary hover:text-primary"
+                              disabled={assetSaving}
+                            >
+                              <Upload className="h-3.5 w-3.5" />
+                              {t("assistants.playground.skillAssetUpload")}
+                            </button>
+                            <input
+                              ref={assetUploadRef}
+                              type="file"
+                              accept=".doc,.docx,.xls,.xlsx,.pdf,.csv,.png,.jpg,.jpeg,.gif,.webp,.txt,.md"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) void handleUploadAsset(sid, file);
+                                e.target.value = "";
+                              }}
+                            />
+                          </div>
+                          {assetList.length > 0 ? (
+                            <div className="space-y-1">
+                              {assetList.map((a) => (
+                                <div
+                                  key={a.name}
+                                  className="group flex items-center justify-between rounded-md bg-gray-50 px-2.5 py-1.5"
+                                >
+                                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                    <FileText className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                                    <span className="truncate font-mono text-[11px] text-text-primary">
+                                      {a.name}
+                                    </span>
+                                    <span className="shrink-0 text-[10px] text-text-secondary">
+                                      {formatAssetSize(a.sizeBytes)}
+                                    </span>
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setAssetRename({
+                                          name: a.name,
+                                          draft: a.name,
+                                        })
+                                      }
+                                      className="rounded p-0.5 text-text-secondary hover:text-primary"
+                                      title={t(
+                                        "assistants.playground.skillAssetRename",
+                                      )}
+                                      disabled={assetSaving}
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleDeleteAsset(sid, a.name)
+                                      }
+                                      className="rounded p-0.5 text-text-secondary hover:text-error"
+                                      title={t("common.delete")}
+                                      disabled={assetSaving}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-text-secondary">
+                              {t("assistants.playground.skillAssetsEmpty")}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+
                     {skillEditorTab === "scripts" &&
                       (skillRo ? (
                         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -1075,6 +1189,54 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                 </div>
               );
             })()}
+          </Modal>
+
+          <Modal
+            isOpen={!!assetRename && !!editingSkill}
+            onClose={() => setAssetRename(null)}
+            title={t("assistants.playground.skillAssetRenameTitle")}
+            size="sm"
+            footer={
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => setAssetRename(null)}
+                >
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (!assetRename || !editingSkill) return;
+                    void handleRenameAsset(
+                      editingSkill._id,
+                      assetRename.name,
+                      assetRename.draft,
+                    );
+                    setAssetRename(null);
+                  }}
+                  disabled={
+                    assetSaving ||
+                    !assetRename?.draft.trim() ||
+                    assetRename.draft.trim() === assetRename.name
+                  }
+                  isLoading={assetSaving}
+                >
+                  {t("assistants.playground.skillAssetRenameSave")}
+                </Button>
+              </div>
+            }
+          >
+            <Input
+              label={t("assistants.playground.skillAssetFilenameLabel")}
+              value={assetRename?.draft ?? ""}
+              onChange={(e) =>
+                setAssetRename((r) =>
+                  r ? { ...r, draft: e.target.value } : null,
+                )
+              }
+            />
           </Modal>
 
           <ConfirmModal

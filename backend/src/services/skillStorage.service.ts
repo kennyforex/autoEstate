@@ -13,6 +13,28 @@ export interface SkillDirectoryStructure {
   scripts: string[];
 }
 
+/** Allowed extensions for skill `assets/` (templates, docs, images). */
+export const SKILL_ASSET_ALLOWED_EXTENSIONS = new Set([
+  '.docx',
+  '.doc',
+  '.xlsx',
+  '.xls',
+  '.pdf',
+  '.csv',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.txt',
+  '.md',
+]);
+
+export interface SkillAssetFileInfo {
+  name: string;
+  sizeBytes: number;
+}
+
 export interface ScriptExecutionResult {
   stdout: string;
   stderr: string;
@@ -26,6 +48,7 @@ export interface ScriptExecutionResult {
  * - reference.md (optional, detailed docs)
  * - examples/ (optional, usage examples)
  * - scripts/ (optional, executable scripts)
+ * - assets/ (optional, templates and binary files managed via API)
  */
 class SkillStorageService {
   private basePath: string;
@@ -202,6 +225,104 @@ class SkillStorageService {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Resolve a single basename under skill `assets/`. Throws if invalid or escapes directory.
+   */
+  resolveAssetAbsolutePath(skillPath: string, filename: string, requireAllowedExt: boolean): string {
+    const base = path.basename(filename.trim());
+    if (!base || base !== filename.trim() || base.includes('..') || /[/\\]/.test(base)) {
+      throw new Error('Invalid filename');
+    }
+    const ext = path.extname(base).toLowerCase();
+    if (requireAllowedExt && !SKILL_ASSET_ALLOWED_EXTENSIONS.has(ext)) {
+      throw new Error(`File type not allowed: ${ext || '(none)'}`);
+    }
+    const skillRoot = path.resolve(skillPath);
+    const assetsDir = path.join(skillRoot, 'assets');
+    const abs = path.resolve(path.join(assetsDir, base));
+    const assetsResolved = path.resolve(assetsDir);
+    const sep = path.sep;
+    if (abs !== assetsResolved && !abs.startsWith(assetsResolved + sep)) {
+      throw new Error('Path escapes assets directory');
+    }
+    return abs;
+  }
+
+  /**
+   * List files in assets/ with sizes (only allowed extensions).
+   */
+  async listAssetFiles(skillPath: string): Promise<SkillAssetFileInfo[]> {
+    const skillRoot = path.resolve(skillPath);
+    const assetsDir = path.join(skillRoot, 'assets');
+    let entries;
+    try {
+      entries = await fs.readdir(assetsDir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    const out: SkillAssetFileInfo[] = [];
+    for (const ent of entries) {
+      if (!ent.isFile()) continue;
+      const ext = path.extname(ent.name).toLowerCase();
+      if (!SKILL_ASSET_ALLOWED_EXTENSIONS.has(ext)) continue;
+      const abs = path.join(assetsDir, ent.name);
+      try {
+        const st = await fs.stat(abs);
+        out.push({ name: ent.name, sizeBytes: st.size });
+      } catch {
+        /* skip */
+      }
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  }
+
+  async writeAssetFile(skillPath: string, filename: string, buffer: Buffer): Promise<void> {
+    const abs = this.resolveAssetAbsolutePath(skillPath, filename, true);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, buffer);
+  }
+
+  async deleteAssetFile(skillPath: string, filename: string): Promise<void> {
+    const abs = this.resolveAssetAbsolutePath(skillPath, filename, false);
+    const ext = path.extname(abs).toLowerCase();
+    if (!SKILL_ASSET_ALLOWED_EXTENSIONS.has(ext)) {
+      throw new Error('File type not allowed');
+    }
+    try {
+      await fs.unlink(abs);
+    } catch (e: unknown) {
+      const err = e as NodeJS.ErrnoException;
+      if (err?.code === 'ENOENT') {
+        throw new Error('File not found');
+      }
+      throw e;
+    }
+  }
+
+  async renameAssetFile(skillPath: string, fromName: string, toName: string): Promise<void> {
+    const fromAbs = this.resolveAssetAbsolutePath(skillPath, fromName, false);
+    const toAbs = this.resolveAssetAbsolutePath(skillPath, toName, true);
+    const extFrom = path.extname(fromAbs).toLowerCase();
+    if (!SKILL_ASSET_ALLOWED_EXTENSIONS.has(extFrom)) {
+      throw new Error('Source file type not allowed');
+    }
+    try {
+      await fs.stat(fromAbs);
+    } catch {
+      throw new Error('Source file not found');
+    }
+    try {
+      await fs.stat(toAbs);
+      throw new Error('A file with that name already exists');
+    } catch (e: unknown) {
+      const err = e as NodeJS.ErrnoException;
+      if (e instanceof Error && e.message === 'A file with that name already exists') throw e;
+      if (err?.code !== 'ENOENT') throw e;
+    }
+    await fs.rename(fromAbs, toAbs);
   }
 
   /**

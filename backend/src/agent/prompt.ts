@@ -212,7 +212,7 @@ export function buildSystemPrompt(context: AgentContext): string {
     'each call reuses the same browser tab within this reply. Do not paste passwords or one-time codes into web_browser. ' +
     'Do not use these for general trivia — use web_search. Never pass secrets into web tools.\n' +
     '- For Google Docs in Drive (draft letters, export PDF), use google_docs. For local .xlsx/.docx files (URL or uploads path), use office_files ' +
-    '(docx_fill_template can save merged files under uploads/; docx_to_pdf converts a saved .docx to .pdf with LibreOffice on the server). ' +
+    '(during execute_skill, uploads_path may use assets/... for files inside the active skill folder; docx_fill_template can save merged files under uploads/; docx_to_pdf converts a saved .docx to .pdf with LibreOffice on the server). ' +
     '- For PDF merge/split/fill/list fields, use pdf_toolkit. For safe reads/zip under uploads/, use file_toolkit.\n' +
     '- IMPORTANT — web_search follow-through: When web_search returns results, your final reply MUST be based on those results. ' +
     'Do not apologize, do not say you cannot browse the web, and do not give a generic "I am only a language model" refusal. ' +

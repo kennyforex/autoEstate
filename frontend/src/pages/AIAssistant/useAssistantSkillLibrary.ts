@@ -7,6 +7,7 @@ export type SkillEditorTabId =
   | "content"
   | "frontmatter"
   | "reference"
+  | "assets"
   | "scripts"
   | "other";
 
@@ -60,6 +61,8 @@ export function useAssistantSkillLibrary(
   const [refLoading, setRefLoading] = useState(false);
   const [refSaving, setRefSaving] = useState(false);
   const [scriptList, setScriptList] = useState<string[]>([]);
+  const [assetList, setAssetList] = useState<{ name: string; sizeBytes: number }[]>([]);
+  const [assetSaving, setAssetSaving] = useState(false);
   const [viewingScript, setViewingScript] = useState<{
     filename: string;
     content: string;
@@ -69,6 +72,7 @@ export function useAssistantSkillLibrary(
   const [showNewScriptForm, setShowNewScriptForm] = useState(false);
   const [scriptSaving, setScriptSaving] = useState(false);
   const scriptUploadRef = useRef<HTMLInputElement>(null);
+  const assetUploadRef = useRef<HTMLInputElement>(null);
   const refUploadRef = useRef<HTMLInputElement>(null);
 
   const [skillToolOptions, setSkillToolOptions] = useState<
@@ -150,6 +154,7 @@ export function useAssistantSkillLibrary(
     });
     setRefContent("");
     setScriptList([]);
+    setAssetList([]);
     setViewingScript(null);
     setShowNewScriptForm(false);
     setSkillDeleteConfirmOpen(false);
@@ -178,12 +183,14 @@ export function useAssistantSkillLibrary(
         nickname: full.nickname || "",
       });
       setSkillFrontmatterYaml(full.frontmatterYaml ?? "");
-      const [ref, scripts] = await Promise.all([
+      const [ref, scripts, assets] = await Promise.all([
         skillsApi.getReference(skill._id),
         skillsApi.listScripts(skill._id),
+        skillsApi.listAssets(skill._id),
       ]);
       setRefContent(ref || "");
       setScriptList(scripts);
+      setAssetList(assets);
     } catch {
       setSkillForm({
         name: skill.name,
@@ -200,6 +207,7 @@ export function useAssistantSkillLibrary(
       setSkillFrontmatterYaml(skill.frontmatterYaml ?? "");
       setRefContent("");
       setScriptList([]);
+      setAssetList([]);
     } finally {
       setRefLoading(false);
     }
@@ -506,6 +514,60 @@ ${skillForm.instructions}
     }
   };
 
+  const handleUploadAsset = async (skillId: string, file: File) => {
+    setAssetSaving(true);
+    try {
+      const files = await skillsApi.uploadAsset(skillId, file);
+      setAssetList(files);
+      showSuccess("Uploaded", `"${file.name}" added to assets.`);
+    } catch (error: unknown) {
+      showError(
+        "Failed",
+        (error as { response?: { data?: { error?: string } } })?.response?.data
+          ?.error || "Could not upload asset.",
+      );
+    } finally {
+      setAssetSaving(false);
+    }
+  };
+
+  const handleDeleteAsset = async (skillId: string, filename: string) => {
+    try {
+      const files = await skillsApi.deleteAsset(skillId, filename);
+      setAssetList(files);
+      showSuccess("Deleted", `"${filename}" removed.`);
+    } catch (error: unknown) {
+      showError(
+        "Failed",
+        (error as { response?: { data?: { error?: string } } })?.response?.data
+          ?.error || "Could not delete asset.",
+      );
+    }
+  };
+
+  const handleRenameAsset = async (
+    skillId: string,
+    filename: string,
+    newName: string,
+  ) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === filename) return;
+    setAssetSaving(true);
+    try {
+      const files = await skillsApi.renameAsset(skillId, filename, trimmed);
+      setAssetList(files);
+      showSuccess("Renamed", "Asset renamed.");
+    } catch (error: unknown) {
+      showError(
+        "Failed",
+        (error as { response?: { data?: { error?: string } } })?.response?.data
+          ?.error || "Could not rename asset.",
+      );
+    } finally {
+      setAssetSaving(false);
+    }
+  };
+
   const handleDeleteScript = async (skillId: string, filename: string) => {
     try {
       const updated = await skillsApi.deleteScript(skillId, filename);
@@ -574,6 +636,12 @@ ${skillForm.instructions}
     refLoading,
     refSaving,
     scriptList,
+    assetList,
+    assetSaving,
+    assetUploadRef,
+    handleUploadAsset,
+    handleDeleteAsset,
+    handleRenameAsset,
     viewingScript,
     setViewingScript,
     newScriptName,

@@ -1,5 +1,5 @@
 /**
- * Install「建立報價」技能：註冊 SKILL.md，複製 Word 範本至 uploads/templates/，複製 reference.md 至技能儲存目錄，並設定 requiredTools / hasReferences。
+ * Install「建立報價」技能：註冊 SKILL.md，複製 Word 範本至技能目錄 assets/，複製 reference.md 至技能儲存目錄，並設定 requiredTools / hasReferences。
  *
  *   npx tsx src/scripts/install-mille-create-quotation-skill.ts
  */
@@ -24,15 +24,16 @@ async function main() {
   }
   const userId = conn.userId.toString();
 
-  const templateSrc = path.join(process.cwd(), 'skills/mille-create-quotation/template.docx');
-  const templateDest = path.join(process.cwd(), 'uploads/templates/mille-quotation.docx');
-  await fs.mkdir(path.dirname(templateDest), { recursive: true });
-  await fs.copyFile(templateSrc, templateDest);
-  console.log('Copied template to', templateDest);
-
+  const templateSrc = path.join(process.cwd(), 'skills/mille-create-quotation/assets/mille-quotation.docx');
   const mdPath = path.join(process.cwd(), 'skills/mille-create-quotation/SKILL.md');
   const content = await fs.readFile(mdPath, 'utf-8');
   const skill = await skillService.installFromMarkdown(content, userId);
+
+  const assetsDir = path.join(skill.storagePath, 'assets');
+  await fs.mkdir(assetsDir, { recursive: true });
+  const templateDest = path.join(assetsDir, 'mille-quotation.docx');
+  await fs.copyFile(templateSrc, templateDest);
+  console.log('Copied template to', templateDest);
 
   const refSrc = path.join(process.cwd(), 'skills/mille-create-quotation/reference.md');
   let hasReferences = false;

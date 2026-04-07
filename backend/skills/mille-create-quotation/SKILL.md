@@ -34,9 +34,9 @@ steps:
 
 ## 範本與欄位（Docxtemplater）
 
-- **執行時合併檔**（`office_files` 的 `uploads_path`）：**`templates/mille-quotation.docx`**（位於伺服器 `uploads/`）。
-- **Repo 內來源檔**：與本 SKILL 同資料夾的 **`template.docx`**。安裝腳本會複製到 `uploads/templates/`。若要更換為含完整品牌、頁首／頁尾、格式的版本，請在 Word 中編輯 **`template.docx`** 後重新執行安裝腳本（或手動覆蓋 `uploads/templates/mille-quotation.docx`）。
-- **延伸說明**：若技能已啟用 reference，需要較長的版式／占位符說明時，可輸出 **`LOAD_REFERENCE`** 載入 **reference.md**（與 `template.docx` 分開；合併仍只用 `templates/mille-quotation.docx`）。
+- **執行時合併檔**（`office_files` 的 `uploads_path`）：**`assets/mille-quotation.docx`**（相對於本技能安裝目錄；在 `execute_skill` 內呼叫時由系統解析，無需寫 `uploads/skills/...` 完整路徑）。
+- **Repo／ZIP 內來源檔**：與本 SKILL 同資料夾的 **`assets/mille-quotation.docx`**。安裝腳本會一併放到技能目錄的 `assets/`。若要更換為含完整品牌、頁首／頁尾、格式的版本，請在 Word 中編輯該檔後重新安裝技能或覆蓋已安裝目錄內的同名檔案。
+- **延伸說明**：若技能已啟用 reference，需要較長的版式／占位符說明時，可輸出 **`LOAD_REFERENCE`** 載入 **reference.md**（與範本檔分開；合併仍只用 **`assets/mille-quotation.docx`**）。
 
 合併 JSON 鍵名須與範本內 `{placeholder}` 一致：
 
@@ -58,7 +58,7 @@ steps:
 
 2. 呼叫 **office_files**：
    - **action:** `docx_fill_template`
-   - **uploads_path:** `templates/mille-quotation.docx`
+   - **uploads_path:** `assets/mille-quotation.docx`
    - **template_data_json:** 上述 JSON 字串
    - **output_docx_uploads_path:** `quotations/{quote_ref}.docx`（將 `{quote_ref}` 換成安全檔名字元，例如把 `/` 改 `-`）
    - **include_docx_base64:** `false`（優先使用儲存路徑與公開 URL，避免肥大 base64）

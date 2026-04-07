@@ -996,6 +996,49 @@ export const skillsApi = {
     return data.skill || data;
   },
 
+  // ── Skill assets (templates, documents under assets/) ──
+  listAssets: async (skillId: string): Promise<{ name: string; sizeBytes: number }[]> => {
+    const { data } = await api.get(`/skills/${skillId}/assets`);
+    return data.files || [];
+  },
+
+  uploadAsset: async (
+    skillId: string,
+    file: File,
+    filenameOverride?: string,
+  ): Promise<{ name: string; sizeBytes: number }[]> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (filenameOverride?.trim()) {
+      formData.append("filename", filenameOverride.trim());
+    }
+    const { data } = await api.post(`/skills/${skillId}/assets/upload`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data.files || [];
+  },
+
+  deleteAsset: async (
+    skillId: string,
+    filename: string,
+  ): Promise<{ name: string; sizeBytes: number }[]> => {
+    const { data } = await api.delete(
+      `/skills/${skillId}/assets/${encodeURIComponent(filename)}`,
+    );
+    return data.files || [];
+  },
+
+  renameAsset: async (
+    skillId: string,
+    filename: string,
+    newName: string,
+  ): Promise<{ name: string; sizeBytes: number }[]> => {
+    const { data } = await api.put(`/skills/${skillId}/assets/${encodeURIComponent(filename)}`, {
+      newName,
+    });
+    return data.files || [];
+  },
+
   // ── Script management ──
   listScripts: async (skillId: string): Promise<string[]> => {
     const { data } = await api.get(`/skills/${skillId}/scripts`);
