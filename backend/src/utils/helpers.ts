@@ -24,6 +24,20 @@ export function detectCountryFromPhone(phoneNumber: string | undefined | null): 
 }
 
 /**
+ * True if `digits` (no + prefix) is a valid international phone (E.164-style).
+ * Used to ignore WhatsApp LIDs mistakenly stored in {@link Contact.phoneNumber}.
+ */
+export function isValidInternationalPhoneDigits(digits: string): boolean {
+  if (!digits || digits.length < 8 || digits.length > 15) return false;
+  try {
+    const parsed = parsePhoneNumber(`+${digits}`);
+    return parsed.isValid();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Extract phone number from WhatsApp JID
  * @param jid - WhatsApp JID (e.g., "5511999999999@s.whatsapp.net")
  * @returns Phone number (e.g., "5511999999999")
@@ -89,18 +103,49 @@ export function extractFirstPhoneFromJidCandidates(
  * Evolution sendText/sendMedia `number` field: prefer a dialable phone when we have one.
  * If only a WhatsApp internal id (LID) is known, pass it as `digits@lid` so 13-digit LIDs work.
  * (Media decryption should still use {@link extractIdFromJid} / message key JID, not this.)
+ *
+ * Important: `phoneNumber` in DB may still hold a LID from older bugs; we only trust it when
+ * {@link isValidInternationalPhoneDigits} passes and it is not identical to `whatsappId`.
+ *
+ * Coerces values with `String()` so MongoDB `Number` types (raw imports) do not break `.trim` / `.replace`.
  */
 export function recipientJidForEvolutionSend(contact: {
-  phoneNumber?: string | null;
-  whatsappId?: string | null;
+  phoneNumber?: string | null | number;
+  whatsappId?: string | null | number;
 }): string | undefined {
-  const rawPhone = contact.phoneNumber?.trim();
+  const wid =
+    contact.whatsappId != null && contact.whatsappId !== ""
+      ? String(contact.whatsappId).replace(/\D/g, "")
+      : "";
+  const rawPhone =
+    contact.phoneNumber != null && contact.phoneNumber !== ""
+      ? String(contact.phoneNumber).trim()
+      : "";
+
   if (rawPhone) {
     const digits = rawPhone.replace(/\D/g, "");
-    if (digits.length > 0) return digits;
+    if (digits.length > 0) {
+      const sameAsWhatsappId = wid.length > 0 && digits === wid;
+      if (!sameAsWhatsappId && isValidInternationalPhoneDigits(digits)) {
+        return digits;
+      }
+    }
   }
-  const wid = contact.whatsappId?.replace(/\D/g, "");
-  if (wid) return `${wid}@lid`;
+
+  if (wid) {
+    return `${wid}@lid`;
+  }
+
+  // Phone-only contact (no LID): send validated number, or raw digits as last resort
+  if (rawPhone) {
+    const digits = rawPhone.replace(/\D/g, "");
+    if (digits.length > 0) {
+      if (isValidInternationalPhoneDigits(digits)) return digits;
+      if (digits.length >= 13) return `${digits}@lid`;
+      return digits;
+    }
+  }
+
   return undefined;
 }
 
