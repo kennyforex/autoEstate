@@ -205,10 +205,14 @@ export interface ClientToServerEvents {
 export interface EvolutionWebhookPayload {
   event: string;
   instance: string;
+  /** Newer Evolution: sender JID may be on the webhook body (alongside `data`) */
+  sender?: string;
   data: EvolutionMessageData | EvolutionConnectionData;
 }
 
 export interface EvolutionMessageData {
+  /** Newer Evolution: preferred source for dialable phone JID before `key.senderPn` */
+  sender?: string;
   key: {
     remoteJid: string;
     fromMe: boolean;

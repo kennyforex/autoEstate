@@ -3,7 +3,13 @@ import { channelService } from "./channel.service.js";
 import { messageService } from "./message.service.js";
 import { profilePictureService } from "./profilePicture.service.js";
 import { Contact, Conversation } from "../models/index.js";
-import { extractPhoneFromJid, extractIdFromJid, parseMessageContent, detectCountryFromPhone } from "../utils/helpers.js";
+import {
+  extractPhoneFromJid,
+  extractIdFromJid,
+  extractFirstPhoneFromJidCandidates,
+  parseMessageContent,
+  detectCountryFromPhone,
+} from "../utils/helpers.js";
 import type {
   EvolutionWebhookPayload,
   EvolutionMessageData,
@@ -48,12 +54,15 @@ class WebhookService {
 
     switch (payload.event) {
       case "MESSAGES_UPSERT":
-      case "messages.upsert":
-        await this.handleMessageUpsert(
-          instanceName,
-          payload.data as EvolutionMessageData,
-        );
+      case "messages.upsert": {
+        const raw = payload.data as EvolutionMessageData;
+        const merged: EvolutionMessageData = {
+          ...raw,
+          sender: raw.sender ?? payload.sender,
+        };
+        await this.handleMessageUpsert(instanceName, merged);
         break;
+      }
 
       case "CONNECTION_UPDATE":
       case "connection.update":
@@ -96,21 +105,19 @@ class WebhookService {
 
     // Log the raw data for debugging
     console.log(`[Webhook Debug] Raw remoteJid: ${data.key.remoteJid}`);
-    console.log(`[Webhook Debug] senderPn: ${data.key.senderPn || 'not provided'}`);
+    console.log(`[Webhook Debug] sender (Evolution): ${data.sender || "not provided"}`);
+    console.log(`[Webhook Debug] senderPn: ${data.key.senderPn || "not provided"}`);
     console.log(`[Webhook Debug] Push name: ${data.pushName}`);
 
     // Extract ID from remoteJid (this is the WhatsApp identifier for the conversation)
     const { type: remoteIdType, value: remoteIdValue } = extractIdFromJid(data.key.remoteJid);
-    
-    // Extract real phone number from senderPn if available (Android users)
-    // senderPn is inside data.key, not directly on data
-    let realPhoneNumber: string | undefined;
-    if (data.key.senderPn) {
-      const { type: senderType, value: senderValue } = extractIdFromJid(data.key.senderPn);
-      if (senderType === "phone") {
-        realPhoneNumber = senderValue;
-      }
-    }
+
+    // Real dialable phone: newer Evolution uses body `sender` first, then senderPn, then remoteJid
+    const realPhoneNumber = extractFirstPhoneFromJidCandidates(
+      data.sender,
+      data.key.senderPn,
+      data.key.remoteJid,
+    );
 
     console.log(`[Webhook Debug] Remote ID type: ${remoteIdType}, value: ${remoteIdValue}`);
     console.log(`[Webhook Debug] Real phone number: ${realPhoneNumber || 'not available'}`);

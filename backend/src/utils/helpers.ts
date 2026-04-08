@@ -71,6 +71,21 @@ export function extractIdFromJid(jid: string): {
 }
 
 /**
+ * Walk JID strings in priority order (Evolution: `sender` → `key.senderPn` → `key.remoteJid`)
+ * and return the first dialable phone local part (skips LIDs).
+ */
+export function extractFirstPhoneFromJidCandidates(
+  ...candidates: (string | undefined)[]
+): string | undefined {
+  for (const jid of candidates) {
+    if (!jid) continue;
+    const { type, value } = extractIdFromJid(jid);
+    if (type === "phone") return value;
+  }
+  return undefined;
+}
+
+/**
  * Generate a unique instance name for Evolution API
  * @param channelName - Channel name
  * @returns Unique instance name
