@@ -5,6 +5,7 @@ import { Conversation } from '../models/Conversation.js';
 import { Channel } from '../models/Channel.js';
 import { Contact } from '../models/Contact.js';
 import { messageService } from './message.service.js';
+import { recipientJidForEvolutionSend } from '../utils/helpers.js';
 
 const NUDGE_MESSAGES = [
   '?',
@@ -121,7 +122,7 @@ class ReminderService {
         return;
       }
 
-      const recipientId = (contact as any).whatsappId || (contact as any).phoneNumber;
+      const recipientId = recipientJidForEvolutionSend(contact);
       if (!recipientId) {
         console.warn(`[Reminder] No recipient ID for contact — skipping`);
         reminder.status = 'cancelled';

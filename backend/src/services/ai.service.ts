@@ -7,7 +7,7 @@ import { messageService } from "./message.service.js";
 import { aiLogger } from "./aiLogger.service.js";
 import { Conversation, Channel, Contact, Message, Assistant } from "../models/index.js";
 import { AgentSession } from "../models/AgentSession.js";
-import { delay } from "../utils/helpers.js";
+import { delay, recipientJidForEvolutionSend } from "../utils/helpers.js";
 import { openRouterConfig } from "../config/openrouter.js";
 import { getEvolutionClient } from "../config/evolution.js";
 import { agentEngine } from "../agent/index.js";
@@ -1024,8 +1024,7 @@ IMPORTANT RULES:
           });
         }
 
-        // Get the WhatsApp identifier for sending messages
-        const senderId = contact.whatsappId || contact.phoneNumber;
+        const senderId = recipientJidForEvolutionSend(contact);
         if (!senderId) {
           aiLogger.logError({
             conversationId,

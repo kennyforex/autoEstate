@@ -86,6 +86,25 @@ export function extractFirstPhoneFromJidCandidates(
 }
 
 /**
+ * Evolution sendText/sendMedia `number` field: prefer a dialable phone when we have one.
+ * If only a WhatsApp internal id (LID) is known, pass it as `digits@lid` so 13-digit LIDs work.
+ * (Media decryption should still use {@link extractIdFromJid} / message key JID, not this.)
+ */
+export function recipientJidForEvolutionSend(contact: {
+  phoneNumber?: string | null;
+  whatsappId?: string | null;
+}): string | undefined {
+  const rawPhone = contact.phoneNumber?.trim();
+  if (rawPhone) {
+    const digits = rawPhone.replace(/\D/g, "");
+    if (digits.length > 0) return digits;
+  }
+  const wid = contact.whatsappId?.replace(/\D/g, "");
+  if (wid) return `${wid}@lid`;
+  return undefined;
+}
+
+/**
  * Generate a unique instance name for Evolution API
  * @param channelName - Channel name
  * @returns Unique instance name

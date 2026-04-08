@@ -1,4 +1,5 @@
 import { Response, NextFunction } from "express";
+import { recipientJidForEvolutionSend } from "../utils/helpers.js";
 import { conversationService } from "../services/conversation.service.js";
 import { messageService } from "../services/message.service.js";
 import { channelService } from "../services/channel.service.js";
@@ -227,9 +228,7 @@ export async function sendMessage(
       return;
     }
 
-    // Get the WhatsApp identifier for sending messages
-    // Prefer whatsappId (LID) if available, as that's the conversation identifier for LID contacts
-    const senderId = contact.whatsappId || contact.phoneNumber;
+    const senderId = recipientJidForEvolutionSend(contact);
     if (!senderId) {
       res
         .status(400)

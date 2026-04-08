@@ -8,6 +8,7 @@ import {
   PAYMENT_REMINDER_DEFAULT_UNPAID_STATUSES,
 } from "../utils/paymentReminderSheet.js";
 import { phonesLikelyMatch } from "../utils/phoneMatch.js";
+import { recipientJidForEvolutionSend } from "../utils/helpers.js";
 
 function headerIndex(headers: string[], label: string): number {
   const want = label.trim().toLowerCase();
@@ -147,7 +148,7 @@ export async function runPaymentReminderJob(): Promise<PaymentReminderJobResult>
       continue;
     }
 
-    const recipientId = contact.whatsappId || contact.phoneNumber;
+    const recipientId = recipientJidForEvolutionSend(contact);
     if (!recipientId) {
       skipped++;
       continue;
