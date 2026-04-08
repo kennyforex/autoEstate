@@ -8,6 +8,7 @@ import {
   parseOrderSheetTabFromSkillMarkdown,
   parsePaymentPendingFolderIdFromSkillMarkdown,
 } from '../../utils/skillMdConfig.js';
+import { stripSkillMarkers } from '../../utils/helpers.js';
 import type { ToolRegistry } from './registry.js';
 
 const DEFAULT_DESCRIPTION =
@@ -405,7 +406,7 @@ export class SkillExecutionTool extends BaseTool {
         continue;
       }
       // Strip skill continuation markers from history
-      const cleaned = content.replace(/\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g, '');
+      const cleaned = stripSkillMarkers(content);
       messages.push({ role: msg.role, content: cleaned as string });
     }
 

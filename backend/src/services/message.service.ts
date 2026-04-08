@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { getEvolutionClient } from "../config/evolution.js";
 import { Message, type IMessageDocument } from "../models/index.js";
+import { stripSkillMarkers } from "../utils/helpers.js";
 import { Conversation } from "../models/index.js";
 import type {
   ServerToClientEvents,
@@ -162,6 +163,9 @@ class MessageService {
         numberToSend = cleanNumber;
       }
 
+      const strippedContent = stripSkillMarkers(content).trim();
+      const textForWhatsApp = strippedContent || " ";
+
       let response;
 
       switch (contentType) {
@@ -170,7 +174,7 @@ class MessageService {
             `/message/sendText/${instanceName}`,
             {
               number: numberToSend,
-              text: content,
+              text: textForWhatsApp,
             },
           );
           break;
@@ -196,7 +200,8 @@ class MessageService {
               mimetype: imageMimetype,
               media: imageMedia,
               fileName: fileName || "image.png",
-              caption: content === "[Image]" ? "" : content,
+              caption:
+                content === "[Image]" ? "" : strippedContent,
             },
           );
           break;
@@ -230,7 +235,8 @@ class MessageService {
               mimetype: videoMimetype,
               media: videoMedia,
               fileName: fileName || "video.mp4",
-              caption: content === "[Video]" ? "" : content,
+              caption:
+                content === "[Video]" ? "" : strippedContent,
             },
           );
           break;
@@ -266,7 +272,7 @@ class MessageService {
               mimetype: docMimetype,
               media: docMedia,
               fileName: fileName || "document.pdf",
-              caption: content,
+              caption: strippedContent,
             },
           );
           break;
@@ -276,7 +282,7 @@ class MessageService {
             `/message/sendText/${instanceName}`,
             {
               number: numberToSend,
-              text: content,
+              text: textForWhatsApp,
             },
           );
       }
@@ -285,7 +291,13 @@ class MessageService {
     } catch (error: unknown) {
       console.error("Failed to send message via WhatsApp:", error);
       const ax = error as {
-        response?: { status?: number; data?: { message?: string | string[] } };
+        response?: {
+          status?: number;
+          data?: {
+            message?: string | string[];
+            response?: { message?: string | string[] };
+          };
+        };
       };
       const status = ax.response?.status;
       if (status === 404) {
@@ -294,12 +306,20 @@ class MessageService {
             `Open your Evolution dashboard and confirm the instance name matches this channel in Channels (reconnect or copy the exact name).`,
         );
       }
+      const data = ax.response?.data;
+      const nestedMsg = data?.response?.message;
+      const topMsg = data?.message;
       const msg =
-        typeof ax.response?.data?.message === "string"
-          ? ax.response.data.message
-          : Array.isArray(ax.response?.data?.message)
-            ? ax.response.data.message.join(", ")
-            : undefined;
+        (typeof nestedMsg === "string"
+          ? nestedMsg
+          : Array.isArray(nestedMsg)
+            ? nestedMsg.join(", ")
+            : undefined) ??
+        (typeof topMsg === "string"
+          ? topMsg
+          : Array.isArray(topMsg)
+            ? topMsg.join(", ")
+            : undefined);
       throw new Error(
         msg
           ? `Failed to send WhatsApp message (${status ?? "?"}): ${msg}`

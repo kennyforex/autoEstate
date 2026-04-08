@@ -171,6 +171,17 @@ export function parseMessageContent(message: {
 }
 
 /**
+ * Remove internal skill continuation markers (used by the agent router) before
+ * sending text to external channels such as WhatsApp.
+ */
+export function stripSkillMarkers(content: string): string {
+  return content.replace(
+    /\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g,
+    "",
+  );
+}
+
+/**
  * Delay execution for a specified number of milliseconds
  */
 export function delay(ms: number): Promise<void> {
