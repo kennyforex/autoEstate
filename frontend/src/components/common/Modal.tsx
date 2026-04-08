@@ -16,6 +16,8 @@ interface ModalProps {
   bodyScroll?: boolean;
   /** Extra classes on the modal panel (e.g. min-height for tall editors). */
   className?: string;
+  /** Classes merged into the scrollable body wrapper around children (e.g. p-0 for full-bleed). */
+  bodyClassName?: string;
   /** Classes on the fixed fullscreen portal root (e.g. z-[100] so confirms stack above other modals). */
   portalClassName?: string;
 }
@@ -37,6 +39,7 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   bodyScroll = false,
   className = '',
+  bodyClassName,
   portalClassName,
 }) => {
   useEffect(() => {
@@ -104,7 +107,11 @@ export const Modal: React.FC<ModalProps> = ({
 
         {/* Content */}
         <div
-          className={`px-6 py-4 ${bodyScroll ? 'flex min-h-0 flex-1 flex-col overflow-hidden' : ''}`}
+          className={cn(
+            'px-6 py-4',
+            bodyScroll && 'flex min-h-0 flex-1 flex-col overflow-hidden',
+            bodyClassName,
+          )}
         >
           {children}
         </div>

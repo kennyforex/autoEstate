@@ -84,6 +84,10 @@ All models are configurable via environment variables (`OPENROUTER_*_MODEL`).
 3. Router classifies intent → engine selects tools → tools execute → response sent back via Evolution API
 4. Real-time updates emitted to frontend via Socket.IO
 
+### Third-party assets
+
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) (e.g. Virtual Office Kenney sprite tiles).
+
 ### Frontend (`frontend/src/`)
 
 - **`lib/api.ts`** — Axios instance with JWT auth; auto-redirects on 401

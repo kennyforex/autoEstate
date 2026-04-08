@@ -44,6 +44,7 @@ import {
 import { assistantsApi } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { DepartmentOrgChart, type OrgSelection } from "./DepartmentOrgChart";
+import { VirtualOfficeScene } from "./VirtualOfficeScene";
 import { useAssistantSkillLibrary } from "./useAssistantSkillLibrary";
 import type { AgentStreamEvent } from "../../lib/api";
 import type {
@@ -546,6 +547,7 @@ export const AssistantPlayground: React.FC = () => {
     null,
   );
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
+  const [showVirtualOffice, setShowVirtualOffice] = useState(false);
   const [addStaffForm, setAddStaffForm] = useState({
     displayName: "",
     roleTitle: "",
@@ -751,6 +753,13 @@ export const AssistantPlayground: React.FC = () => {
       processingSkillDisplayName,
     ],
   );
+
+  const virtualOfficeIdleThoughts = useMemo(() => {
+    const raw = t("assistants.playground.virtualOffice.idleThoughts", {
+      returnObjects: true,
+    });
+    return Array.isArray(raw) ? raw.map(String) : [];
+  }, [t]);
 
   const delegateStaffId = useMemo(() => {
     if (!lastExecuteSkillStep?.skillSlug) return null;
@@ -2211,12 +2220,14 @@ export const AssistantPlayground: React.FC = () => {
               onOpenSkillLibrary={() => {
                 if (id) navigate(`/ai-assistant/${id}/skill-library`);
               }}
+              onOpenVirtualOffice={() => setShowVirtualOffice(true)}
               labels={{
                 department: t("assistants.orgChart.department"),
                 manager: t("assistants.orgChart.manager"),
                 staff: t("assistants.orgChart.staff"),
                 addStaff: t("assistants.orgChart.addStaff"),
                 skillLibrary: t("assistants.playground.skillLibrary"),
+                virtualOffice: t("assistants.playground.virtualOffice.button"),
                 zoomHint: t("assistants.orgChart.zoomHint"),
                 badgeDepartment: t("assistants.orgChart.badgeDepartment"),
                 badgeManager: t("assistants.orgChart.badgeManager"),
@@ -3176,6 +3187,25 @@ export const AssistantPlayground: React.FC = () => {
               rows={3}
             />
           </div>
+        </Modal>
+      )}
+      {showVirtualOffice && (
+        <Modal
+          isOpen={showVirtualOffice}
+          onClose={() => setShowVirtualOffice(false)}
+          title={t("assistants.playground.virtualOffice.title")}
+          size="full"
+          bodyScroll
+          bodyClassName="flex min-h-[min(480px,calc(100vh-10rem))] flex-1 flex-col overflow-hidden p-0"
+          className="min-h-0 flex-1"
+        >
+          <VirtualOfficeScene
+            departmentName={departmentName || displayDeptName}
+            managerName={managerName}
+            staffItems={staffChartItems}
+            idleThoughts={virtualOfficeIdleThoughts}
+            emptyHint={t("assistants.playground.virtualOffice.emptyHint")}
+          />
         </Modal>
       )}
     </div>

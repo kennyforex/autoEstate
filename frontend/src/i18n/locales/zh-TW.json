@@ -607,6 +607,21 @@
       "rootFolder": "根目錄（無資料夾）",
       "createNewFolder": "建立新資料夾...",
       "skillLibrary": "技能庫",
+      "virtualOffice": {
+        "button": "虛擬辦公室",
+        "title": "虛擬辦公室",
+        "emptyHint": "新增團隊成員以填滿辦公室。",
+        "idleThoughts": [
+          "我是不是都回覆完了？",
+          "等等去喝杯咖啡…",
+          "看一下收件匣…",
+          "這張表晚點再說。",
+          "該更新員工手冊了。",
+          "今天挺安靜——別烏鴉嘴。",
+          "和團隊同步一下…",
+          "快下班了。"
+        ]
+      },
       "settingsSavedTitle": "設定已儲存",
       "settingsSavedBody": "AI 團隊與經理設定已更新。",
       "settingsSaveFailedTitle": "儲存失敗",

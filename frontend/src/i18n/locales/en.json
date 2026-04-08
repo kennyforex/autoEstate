@@ -561,6 +561,21 @@
       "rootFolder": "Root (no folder)",
       "createNewFolder": "Create new folder...",
       "skillLibrary": "Skill library",
+      "virtualOffice": {
+        "button": "Virtual office",
+        "title": "Virtual office",
+        "emptyHint": "Add team members to fill the office.",
+        "idleThoughts": [
+          "Did I reply to everyone?",
+          "Coffee break soon…",
+          "Checking the inbox…",
+          "This spreadsheet can wait.",
+          "Need to update the handbook.",
+          "Quiet day — knock wood.",
+          "Syncing with the team…",
+          "Almost end of shift."
+        ]
+      },
       "settingsSavedTitle": "Settings saved",
       "settingsSavedBody": "AI team and manager settings were updated.",
       "settingsSaveFailedTitle": "Save failed",

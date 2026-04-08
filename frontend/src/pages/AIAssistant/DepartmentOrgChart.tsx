@@ -14,7 +14,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Library, Plus } from "lucide-react";
+import { Building2, Library, Plus } from "lucide-react";
 
 export type OrgSelection = "team" | "manager" | string;
 
@@ -41,6 +41,8 @@ export interface DepartmentOrgChartProps {
   onAddStaff?: () => void;
   /** Opens manager skill library settings (e.g. side panel skills tab). */
   onOpenSkillLibrary?: () => void;
+  /** Opens pixel virtual office view (playground). */
+  onOpenVirtualOffice?: () => void;
   className?: string;
   labels: {
     department: string;
@@ -48,6 +50,7 @@ export interface DepartmentOrgChartProps {
     staff: string;
     addStaff: string;
     skillLibrary: string;
+    virtualOffice: string;
     zoomHint: string;
     badgeDepartment: string;
     badgeManager: string;
@@ -200,6 +203,7 @@ export const DepartmentOrgChart: React.FC<DepartmentOrgChartProps> = ({
   onPaneClick,
   onAddStaff,
   onOpenSkillLibrary,
+  onOpenVirtualOffice,
   labels,
   className = "",
 }) => {
@@ -367,7 +371,7 @@ export const DepartmentOrgChart: React.FC<DepartmentOrgChartProps> = ({
       >
         <Background />
         <Controls showInteractive={false} />
-        {(onAddStaff || onOpenSkillLibrary) && (
+        {(onAddStaff || onOpenSkillLibrary || onOpenVirtualOffice) && (
           <Panel position="top-right">
             <div className="flex flex-wrap items-center justify-end gap-2">
               {onOpenSkillLibrary && (
@@ -381,6 +385,19 @@ export const DepartmentOrgChart: React.FC<DepartmentOrgChartProps> = ({
                     <Library className="h-4 w-4" strokeWidth={2} />
                   </span>
                   {labels.skillLibrary}
+                </button>
+              )}
+              {onOpenVirtualOffice && (
+                <button
+                  type="button"
+                  onClick={onOpenVirtualOffice}
+                  className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 shadow-sm transition-colors hover:bg-blue-50 hover:border-blue-300"
+                  aria-label={labels.virtualOffice}
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700">
+                    <Building2 className="h-4 w-4" strokeWidth={2} />
+                  </span>
+                  {labels.virtualOffice}
                 </button>
               )}
               {onAddStaff && (
