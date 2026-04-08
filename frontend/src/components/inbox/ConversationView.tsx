@@ -206,7 +206,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
             ${
               isCustomer
                 ? "bg-gray-100 text-text-primary"
-                : "bg-dark-surface text-white"
+                : "bg-slate-800 text-white shadow-sm"
             }
           `}
         >
@@ -1055,7 +1055,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                       {managerDisplayName}
                     </span>
                   </div>
-                  <div className="bg-dark-surface text-white rounded-lg p-4">
+                  <div className="rounded-lg bg-slate-800 p-4 text-white shadow-sm">
                     {/* Current status text */}
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-sm">
