@@ -268,11 +268,13 @@ export const Inbox: React.FC = () => {
       });
       // Update conversation in list
       setConversations((prev) => {
-        const exists = prev.some((conv) => conv._id === message.conversationId);
+        const exists = prev.some(
+          (conv) => String(conv._id) === String(message.conversationId),
+        );
 
         if (exists) {
           return prev.map((conv) => {
-            if (conv._id === message.conversationId) {
+            if (String(conv._id) === String(message.conversationId)) {
               const oldUnreadCount = conv.unreadCount || 0;
               const newUnreadCount = oldUnreadCount + 1;
               // #region agent log
@@ -295,7 +297,7 @@ export const Inbox: React.FC = () => {
       });
 
       // Update selected conversation if it's the same
-      if (selectedConversation?._id === message.conversationId) {
+      if (String(selectedConversation?._id) === String(message.conversationId)) {
         setSelectedConversation((prev) => {
           if (!prev) return prev;
           return {

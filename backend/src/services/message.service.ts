@@ -335,11 +335,16 @@ class MessageService {
     const room = `conversation:${message.conversationId}`;
     console.log(`[Socket:Message] Emitting message:new to room ${room}, io=${this.io ? 'set' : 'null'}, messageId=${message._id}`);
     if (this.io) {
+      // Plain object so Socket.IO always serializes `content` (Mongoose docs can omit fields in edge cases).
+      const payload =
+        typeof message.toJSON === "function"
+          ? message.toJSON()
+          : { ...message };
       (
         this.io.to(room) as unknown as {
           emit: (event: string, data: unknown) => void;
         }
-      ).emit("message:new", message);
+      ).emit("message:new", payload);
       console.log(`[Socket:Message] Emitted message:new successfully`);
     } else {
       console.log(`[Socket:Message] WARNING: IO not set, cannot emit message:new`);

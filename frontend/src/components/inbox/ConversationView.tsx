@@ -30,6 +30,7 @@ import type {
 } from "../../lib/types";
 import { conversationsApi, uploadApi, tagsApi } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
+import { stripSkillMarkers } from "../../lib/stripSkillMarkers";
 
 interface ConversationViewProps {
   conversation: Conversation;
@@ -95,12 +96,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     const { contentType, content } = message;
     const proxiedUrl = getMediaUrl();
 
+    const captionBase =
+      isAI && content ? stripSkillMarkers(content) : content || "";
     // Check if there's a meaningful caption (not just the placeholder)
     const hasCaption =
-      content &&
-      content !== "[Image]" &&
-      content !== "[Video]" &&
-      content !== "[Audio]";
+      captionBase &&
+      captionBase !== "[Image]" &&
+      captionBase !== "[Video]" &&
+      captionBase !== "[Audio]";
 
     // Render media based on content type
     if (
@@ -126,7 +129,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
           <p className="text-sm text-text-secondary italic hidden">{content}</p>
           {hasCaption && (
             <p className="text-sm mt-2 whitespace-pre-wrap">
-              {isAI ? plainTextFromMarkdown(content) : content}
+              {isAI ? plainTextFromMarkdown(captionBase) : captionBase}
             </p>
           )}
         </div>
@@ -176,7 +179,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
 
     // Default: render text content (AI replies as plain text, no Markdown)
-    const displayContent = isAI ? plainTextFromMarkdown(content || "") : (content || "");
+    const raw = isAI ? stripSkillMarkers(content || "") : content || "";
+    const displayContent = isAI ? plainTextFromMarkdown(raw) : raw;
     return <p className="text-sm whitespace-pre-wrap">{displayContent}</p>;
   };
 
