@@ -1,7 +1,10 @@
 import { Server } from "socket.io";
 import { getEvolutionClient } from "../config/evolution.js";
 import { Message, type IMessageDocument } from "../models/index.js";
-import { stripSkillMarkers } from "../utils/helpers.js";
+import {
+  isValidInternationalPhoneDigits,
+  stripSkillMarkers,
+} from "../utils/helpers.js";
 import { Conversation } from "../models/index.js";
 import type {
   ServerToClientEvents,
@@ -146,20 +149,19 @@ class MessageService {
     try {
       const evolutionClient = getEvolutionClient();
 
-      // Check if this is a LID (Linked ID) - WhatsApp's privacy feature
-      // LIDs are typically 14+ digit numbers, while phone numbers are 10-13 digits
-      // LIDs should be sent with @lid suffix
+      // Evolution `number`: E.164 digits for real phones, or `id@lid` for WhatsApp LIDs.
+      // 13-digit LIDs were previously sent as bare digits (no @lid) because we only
+      // suffixed @lid for length >= 14 — Evolution returns 400 for bare LID digits.
       let numberToSend: string;
       const cleanNumber = phoneNumber.replace(/\D/g, "");
 
       if (phoneNumber.includes("@lid")) {
-        // Already has @lid suffix
         numberToSend = phoneNumber;
-      } else if (cleanNumber.length >= 14) {
-        // This is likely a LID (too long to be a phone number), add @lid suffix
+      } else if (isValidInternationalPhoneDigits(cleanNumber)) {
+        numberToSend = cleanNumber;
+      } else if (cleanNumber.length >= 13) {
         numberToSend = `${cleanNumber}@lid`;
       } else {
-        // Regular phone number - use clean number
         numberToSend = cleanNumber;
       }
 

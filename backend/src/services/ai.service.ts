@@ -1024,7 +1024,14 @@ IMPORTANT RULES:
           });
         }
 
-        const senderId = recipientJidForEvolutionSend(contact);
+        const contactFresh = await Contact.findById(contact._id)
+          .select("phoneNumber whatsappId")
+          .lean();
+        const sendTarget = contactFresh ?? {
+          phoneNumber: contact.phoneNumber,
+          whatsappId: contact.whatsappId,
+        };
+        const senderId = recipientJidForEvolutionSend(sendTarget);
         if (!senderId) {
           aiLogger.logError({
             conversationId,
@@ -1037,7 +1044,7 @@ IMPORTANT RULES:
 
         // Send AI response via WhatsApp
         console.log(
-          `[AI:SEND] contact=${contact._id} phoneNumber=${JSON.stringify(contact.phoneNumber)} whatsappId=${JSON.stringify(contact.whatsappId)} -> ${senderId}`,
+          `[AI:SEND] contact=${contact._id} phoneNumber=${JSON.stringify(sendTarget.phoneNumber)} whatsappId=${JSON.stringify(sendTarget.whatsappId)} -> ${senderId}`,
         );
         console.log(
           `[AI:SEND] Sending AI response via WhatsApp to ${senderId}`,
