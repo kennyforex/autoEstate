@@ -23,10 +23,14 @@ export function getEvolutionClient(): AxiosInstance {
     evolutionClient.interceptors.response.use(
       (response) => response,
       (error) => {
+        const data = error.response?.data;
         console.error("Evolution API error:", {
           url: error.config?.url,
           status: error.response?.status,
-          data: error.response?.data,
+          data:
+            data && typeof data === "object"
+              ? JSON.stringify(data)
+              : data,
         });
         return Promise.reject(error);
       },

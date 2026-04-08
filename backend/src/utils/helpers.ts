@@ -173,12 +173,21 @@ export function parseMessageContent(message: {
 /**
  * Remove internal skill continuation markers (used by the agent router) before
  * sending text to external channels such as WhatsApp.
+ *
+ * Handles CRLF, optional whitespace in the comment, and markers not preceded by
+ * a newline. If anything still matches `<!-- skill:`, truncates from there (agent
+ * always appends markers at the end).
  */
 export function stripSkillMarkers(content: string): string {
-  return content.replace(
-    /\n?<!-- skill:\S+?(?::complete\s+\{.*?\})? -->/g,
+  let out = content.replace(
+    /(?:\r\n|\r|\n)*<!--\s*skill:\S+?(?::complete\s+\{.*?\})?\s*-->/g,
     "",
   );
+  const orphan = out.indexOf("<!-- skill:");
+  if (orphan >= 0) {
+    out = out.slice(0, orphan).trimEnd();
+  }
+  return out;
 }
 
 /**
