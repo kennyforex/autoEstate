@@ -1037,6 +1037,9 @@ IMPORTANT RULES:
 
         // Send AI response via WhatsApp
         console.log(
+          `[AI:SEND] contact=${contact._id} phoneNumber=${JSON.stringify(contact.phoneNumber)} whatsappId=${JSON.stringify(contact.whatsappId)} -> ${senderId}`,
+        );
+        console.log(
           `[AI:SEND] Sending AI response via WhatsApp to ${senderId}`,
         );
         const evolutionMessageId = await messageService.sendViaWhatsApp(
