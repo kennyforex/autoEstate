@@ -176,11 +176,12 @@ export const Dashboard: React.FC = () => {
             <Button
               variant="ghost"
               size="sm"
+              className="px-2"
               onClick={fetchData}
               leftIcon={<RefreshCw className="w-4 h-4" />}
-            >
-              {t('dashboard.refresh')}
-            </Button>
+              aria-label={t('dashboard.refresh')}
+              title={t('dashboard.refresh')}
+            />
           </div>
         }
       />

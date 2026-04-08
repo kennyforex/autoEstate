@@ -16,7 +16,7 @@ export const GeneralSettings: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [company, setCompany] = useState<Company | null>(null);
+  const [, setCompany] = useState<Company | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');

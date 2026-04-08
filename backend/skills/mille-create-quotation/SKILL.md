@@ -1,10 +1,33 @@
 ---
-name: Mille Create Quotation
-slug: mille-create-quotation
-description: Creates a formal price quotation (PDF) from a Word template for Mille cake or catering requests. Use when the customer or staff asks for a quote, 報價, 報價單, estimate, or written quotation before placing an order.
-triggerHints: quotation, quote, 報價, 報價單, estimate, price quote, 開報價, written quote, 書面報價, catering quote
-reminderDelay: 30
-maxReminders: 1
+name: mille-create-quotation
+description: >-
+  Creates a formal price quotation (DOCX + PDF) from the Mille cake/catering Word template.
+  Use this skill whenever a customer or staff requests a quote, 報價, 報價單, estimate, price quote,
+  written quotation, catering quotation, or 開報價 / 書面報價 before placing an order.
+  Collect client details, line items, pricing, and validity step-by-step before generating files.
+argument-hint: "[customer name or order type]"
+user-invocable: true
+metadata:
+  display_name: Mille Create Quotation
+  version: 1.0.0
+  author: AutoEstate
+  category: quotation
+  language: zh-HK + English
+  reminder_delay: 30
+  max_reminders: 1
+  trigger_hints:
+    - quotation
+    - quote
+    - 報價
+    - 報價單
+    - estimate
+    - price quote
+    - 開報價
+    - written quote
+    - 書面報價
+    - catering quote
+  required_tools:
+    - office_files
 steps:
   - id: client
     label: 客戶姓名（及公司名稱，如有）
@@ -36,7 +59,7 @@ steps:
 
 - **執行時合併檔**（`office_files` 的 `uploads_path`）：**`assets/mille-quotation.docx`**（相對於本技能安裝目錄；在 `execute_skill` 內呼叫時由系統解析，無需寫 `uploads/skills/...` 完整路徑）。
 - **Repo／ZIP 內來源檔**：與本 SKILL 同資料夾的 **`assets/mille-quotation.docx`**。安裝腳本會一併放到技能目錄的 `assets/`。若要更換為含完整品牌、頁首／頁尾、格式的版本，請在 Word 中編輯該檔後重新安裝技能或覆蓋已安裝目錄內的同名檔案。
-- **延伸說明**：若技能已啟用 reference，需要較長的版式／占位符說明時，可輸出 **`LOAD_REFERENCE`** 載入 **reference.md**（與範本檔分開；合併仍只用 **`assets/mille-quotation.docx`**）。
+- **延伸說明**：可選的長篇筆記放在 **`references/*.md`**（或 `.txt`）。需要時輸出 **`LOAD_REFERENCE`**（載入全部參考檔）或 **`LOAD_REFERENCE:template-tips.md`**（單一檔）；**不要**在參考檔重複下列工具步驟或 JSON 鍵表。合併仍只用 **`assets/mille-quotation.docx`**。
 
 合併 JSON 鍵名須與範本內 `{placeholder}` 一致：
 

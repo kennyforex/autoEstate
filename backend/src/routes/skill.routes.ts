@@ -12,6 +12,10 @@ const uploadSkillAsset = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 }); // skill assets (e.g. Word templates)
+const uploadReferenceDoc = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+}); // references/*.md|*.txt
 
 router.use(authMiddleware);
 
@@ -44,6 +48,8 @@ router.put(
     body('instructions').optional().isString(),
     body('frontmatterYaml').optional().isString(),
     body('triggerHints').optional().isArray(),
+    body('argumentHint').optional().isString(),
+    body('userInvocable').optional().isBoolean(),
     body('status').optional().isIn(['active', 'inactive']),
   ]),
   skillController.updateSkill,
@@ -113,6 +119,57 @@ router.delete(
   '/:id/reference',
   validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
   skillController.deleteReference,
+);
+
+router.get(
+  '/:id/references',
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.listReferences,
+);
+
+router.get(
+  '/:id/references/:filename',
+  validate([
+    param('id').isMongoId().withMessage('Invalid skill ID'),
+    param('filename').notEmpty().withMessage('Filename is required'),
+  ]),
+  skillController.getReferenceDocument,
+);
+
+router.put(
+  '/:id/references/:filename',
+  validate([
+    param('id').isMongoId().withMessage('Invalid skill ID'),
+    param('filename').notEmpty().withMessage('Filename is required'),
+    body('content').notEmpty().withMessage('Content is required'),
+  ]),
+  skillController.saveReferenceDocument,
+);
+
+router.patch(
+  '/:id/references/:filename',
+  validate([
+    param('id').isMongoId().withMessage('Invalid skill ID'),
+    param('filename').notEmpty().withMessage('Filename is required'),
+    body('newName').notEmpty().withMessage('newName is required').trim(),
+  ]),
+  skillController.renameReferenceDocument,
+);
+
+router.post(
+  '/:id/references/upload',
+  uploadReferenceDoc.single('file'),
+  validate([param('id').isMongoId().withMessage('Invalid skill ID')]),
+  skillController.uploadReferenceDocument,
+);
+
+router.delete(
+  '/:id/references/:filename',
+  validate([
+    param('id').isMongoId().withMessage('Invalid skill ID'),
+    param('filename').notEmpty().withMessage('Filename is required'),
+  ]),
+  skillController.deleteReferenceDocument,
 );
 
 router.get(

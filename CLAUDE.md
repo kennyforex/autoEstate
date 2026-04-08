@@ -126,17 +126,41 @@ For local development with WhatsApp webhooks, use `ngrok` and set `BACKEND_PUBLI
 
 ## Skill File Format
 
-Skills are markdown files with YAML frontmatter. When creating or modifying skills, follow this structure:
+Skills are markdown files with YAML frontmatter (parsed with real YAML — see `parseSkillFrontmatter` in `backend/src/services/skill.service.ts` and `backend/src/utils/skillFrontmatterParse.ts`).
+
+**Required**
+
+- `name`: kebab-case identifier (`a-z`, `0-9`, hyphens), max 64 characters — also the default install slug.
+- `description`: what the skill does and when to use it (≤1024 characters).
+
+**Common optional (portable)**
+
+- `argument-hint`, `allowed-tools` (list; non–AutoEstate names are ignored for DB `requiredTools`), `user-invocable`, `disable-model-invocation`, `model`, `context`, `agent`.
+
+**AutoEstate-specific — use `metadata`**
+
+- `display_name`: human title (stored as MongoDB `name` / Skill Library label).
+- `trigger_hints` (YAML list), `reminder_delay`, `max_reminders`, `schedule_enabled`, `schedule_cron`.
+- `order_sheet_id`, `order_sheet_tab`, `sheet_fields`, `payment_pending_folder_id` (Google Sheets/Drive).
+- `required_tools`: registry tool ids for the skill sub-agent; merged with matching entries from top-level `allowed-tools`.
+- `steps`: workflow for the goal stack (same shape as before). Can live at top level or under `metadata.steps`.
 
 ```markdown
 ---
-name: Skill Name
-description: What this skill does
-triggerHints:
-  - keyword1
-  - keyword2
-reminderDelay: 5        # minutes before first reminder
-maxReminders: 2
+name: my-skill-id
+description: >-
+  What it does. Use when the user asks for ...
+argument-hint: "[optional]"
+user-invocable: true
+metadata:
+  display_name: My Skill
+  trigger_hints:
+    - keyword1
+    - keyword2
+  reminder_delay: 5
+  max_reminders: 2
+  required_tools:
+    - google_sheets
 steps:
   - id: step_id
     label: Human-readable label
@@ -146,4 +170,4 @@ steps:
 # Skill instructions in markdown...
 ```
 
-Installed skills are bound to specific assistants and stored in `backend/skills/<skill-name>/SKILL.md`. The `skill.service.ts` handles installation/uninstallation which copies files to/from this directory.
+Installed skills are bound to assistants and stored under `uploads/skills/...`; repo examples live in `backend/skills/<skill-name>/SKILL.md`. `skill.service.ts` installs from zip or single `SKILL.md` and syncs parsed fields into MongoDB when the file is written.

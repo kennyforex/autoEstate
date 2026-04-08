@@ -237,8 +237,25 @@ export class SkillExecutionTool extends BaseTool {
     }
 
     // Add reference/examples/scripts availability
-    if (skill.hasReferences) {
-      systemPrompt += '\n[Additional reference material available. Use "LOAD_REFERENCE" to access it.]\n';
+    if (skill.hasReferences && skill.storagePath) {
+      try {
+        const listed = await skillStorage.listReferenceDocuments(skill.storagePath);
+        const labels = listed.files.map((f) =>
+          f.legacy ? `${f.name} (legacy at skill root)` : f.name,
+        );
+        const fileHint =
+          labels.length > 0
+            ? `Reference files (on demand): ${labels.join(', ')}. `
+            : 'Reference material available. ';
+        systemPrompt +=
+          `\n[${fileHint}Use LOAD_REFERENCE to load all documents (concatenated), or LOAD_REFERENCE:filename.md with the basename only for one file.]\n`;
+      } catch {
+        systemPrompt +=
+          '\n[Reference material available. Use LOAD_REFERENCE or LOAD_REFERENCE:filename.md.]\n';
+      }
+    } else if (skill.hasReferences) {
+      systemPrompt +=
+        '\n[Reference material available. Use LOAD_REFERENCE or LOAD_REFERENCE:filename.md.]\n';
     }
     if (skill.hasExamples) {
       systemPrompt += '\n[Usage examples available. Use "LOAD_EXAMPLES" to see them.]\n';
@@ -482,14 +499,28 @@ export class SkillExecutionTool extends BaseTool {
 
       // ── Handle text-marker commands (legacy: scripts, reference, examples) ──
 
-      // Check for LOAD_REFERENCE marker
+      // Check for LOAD_REFERENCE marker (optional: LOAD_REFERENCE:filename.md)
       if (content.includes('LOAD_REFERENCE') && skill.hasReferences && skill.storagePath) {
-        const reference = await skillStorage.loadReference(skill.storagePath);
+        const loadMatch = content.match(/LOAD_REFERENCE(?::\s*(\S+))?/);
+        const specific = loadMatch?.[1]?.replace(/^[`\*]+|[`\*]+$/g, '').trim();
+        let reference: string | null = null;
+        if (specific) {
+          reference = await skillStorage.loadReferenceDocument(skill.storagePath, specific);
+        } else {
+          reference = await skillStorage.loadReference(skill.storagePath);
+        }
         if (reference) {
           messages.push({ role: 'assistant', content });
           messages.push({ role: 'user', content: `Reference material:\n\n${reference}` });
           continue;
         }
+        messages.push({ role: 'assistant', content });
+        messages.push({
+          role: 'user',
+          content:
+            'Reference material could not be loaded. Use LOAD_REFERENCE with no suffix for all docs, or LOAD_REFERENCE:basename.md for one file under references/.',
+        });
+        continue;
       }
 
       // Check for LOAD_EXAMPLES marker

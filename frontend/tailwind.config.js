@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -7,49 +8,70 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Primary colors
-        dark: '#1A1A1A',
-        'dark-surface': '#2D2D2D',
-        light: '#FFFFFF',
-        surface: '#F9FAFB',
-        border: '#E5E7EB',
-        // Brand colors
+        background: 'var(--background)',
+        foreground: 'var(--foreground)',
+        heading: 'var(--heading)',
+        card: {
+          DEFAULT: 'var(--card)',
+          foreground: 'var(--card-foreground)',
+        },
+        popover: {
+          DEFAULT: 'var(--popover)',
+          foreground: 'var(--popover-foreground)',
+        },
         primary: {
-          DEFAULT: '#2563EB',
-          50: '#EFF6FF',
-          100: '#DBEAFE',
-          200: '#BFDBFE',
-          300: '#93C5FD',
-          400: '#60A5FA',
-          500: '#3B82F6',
-          600: '#2563EB',
-          700: '#1D4ED8',
-          800: '#1E40AF',
-          900: '#1E3A8A',
+          DEFAULT: 'var(--primary)',
+          foreground: 'var(--primary-foreground)',
+        },
+        secondary: {
+          DEFAULT: 'var(--secondary)',
+          foreground: 'var(--secondary-foreground)',
+        },
+        muted: {
+          DEFAULT: 'var(--muted)',
+          foreground: 'var(--muted-foreground)',
         },
         accent: {
-          DEFAULT: '#8B5CF6',
-          light: '#F3E8FF',
+          DEFAULT: 'var(--accent)',
+          foreground: 'var(--accent-foreground)',
         },
-        // Text colors
-        'text-primary': '#1A1A1A',
-        'text-secondary': '#6B7280',
-        'text-inverse': '#FFFFFF',
-        // Status colors
-        success: '#10B981',
-        warning: '#F59E0B',
-        error: '#EF4444',
-        info: '#3B82F6',
+        destructive: {
+          DEFAULT: 'var(--destructive)',
+          foreground: 'var(--destructive-foreground)',
+        },
+        border: 'var(--border)',
+        input: 'var(--input)',
+        'input-background': 'var(--input-background)',
+        ring: 'var(--ring)',
+        surface: 'var(--surface)',
+        sidebar: 'var(--sidebar)',
+        'sidebar-foreground': 'var(--sidebar-foreground)',
+        placeholder: 'var(--placeholder)',
+        'hover-surface': 'var(--hover-surface)',
+        'warm-tan': 'var(--warm-tan)',
+        'amber-gold': 'var(--amber-gold)',
+        // Legacy class names used across the app
+        light: 'var(--card)',
+        'text-primary': 'var(--foreground)',
+        'text-secondary': 'var(--muted-foreground)',
+        'text-inverse': 'var(--sidebar-foreground)',
+        'dark-surface': 'var(--card)',
+        info: '#3b82f6',
+        success: '#10b981',
+        warning: '#f59e0b',
+        error: 'var(--destructive)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ['IBM Plex Sans', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['Source Code Pro', 'ui-monospace', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       fontSize: {
-        'page-title': ['24px', { fontWeight: '600', lineHeight: '1.3' }],
+        'page-title': ['24px', { fontWeight: '700', lineHeight: '1.3' }],
         'section-header': ['16px', { fontWeight: '600', lineHeight: '1.4' }],
-        'body': ['14px', { fontWeight: '400', lineHeight: '1.5' }],
-        'caption': ['12px', { fontWeight: '400', lineHeight: '1.5' }],
+        'body': ['16px', { fontWeight: '400', lineHeight: '1.5' }],
+        'caption': ['12px', { fontWeight: '400', lineHeight: '1.43' }],
         'badge': ['11px', { fontWeight: '500', lineHeight: '1.4' }],
+        'display-hero': ['30px', { fontWeight: '800', lineHeight: '1.2', letterSpacing: '-0.75px' }],
       },
       spacing: {
         'xs': '4px',
@@ -61,13 +83,15 @@ export default {
       },
       borderRadius: {
         'sm': '4px',
-        'md': '8px',
-        'lg': '12px',
+        'md': '6px',
+        'lg': '8px',
+        'xl': '12px',
         'full': '9999px',
       },
       boxShadow: {
-        'card': '0 1px 3px rgba(0,0,0,0.1)',
+        'card': '0 1px 3px rgba(0,0,0,0.08)',
         'modal': '0 25px 50px -12px rgba(0,0,0,0.25)',
+        'modal-dark': '0 25px 50px -12px rgba(0,0,0,0.5)',
       },
     },
   },

@@ -40,6 +40,10 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
     name: string;
     draft: string;
   } | null>(null);
+  const [refRename, setRefRename] = useState<{
+    name: string;
+    draft: string;
+  } | null>(null);
 
   const [skillToDeleteFromList, setSkillToDeleteFromList] =
     useState<Skill | null>(null);
@@ -72,12 +76,13 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
     setIsDeletingSkill,
     skillEditorTab,
     setSkillEditorTab,
-    skillFrontmatterYaml,
-    setSkillFrontmatterYaml,
-    refContent,
-    setRefContent,
+    refFiles,
+    refSelectedName,
+    refEditorContent,
+    setRefEditorContent,
     refLoading,
     refSaving,
+    refDocLoading,
     scriptList,
     viewingScript,
     setViewingScript,
@@ -96,9 +101,12 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
     handleDeleteAsset,
     handleRenameAsset,
     refUploadRef,
-    handleSaveReference,
+    handleSelectReferenceFile,
+    handleSaveReferenceDocument,
     handleDeleteReference,
     handleUploadReference,
+    handleDeleteReferenceFile,
+    handleRenameReferenceFile,
     handleCreateScript,
     handleUploadScript,
     handleDeleteScript,
@@ -109,7 +117,10 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
   } = lib;
 
   useEffect(() => {
-    if (!editingSkill) setAssetRename(null);
+    if (!editingSkill) {
+      setAssetRename(null);
+      setRefRename(null);
+    }
   }, [editingSkill]);
 
   return (
@@ -280,6 +291,7 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
           onClose={() => {
             setShowCreateSkillModal(false);
             setSkillForm({
+              skillId: "",
               name: "",
               description: "",
               instructions: "",
@@ -290,6 +302,8 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
               scheduleEnabled: false,
               scheduleCron: "",
               nickname: "",
+              argumentHint: "",
+              userInvocable: false,
             });
             setSkillUploadFile(null);
           }}
@@ -306,6 +320,7 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                 onClick={() => {
                   setShowCreateSkillModal(false);
                   setSkillForm({
+                    skillId: "",
                     name: "",
                     description: "",
                     instructions: "",
@@ -316,6 +331,8 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                     scheduleEnabled: false,
                     scheduleCron: "",
                     nickname: "",
+                    argumentHint: "",
+                    userInvocable: false,
                   });
                   setSkillUploadFile(null);
                 }}
@@ -366,7 +383,17 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
           {skillFormMode === "form" ? (
             <div className="space-y-4">
               <Input
-                label="Name"
+                label={t("assistants.playground.skillIdKebab")}
+                value={skillForm.skillId}
+                onChange={(e) =>
+                  setSkillForm({ ...skillForm, skillId: e.target.value })
+                }
+                placeholder={t(
+                  "assistants.playground.skillIdKebabPlaceholder",
+                )}
+              />
+              <Input
+                label={t("assistants.playground.skillDisplayName")}
                 value={skillForm.name}
                 onChange={(e) =>
                   setSkillForm({ ...skillForm, name: e.target.value })
@@ -398,7 +425,7 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                 rows={6}
               />
               <Input
-                label="Trigger Hints (comma-separated)"
+                label={t("assistants.playground.skillFieldTriggerHints")}
                 value={skillForm.triggerHints}
                 onChange={(e) =>
                   setSkillForm({
@@ -463,8 +490,7 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
           ) : (
             <div className="space-y-4">
               <p className="text-sm text-text-secondary">
-                Upload a skill markdown file with YAML frontmatter (name,
-                description, triggerHints).
+                {t("assistants.playground.skillCreateUploadHint")}
               </p>
               <div
                 role="button"
@@ -597,12 +623,8 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                           t("assistants.playground.skillEditorTabSkillContent"),
                         ],
                         [
-                          "frontmatter",
-                          t("assistants.playground.skillEditorTabFrontmatter"),
-                        ],
-                        [
                           "reference",
-                          t("assistants.playground.skillEditorTabReference"),
+                          `${t("assistants.playground.skillEditorTabReference")} (${refFiles.length})`,
                         ],
                         [
                           "assets",
@@ -611,10 +633,6 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                         [
                           "scripts",
                           `${t("assistants.playground.skillEditorTabScripts")} (${scriptList.length})`,
-                        ],
-                        [
-                          "other",
-                          t("assistants.playground.skillEditorTabOther"),
                         ],
                       ] as const
                     ).map(([tabId, tabLabel]) => (
@@ -641,121 +659,253 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                   >
                     {skillEditorTab === "basic" && (
                       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                        <div className="space-y-4">
-                          <Input
-                            label={t("assistants.name")}
-                            value={skillForm.name}
-                            disabled={skillRo}
-                            onChange={(e) =>
-                              setSkillForm({ ...skillForm, name: e.target.value })
-                            }
-                            placeholder="e.g. Booking Handler"
-                          />
-                          <Textarea
-                            label={t("assistants.playground.skillFieldDescription")}
-                            value={skillForm.description}
-                            disabled={skillRo}
-                            onChange={(e) =>
-                              setSkillForm({
-                                ...skillForm,
-                                description: e.target.value,
-                              })
-                            }
-                            placeholder="When should the AI use this skill? (e.g. Use when customer says hello)"
-                            rows={3}
-                            className="resize-y"
-                          />
-                          <div>
-                            <label className="mb-1 block text-sm font-medium text-gray-700">
-                              {t("assistants.playground.skillFieldIdleReminder")}
-                            </label>
-                            <p className="mb-2 text-xs text-gray-400">
-                              {t("assistants.playground.skillFieldIdleReminderHint")}
+                        <div className="space-y-6">
+                          <section className="space-y-3">
+                            <h3 className="text-sm font-semibold text-gray-900">
+                              {t("assistants.playground.skillYamlSectionStandard")}
+                            </h3>
+                            <p className="text-xs leading-relaxed text-text-secondary">
+                              {t("assistants.playground.skillYamlSectionStandardIntro")}
                             </p>
-                            <div className="flex gap-3">
-                              <div className="flex-1">
-                                <label className="mb-1 block text-xs text-gray-500">
-                                  {t("assistants.playground.skillFieldReminderDelay")}
-                                </label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  disabled={skillRo}
-                                  value={skillForm.reminderDelay}
-                                  onChange={(e) =>
-                                    setSkillForm({
-                                      ...skillForm,
-                                      reminderDelay:
-                                        parseInt(e.target.value, 10) || 0,
-                                    })
-                                  }
-                                  className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                                  placeholder="0 = disabled"
-                                />
-                              </div>
-                              <div className="flex-1">
-                                <label className="mb-1 block text-xs text-gray-500">
-                                  {t("assistants.playground.skillFieldMaxReminders")}
-                                </label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={5}
-                                  disabled={skillRo}
-                                  value={skillForm.maxReminders}
-                                  onChange={(e) =>
-                                    setSkillForm({
-                                      ...skillForm,
-                                      maxReminders:
-                                        parseInt(e.target.value, 10) || 0,
-                                    })
-                                  }
-                                  className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                                  placeholder="0 = disabled"
-                                />
-                              </div>
+                            <p className="text-xs leading-relaxed text-text-secondary">
+                              {t("assistants.playground.skillBasicNameHint")}
+                            </p>
+                            <div>
+                              <label className="mb-1 block text-sm font-medium text-gray-700">
+                                {t("assistants.playground.skillYamlFieldKebabName")}
+                              </label>
+                              <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm text-gray-800">
+                                {editingSkill.slug}
+                              </p>
                             </div>
-                          </div>
-                          <div className="border-t border-gray-100 pt-4">
+                            <Textarea
+                              label={t("assistants.playground.skillFieldDescription")}
+                              value={skillForm.description}
+                              disabled={skillRo}
+                              onChange={(e) =>
+                                setSkillForm({
+                                  ...skillForm,
+                                  description: e.target.value,
+                                })
+                              }
+                              placeholder="When should the AI use this skill? (e.g. Use when customer says hello)"
+                              rows={3}
+                              className="resize-y"
+                            />
+                            <Input
+                              label={t("assistants.playground.skillYamlFieldArgumentHint")}
+                              value={skillForm.argumentHint}
+                              disabled={skillRo}
+                              onChange={(e) =>
+                                setSkillForm({
+                                  ...skillForm,
+                                  argumentHint: e.target.value,
+                                })
+                              }
+                              placeholder={t(
+                                "assistants.playground.skillYamlFieldArgumentHintPlaceholder",
+                              )}
+                            />
                             <Toggle
-                              checked={skillForm.scheduleEnabled}
+                              checked={skillForm.userInvocable}
                               disabled={skillRo}
                               onChange={(checked) =>
                                 setSkillForm({
                                   ...skillForm,
-                                  scheduleEnabled: checked,
+                                  userInvocable: checked,
                                 })
                               }
                               label={t(
-                                "assistants.playground.skillScheduleEnabled",
+                                "assistants.playground.skillYamlFieldUserInvocable",
                               )}
                               description={t(
-                                "assistants.playground.skillScheduleHint",
+                                "assistants.playground.skillYamlFieldUserInvocableHint",
                               )}
                             />
-                            {skillForm.scheduleEnabled && (
-                              <div className="mt-3">
-                                <label className="mb-1 block text-xs text-gray-500">
-                                  {t(
-                                    "assistants.playground.skillScheduleCron",
-                                  )}
-                                </label>
-                                <input
-                                  type="text"
-                                  disabled={skillRo}
-                                  value={skillForm.scheduleCron}
-                                  onChange={(e) =>
-                                    setSkillForm({
-                                      ...skillForm,
-                                      scheduleCron: e.target.value,
-                                    })
-                                  }
-                                  className="w-full rounded-lg border border-gray-200 px-3 py-1.5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                                  placeholder="0 * * * *"
-                                />
+                          </section>
+
+                          <section className="space-y-3 border-t border-gray-100 pt-4">
+                            <h3 className="text-sm font-semibold text-gray-900">
+                              {t("assistants.playground.skillYamlSectionMetadata")}
+                            </h3>
+                            <Input
+                              label={t("assistants.playground.skillDisplayName")}
+                              value={skillForm.name}
+                              disabled={skillRo}
+                              onChange={(e) =>
+                                setSkillForm({ ...skillForm, name: e.target.value })
+                              }
+                              placeholder="e.g. Booking Handler"
+                            />
+                            <Input
+                              label={t("assistants.playground.skillFieldTriggerHints")}
+                              value={skillForm.triggerHints}
+                              disabled={skillRo}
+                              onChange={(e) =>
+                                setSkillForm({
+                                  ...skillForm,
+                                  triggerHints: e.target.value,
+                                })
+                              }
+                              placeholder="e.g. hello, greet, welcome, 你好"
+                            />
+                            <div>
+                              <label className="mb-1 block text-sm font-medium text-gray-700">
+                                {t("assistants.playground.skillFieldIdleReminder")}
+                              </label>
+                              <p className="mb-2 text-xs text-gray-400">
+                                {t("assistants.playground.skillFieldIdleReminderHint")}
+                              </p>
+                              <div className="flex gap-3">
+                                <div className="flex-1">
+                                  <label className="mb-1 block text-xs text-gray-500">
+                                    {t("assistants.playground.skillFieldReminderDelay")}{" "}
+                                    <span className="font-mono text-[10px] text-gray-400">
+                                      (reminder_delay)
+                                    </span>
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    disabled={skillRo}
+                                    value={skillForm.reminderDelay}
+                                    onChange={(e) =>
+                                      setSkillForm({
+                                        ...skillForm,
+                                        reminderDelay:
+                                          parseInt(e.target.value, 10) || 0,
+                                      })
+                                    }
+                                    className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                    placeholder="0 = disabled"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="mb-1 block text-xs text-gray-500">
+                                    {t("assistants.playground.skillFieldMaxReminders")}{" "}
+                                    <span className="font-mono text-[10px] text-gray-400">
+                                      (max_reminders)
+                                    </span>
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={5}
+                                    disabled={skillRo}
+                                    value={skillForm.maxReminders}
+                                    onChange={(e) =>
+                                      setSkillForm({
+                                        ...skillForm,
+                                        maxReminders:
+                                          parseInt(e.target.value, 10) || 0,
+                                      })
+                                    }
+                                    className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                    placeholder="0 = disabled"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <div className="border-t border-gray-100 pt-4">
+                              <Toggle
+                                checked={skillForm.scheduleEnabled}
+                                disabled={skillRo}
+                                onChange={(checked) =>
+                                  setSkillForm({
+                                    ...skillForm,
+                                    scheduleEnabled: checked,
+                                  })
+                                }
+                                label={t(
+                                  "assistants.playground.skillScheduleEnabled",
+                                )}
+                                description={t(
+                                  "assistants.playground.skillScheduleHint",
+                                )}
+                              />
+                              {skillForm.scheduleEnabled && (
+                                <div className="mt-3">
+                                  <label className="mb-1 block text-xs text-gray-500">
+                                    {t(
+                                      "assistants.playground.skillScheduleCron",
+                                    )}{" "}
+                                    <span className="font-mono text-[10px] text-gray-400">
+                                      (schedule_cron)
+                                    </span>
+                                  </label>
+                                  <input
+                                    type="text"
+                                    disabled={skillRo}
+                                    value={skillForm.scheduleCron}
+                                    onChange={(e) =>
+                                      setSkillForm({
+                                        ...skillForm,
+                                        scheduleCron: e.target.value,
+                                      })
+                                    }
+                                    className="w-full rounded-lg border border-gray-200 px-3 py-1.5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                    placeholder="0 * * * *"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </section>
+
+                          <section className="space-y-3 border-t border-gray-100 pt-4">
+                            <h3 className="text-sm font-semibold text-gray-900">
+                              {t("assistants.playground.skillYamlSectionRequiredTools")}
+                            </h3>
+                            <p className="text-xs text-text-secondary">
+                              {t("assistants.playground.skillYamlRequiredToolsHint")}
+                            </p>
+                            {skillToolOptionsLoading ? (
+                              <p className="text-xs text-gray-400">
+                                {t("common.loading")}
+                              </p>
+                            ) : skillToolOptions.length === 0 ? (
+                              <p className="text-xs text-amber-600">
+                                {t("assistants.playground.skillToolOptionsLoadFailed")}
+                              </p>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {skillToolOptions.map((tool) => {
+                                  const selected = skillForm.requiredTools
+                                    .split(",")
+                                    .map((s) => s.trim())
+                                    .filter(Boolean)
+                                    .includes(tool.id);
+                                  return (
+                                    <button
+                                      key={tool.id}
+                                      type="button"
+                                      disabled={skillRo}
+                                      onClick={() => {
+                                        if (skillRo) return;
+                                        const current = skillForm.requiredTools
+                                          .split(",")
+                                          .map((s) => s.trim())
+                                          .filter(Boolean);
+                                        const next = selected
+                                          ? current.filter((x) => x !== tool.id)
+                                          : [...current, tool.id];
+                                        setSkillForm({
+                                          ...skillForm,
+                                          requiredTools: next.join(", "),
+                                        });
+                                      }}
+                                      className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                                        selected
+                                          ? "border-blue-300 bg-blue-50 text-blue-700"
+                                          : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
+                                      } ${skillRo ? "cursor-not-allowed opacity-60" : ""}`}
+                                    >
+                                      {tool.label}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             )}
-                          </div>
+                          </section>
                         </div>
                       </div>
                     )}
@@ -781,30 +931,6 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                       </div>
                     )}
 
-                    {skillEditorTab === "frontmatter" && (
-                      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                        <p className="mb-3 text-xs leading-relaxed text-text-secondary">
-                          {t("assistants.playground.skillFrontmatterHelp")}
-                        </p>
-                        <label className="mb-1 block text-sm font-medium text-gray-700">
-                          {t("assistants.playground.skillFrontmatterLabel")}
-                        </label>
-                        <textarea
-                          value={skillFrontmatterYaml}
-                          disabled={skillRo}
-                          onChange={(e) =>
-                            setSkillFrontmatterYaml(e.target.value)
-                          }
-                          spellCheck={false}
-                          placeholder={
-                            "name: My Skill\norderSheetId: ...\nsheetFields:\n  - Order ID\n  - ..."
-                          }
-                          rows={18}
-                          className="min-h-[280px] w-full resize-y rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-xs leading-relaxed text-text-primary focus:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
-                        />
-                      </div>
-                    )}
-
                     {skillEditorTab === "reference" && (
                       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                         {skillRo ? (
@@ -818,11 +944,15 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                           </div>
                         ) : (
                           <div className="space-y-3">
+                            <p className="text-xs leading-relaxed text-text-secondary">
+                              {t("assistants.playground.skillReferencesHint")}
+                            </p>
                             <div className="flex flex-wrap items-center justify-end gap-2">
                               <button
                                 type="button"
                                 onClick={() => refUploadRef.current?.click()}
                                 className="flex items-center gap-1 text-xs text-text-secondary hover:text-primary"
+                                disabled={refSaving}
                               >
                                 <Upload className="h-3.5 w-3.5" />
                                 {t("assistants.playground.skillReferenceUpload")}
@@ -834,41 +964,135 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                                 className="hidden"
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
-                                  if (file) handleUploadReference(sid, file);
+                                  if (file) void handleUploadReference(sid, file);
                                   e.target.value = "";
                                 }}
                               />
-                              {refContent && (
+                              {refFiles.length > 0 && (
                                 <button
                                   type="button"
-                                  onClick={() => handleDeleteReference(sid)}
+                                  onClick={() => void handleDeleteReference(sid)}
                                   className="flex items-center gap-1 text-xs text-text-secondary hover:text-error"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
-                                  {t("assistants.playground.skillReferenceRemove")}
+                                  {t("assistants.playground.skillReferenceRemoveAll")}
                                 </button>
                               )}
                             </div>
-                            <textarea
-                              value={refContent}
-                              onChange={(e) => setRefContent(e.target.value)}
-                              placeholder={t(
-                                "assistants.playground.skillReferencePlaceholder",
-                              )}
-                              rows={12}
-                              className="min-h-[200px] w-full resize-y rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-xs focus:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                            <div className="flex justify-end">
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => handleSaveReference(sid)}
-                                disabled={refSaving}
-                                isLoading={refSaving}
-                              >
-                                {t("assistants.playground.skillSaveReference")}
-                              </Button>
-                            </div>
+                            {refFiles.length > 0 ? (
+                              <div className="space-y-1">
+                                {refFiles.map((f) => (
+                                  <div
+                                    key={`${f.name}-${f.legacy ? "legacy" : "ref"}`}
+                                    className="group flex items-center justify-between rounded-md bg-gray-50 px-2.5 py-1.5"
+                                  >
+                                    <button
+                                      type="button"
+                                      className={`flex min-w-0 flex-1 items-center gap-1.5 text-left ${
+                                        refSelectedName === f.name
+                                          ? "text-primary"
+                                          : "text-text-primary"
+                                      }`}
+                                      onClick={() =>
+                                        void handleSelectReferenceFile(sid, f.name)
+                                      }
+                                      disabled={refDocLoading}
+                                    >
+                                      <FileText className="h-3.5 w-3.5 shrink-0 text-sky-600" />
+                                      <span className="truncate font-mono text-[11px]">
+                                        {f.name}
+                                      </span>
+                                      {f.legacy ? (
+                                        <span className="shrink-0 rounded bg-amber-100 px-1 py-0 text-[9px] font-medium uppercase text-amber-800">
+                                          {t(
+                                            "assistants.playground.skillReferenceLegacyBadge",
+                                          )}
+                                        </span>
+                                      ) : null}
+                                      <span className="shrink-0 text-[10px] text-text-secondary">
+                                        {formatAssetSize(f.sizeBytes)}
+                                      </span>
+                                    </button>
+                                    <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                                      {!f.legacy && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setRefRename({
+                                              name: f.name,
+                                              draft: f.name,
+                                            })
+                                          }
+                                          className="rounded p-0.5 text-text-secondary hover:text-primary"
+                                          title={t(
+                                            "assistants.playground.skillReferenceRename",
+                                          )}
+                                          disabled={refSaving}
+                                        >
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void handleDeleteReferenceFile(sid, f.name)
+                                        }
+                                        className="rounded p-0.5 text-text-secondary hover:text-error"
+                                        title={t("common.delete")}
+                                        disabled={refSaving}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-text-secondary">
+                                {t("assistants.playground.skillReferencesEmpty")}
+                              </p>
+                            )}
+                            {refSelectedName ? (
+                              <div className="space-y-2 pt-1">
+                                {refDocLoading ? (
+                                  <div className="flex items-center gap-2 text-sm text-text-secondary">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    {t("common.loading")}
+                                  </div>
+                                ) : (
+                                  <>
+                                    <textarea
+                                      value={refEditorContent}
+                                      onChange={(e) =>
+                                        setRefEditorContent(e.target.value)
+                                      }
+                                      placeholder={t(
+                                        "assistants.playground.skillReferencePlaceholder",
+                                      )}
+                                      rows={12}
+                                      className="min-h-[200px] w-full resize-y rounded-md border border-gray-200 bg-gray-50 p-3 font-mono text-xs focus:border-primary/40 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                    />
+                                    <div className="flex justify-end">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={() =>
+                                          void handleSaveReferenceDocument(sid)
+                                        }
+                                        disabled={refSaving}
+                                        isLoading={refSaving}
+                                      >
+                                        {t("assistants.playground.skillSaveReference")}
+                                      </Button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            ) : refFiles.length > 0 ? (
+                              <p className="text-xs text-text-secondary">
+                                {t("assistants.playground.skillReferenceSelectFile")}
+                              </p>
+                            ) : null}
                           </div>
                         )}
                       </div>
@@ -1126,65 +1350,6 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                           </div>
                         </div>
                       ))}
-
-                    {skillEditorTab === "other" && (
-                      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                        <div className="space-y-4">
-                          <div>
-                            <label className="mb-1 block text-sm font-medium text-gray-700">
-                              {t("assistants.playground.skillFieldToolsAccess")}
-                            </label>
-                            {skillToolOptionsLoading ? (
-                              <p className="text-xs text-gray-400">
-                                {t("common.loading")}
-                              </p>
-                            ) : skillToolOptions.length === 0 ? (
-                              <p className="text-xs text-amber-600">
-                                {t("assistants.playground.skillToolOptionsLoadFailed")}
-                              </p>
-                            ) : (
-                              <div className="flex flex-wrap gap-2">
-                                {skillToolOptions.map((tool) => {
-                                  const selected = skillForm.requiredTools
-                                    .split(",")
-                                    .map((s) => s.trim())
-                                    .filter(Boolean)
-                                    .includes(tool.id);
-                                  return (
-                                    <button
-                                      key={tool.id}
-                                      type="button"
-                                      disabled={skillRo}
-                                      onClick={() => {
-                                        if (skillRo) return;
-                                        const current = skillForm.requiredTools
-                                          .split(",")
-                                          .map((s) => s.trim())
-                                          .filter(Boolean);
-                                        const next = selected
-                                          ? current.filter((x) => x !== tool.id)
-                                          : [...current, tool.id];
-                                        setSkillForm({
-                                          ...skillForm,
-                                          requiredTools: next.join(", "),
-                                        });
-                                      }}
-                                      className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                                        selected
-                                          ? "border-blue-300 bg-blue-50 text-blue-700"
-                                          : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
-                                      } ${skillRo ? "cursor-not-allowed opacity-60" : ""}`}
-                                    >
-                                      {tool.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
               );
@@ -1233,6 +1398,54 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
               value={assetRename?.draft ?? ""}
               onChange={(e) =>
                 setAssetRename((r) =>
+                  r ? { ...r, draft: e.target.value } : null,
+                )
+              }
+            />
+          </Modal>
+
+          <Modal
+            isOpen={!!refRename && !!editingSkill}
+            onClose={() => setRefRename(null)}
+            title={t("assistants.playground.skillReferenceRenameTitle")}
+            size="sm"
+            footer={
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => setRefRename(null)}
+                >
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (!refRename || !editingSkill) return;
+                    void handleRenameReferenceFile(
+                      editingSkill._id,
+                      refRename.name,
+                      refRename.draft,
+                    );
+                    setRefRename(null);
+                  }}
+                  disabled={
+                    refSaving ||
+                    !refRename?.draft.trim() ||
+                    refRename.draft.trim() === refRename.name
+                  }
+                  isLoading={refSaving}
+                >
+                  {t("assistants.playground.skillReferenceRenameSave")}
+                </Button>
+              </div>
+            }
+          >
+            <Input
+              label={t("assistants.playground.skillReferenceFilenameLabel")}
+              value={refRename?.draft ?? ""}
+              onChange={(e) =>
+                setRefRename((r) =>
                   r ? { ...r, draft: e.target.value } : null,
                 )
               }

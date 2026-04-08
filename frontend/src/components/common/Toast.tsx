@@ -23,13 +23,6 @@ const icons = {
   info: Info,
 };
 
-const colors = {
-  success: 'bg-success/10 border-success text-success',
-  error: 'bg-error/10 border-error text-error',
-  warning: 'bg-warning/10 border-warning text-warning',
-  info: 'bg-info/10 border-info text-info',
-};
-
 const iconColors = {
   success: 'text-success',
   error: 'text-error',

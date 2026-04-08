@@ -10,7 +10,6 @@ export const SetPassword: React.FC = () => {
   const {
     user,
     updateUser,
-    isAuthenticated,
     isLoading: authLoading,
   } = useAuth();
   const [newPassword, setNewPassword] = useState("");

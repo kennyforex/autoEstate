@@ -1,34 +1,67 @@
 ---
-name: Cake Booking
-description: Handles cake orders for Mille (or your bakery). Use when the customer wants to order a cake, book a cake pickup, choose flavours, birthday cake, celebration cake, mille crepe, customised cake, or asks about cake menu / prices for ordering.
-triggerHints: cake, order cake, cake order, birthday cake, celebration cake, mille crepe, mille cake, customise cake, customized cake, pickup cake, cake menu, 蛋糕, 訂蛋糕, 千層蛋糕, 生日蛋糕, 訂購蛋糕, book cake, pre-order cake
-reminderDelay: 5
-maxReminders: 2
-# Google Sheet document ID (from URL .../spreadsheets/d/<ID>/edit). Used by google_sheets append_row.
-orderSheetId: 1kh8YbUIrrUAXed2qHfSmY600kUPH_akqkYMSYdDFu4Y
-# Optional: Google Drive folder ID for the nested Pending folder under Client Payment (URL .../folders/<ID>/...). If set, google_drive upload uses this; if omitted, folders are resolved by name Client Payment → Pending.
-paymentPendingFolderId: ''
-sheetFields:
-  - Order ID
-  - Order Date
-  - Customer
-  - Phone
-  - Email
-  - Cake Name
-  - Flavor
-  - Size
-  - Servings
-  - Pickup Date
-  - Pickup Time
-  - Decoration Notes
-  - Dietary
-  - Status
-  - Price (HKD)
-  - Payment Status
-  - Payment Amount
-  - Paid Date
-  - Payment Checked
-  - Receipt
+name: cake-booking
+description: >-
+  Handles cake orders for Mille (or your bakery). Use when the customer wants to order a cake,
+  book a cake pickup, choose flavours, birthday or celebration cake, mille crepe, customised cake,
+  or asks about cake menu or prices for ordering.
+argument-hint: "[cake type, size, or pickup window]"
+user-invocable: true
+metadata:
+  display_name: Cake Booking
+  version: 1.0.0
+  author: AutoEstate
+  category: ordering
+  language: zh-HK + English
+  reminder_delay: 5
+  max_reminders: 2
+  trigger_hints:
+    - cake
+    - order cake
+    - cake order
+    - birthday cake
+    - celebration cake
+    - mille crepe
+    - mille cake
+    - customise cake
+    - customized cake
+    - pickup cake
+    - cake menu
+    - 蛋糕
+    - 訂蛋糕
+    - 千層蛋糕
+    - 生日蛋糕
+    - 訂購蛋糕
+    - book cake
+    - pre-order cake
+  order_sheet_id: 1kh8YbUIrrUAXed2qHfSmY600kUPH_akqkYMSYdDFu4Y
+  payment_pending_folder_id: ""
+  sheet_fields:
+    - Order ID
+    - Order Date
+    - Customer
+    - Phone
+    - Email
+    - Cake Name
+    - Flavor
+    - Size
+    - Servings
+    - Pickup Date
+    - Pickup Time
+    - Decoration Notes
+    - Dietary
+    - Status
+    - Price (HKD)
+    - Payment Status
+    - Payment Amount
+    - Paid Date
+    - Payment Checked
+    - Receipt
+  required_tools:
+    - document_data_capture
+    - google_calendar
+    - google_drive
+    - google_gmail
+    - google_sheets
 steps:
   - id: menu
     label: 從餐單選擇蛋糕類型（或特別訂製需求）
@@ -58,7 +91,6 @@ steps:
     label: 核對收據、上傳 Drive、更新試算表列、已付款確認電郵
     collects: completion
 ---
-
 
 ## 角色
 你是 **Mille** 的蛋糕訂購助理：語氣溫暖、簡潔（若實際品牌名不同，可在回覆中改用正確店名）。以自然對話**每次只問一個主要問題**收集資料。
@@ -119,7 +151,7 @@ steps:
 
 ## Google Drive（收據）
 收據放入 **`Client Payment` → `Pending`**（若未有此巢狀資料夾，建立一次即可）。  
-**建議：** 在本檔 frontmatter 設定 **`paymentPendingFolderId`** 為 **Pending** 資料夾 ID（在 Drive 開啟資料夾，從網址 `https://drive.google.com/drive/folders/<FOLDER_ID>` 複製），可避免名稱不符。若 `paymentPendingFolderId` 留空，上傳仍會依資料夾名稱解析 **Client Payment → Pending**。
+**建議：** 在本檔 YAML `metadata.payment_pending_folder_id`（或舊鍵 `paymentPendingFolderId`）設定 **Pending** 資料夾 ID（在 Drive 開啟資料夾，從網址 `https://drive.google.com/drive/folders/<FOLDER_ID>` 複製），可避免名稱不符。若留空，上傳仍會依資料夾名稱解析 **Client Payment → Pending**。
 
 ## 必須收集的資料（順序）
 1. 蛋糕類型、尺寸、口味、取貨日期時間、姓名、電話、電郵  
@@ -309,7 +341,7 @@ steps:
 - **action:** `upload`  
 - **fileUrl：** 訊息中同一張收據的 **Image URL**  
 - **fileName：** 圖片用 `Receipt-[OrderID]-[YYYYMMDD].jpg` 或 `.png`；PDF 用 **`.pdf`**  
-- **parentFolderId：** 省略——工具會用 frontmatter 的 **`paymentPendingFolderId`**（若有），否則依名稱解析 **Client Payment → Pending**  
+- **parentFolderId：** 省略——工具會用 YAML 的 **`metadata.payment_pending_folder_id`**（若有），否則依名稱解析 **Client Payment → Pending**  
 
 保留回傳的 **webViewLink** 供步驟 13 已付款電郵及試算表 **Receipt** 欄（步驟 12）。
 

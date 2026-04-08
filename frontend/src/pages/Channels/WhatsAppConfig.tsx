@@ -67,7 +67,10 @@ export const WhatsAppConfig: React.FC = () => {
 
         // Set form values
         setAIEnabled(channelData.aiSettings?.enabled || false);
-        setSelectedAssistant(channelData.assistantId || "");
+        const aid = channelData.assistantId;
+        setSelectedAssistant(
+          typeof aid === "string" ? aid : aid?._id ?? "",
+        );
         setAutoReplyMode(channelData.aiSettings?.autoReplyMode || "off");
         setAutoEscalate(
           channelData.aiSettings?.escalateOnNegativeSentiment || false,
@@ -116,8 +119,16 @@ export const WhatsAppConfig: React.FC = () => {
     if (!id) return;
 
     try {
-      const updated = await channelsApi.connect(id);
-      setChannel(updated);
+      const partial = await channelsApi.connect(id);
+      setChannel((prev) =>
+        prev
+          ? {
+              ...prev,
+              qrCode: partial.qrCode ?? prev.qrCode,
+              status: partial.status as Channel["status"],
+            }
+          : prev,
+      );
     } catch (error) {
       console.error("Failed to connect channel:", error);
     }

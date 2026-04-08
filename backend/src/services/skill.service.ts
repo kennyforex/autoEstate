@@ -6,11 +6,21 @@ import {
   skillStorage,
   type SkillAssetFileInfo,
   type SkillDirectoryStructure,
+  type SkillReferenceListResult,
 } from './skillStorage.service.js';
 import {
+  mergeSkillFormIntoFrontmatterInner,
+  type SkillFormYamlOverlay,
   replaceSkillMdFrontmatter,
   skillMdBodyAfterFrontmatter,
+  skillMdFrontmatterInner,
 } from '../utils/skillMdConfig.js';
+import {
+  parseSkillFrontmatterFromYaml,
+  type ParsedSkillStep as ParsedSkillStepImported,
+} from '../utils/skillFrontmatterParse.js';
+
+export type ParsedSkillStep = ParsedSkillStepImported;
 
 export interface CreateSkillInput {
   name: string;
@@ -38,6 +48,8 @@ export interface UpdateSkillInput {
   maxReminders?: number;
   scheduleEnabled?: boolean;
   scheduleCron?: string;
+  argumentHint?: string;
+  userInvocable?: boolean;
   status?: 'active' | 'inactive';
   nickname?: string;
   staffRole?: string;
@@ -45,26 +57,26 @@ export interface UpdateSkillInput {
   customAvatarUrl?: string;
 }
 
-/**
- * Parse SKILL.md frontmatter for metadata only.
- * Content is stored in file, not loaded here.
- *
- * Expected format:
- * ```
- * ---
- * name: Booking Handler
- * description: Handles appointment booking requests
- * triggerHints: book, appointment, schedule, 預約
- * scripts:
- *   check_availability: Check if time slot is free
- *   validate: Validate booking parameters
- * ---
- * ```
- */
-export interface ParsedSkillStep {
-  id: string;
-  label: string;
-  collects?: string;
+function skillFormOverlayFromUpdateFields(dbFields: UpdateSkillInput): SkillFormYamlOverlay {
+  return {
+    displayName: typeof dbFields.name === 'string' ? dbFields.name : '',
+    description: typeof dbFields.description === 'string' ? dbFields.description : '',
+    reminderDelay:
+      typeof dbFields.reminderDelay === 'number' ? dbFields.reminderDelay : 0,
+    maxReminders:
+      typeof dbFields.maxReminders === 'number' ? dbFields.maxReminders : 0,
+    scheduleEnabled: Boolean(dbFields.scheduleEnabled),
+    scheduleCron:
+      typeof dbFields.scheduleCron === 'string' ? dbFields.scheduleCron : '',
+    requiredTools: Array.isArray(dbFields.requiredTools)
+      ? (dbFields.requiredTools as string[])
+      : [],
+    triggerHints: Array.isArray(dbFields.triggerHints)
+      ? [...dbFields.triggerHints]
+      : [],
+    argumentHint: typeof dbFields.argumentHint === 'string' ? dbFields.argumentHint : '',
+    userInvocable: Boolean(dbFields.userInvocable),
+  };
 }
 
 /** Latin slug from display name (empty if name is only non-Latin). */
@@ -73,24 +85,28 @@ function slugifyFromSkillName(name: string): string {
 }
 
 /**
- * Install path / DB slug: optional explicit `slug` in frontmatter (required when name is non-Latin).
+ * Install path / DB slug: YAML `name` is kebab-case id; optional `metadata.slug` overrides.
  */
-export function resolveInstallSlug(name: string, explicitSlug?: string): string {
+export function resolveInstallSlug(skillId: string, explicitSlug?: string): string {
   const explicit = explicitSlug
     ?.trim()
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')
     .replace(/^-|-$/g, '');
   if (explicit) return explicit;
-  const fromName = slugifyFromSkillName(name);
+  const kebab = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+  if (skillId.length > 0 && skillId.length <= 64 && kebab.test(skillId)) return skillId;
+  const fromName = slugifyFromSkillName(skillId);
   if (fromName) return fromName;
   throw new Error(
-    'Skill slug cannot be derived from name. Add `slug: your-english-slug` to SKILL.md frontmatter (required for non-Latin names).',
+    'Skill slug cannot be derived from name. Add `metadata.slug: your-english-slug` to SKILL.md frontmatter (required for non-Latin names).',
   );
 }
 
+/** Parsed SKILL.md frontmatter for DB + install (name = display title). */
 export function parseSkillFrontmatter(content: string): {
   name: string;
+  skillId: string;
   slug?: string;
   description: string;
   triggerHints: string[];
@@ -100,80 +116,24 @@ export function parseSkillFrontmatter(content: string): {
   maxReminders: number;
   scheduleEnabled: boolean;
   scheduleCron: string;
+  requiredTools: string[];
+  toolConfigExplicit: boolean;
 } {
-  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
-
-  if (!frontmatterMatch) {
-    throw new Error('Invalid skill file: missing YAML frontmatter (--- ... ---)');
-  }
-
-  const frontmatter = frontmatterMatch[1];
-
-  const meta: Record<string, string> = {};
-  for (const line of frontmatter.split('\n')) {
-    const colonIdx = line.indexOf(':');
-    if (colonIdx > 0) {
-      const key = line.substring(0, colonIdx).trim();
-      const value = line.substring(colonIdx + 1).trim();
-      meta[key] = value;
-    }
-  }
-
-  if (!meta.name) throw new Error('Skill file missing required field: name');
-  if (!meta.description) throw new Error('Skill file missing required field: description');
-
-  const scriptsMeta: Record<string, string> = {};
-  const scriptsMatch = frontmatter.match(/scripts:\n(([\s\S]*?))(?=\n\w|$)/);
-  if (scriptsMatch) {
-    const scriptsSection = scriptsMatch[1];
-    for (const line of scriptsSection.split('\n')) {
-      const colonIdx = line.indexOf(':');
-      if (colonIdx > 0) {
-        const key = line.substring(0, colonIdx).trim();
-        const value = line.substring(colonIdx + 1).trim();
-        if (key) scriptsMeta[key] = value;
-      }
-    }
-  }
-
-  // Parse steps section: YAML list items with id, label, collects
-  const steps: ParsedSkillStep[] = [];
-  const stepsMatch = frontmatter.match(/steps:\n((?:\s+-[\s\S]*?)?)(?=\n[a-zA-Z]|\s*$)/);
-  if (stepsMatch) {
-    const stepsSection = stepsMatch[1];
-    let currentStep: Partial<ParsedSkillStep> = {};
-    for (const line of stepsSection.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('- id:')) {
-        if (currentStep.id) {
-          steps.push({ id: currentStep.id, label: currentStep.label || currentStep.id, collects: currentStep.collects });
-        }
-        currentStep = { id: trimmed.substring(5).trim() };
-      } else if (trimmed.startsWith('label:')) {
-        currentStep.label = trimmed.substring(6).trim();
-      } else if (trimmed.startsWith('collects:')) {
-        currentStep.collects = trimmed.substring(9).trim();
-      }
-    }
-    if (currentStep.id) {
-      steps.push({ id: currentStep.id, label: currentStep.label || currentStep.id, collects: currentStep.collects });
-    }
-  }
-
-  const se = meta.scheduleEnabled?.trim().toLowerCase();
-  const scheduleEnabled = se === 'true' || se === '1' || se === 'yes';
-
+  const r = parseSkillFrontmatterFromYaml(content);
   return {
-    name: meta.name,
-    slug: meta.slug?.trim() || undefined,
-    description: meta.description,
-    triggerHints: meta.triggerHints ? meta.triggerHints.split(',').map((s) => s.trim()).filter(Boolean) : [],
-    scriptsMeta,
-    steps,
-    reminderDelay: meta.reminderDelay ? parseInt(meta.reminderDelay, 10) || 0 : 0,
-    maxReminders: meta.maxReminders ? parseInt(meta.maxReminders, 10) || 0 : 0,
-    scheduleEnabled,
-    scheduleCron: meta.scheduleCron?.trim() || '',
+    name: r.displayName,
+    skillId: r.skillId,
+    slug: r.slug,
+    description: r.description,
+    triggerHints: r.triggerHints,
+    scriptsMeta: r.scriptsMeta,
+    steps: r.steps,
+    reminderDelay: r.reminderDelay,
+    maxReminders: r.maxReminders,
+    scheduleEnabled: r.scheduleEnabled,
+    scheduleCron: r.scheduleCron,
+    requiredTools: r.requiredTools,
+    toolConfigExplicit: r.toolConfigExplicit,
   };
 }
 
@@ -214,6 +174,8 @@ class SkillService {
 
     const touchFile = instructions !== undefined || frontmatterYaml !== undefined;
 
+    let fileSync: Record<string, unknown> | null = null;
+
     if (touchFile) {
       const skill = await Skill.findById(id).lean();
       if (skill?.storagePath) {
@@ -230,7 +192,28 @@ class SkillService {
 
           let newContent = existingContent;
           if (frontmatterYaml !== undefined) {
-            newContent = replaceSkillMdFrontmatter(newContent, frontmatterYaml);
+            let inner = frontmatterYaml;
+            if (
+              typeof dbFields.name === 'string' &&
+              typeof dbFields.description === 'string'
+            ) {
+              inner = mergeSkillFormIntoFrontmatterInner(
+                inner,
+                skillFormOverlayFromUpdateFields(dbFields),
+              );
+            }
+            newContent = replaceSkillMdFrontmatter(newContent, inner);
+          } else if (
+            instructions !== undefined &&
+            typeof dbFields.name === 'string' &&
+            typeof dbFields.description === 'string'
+          ) {
+            const prevInner = skillMdFrontmatterInner(existingContent) ?? '';
+            const inner = mergeSkillFormIntoFrontmatterInner(
+              prevInner,
+              skillFormOverlayFromUpdateFields(dbFields),
+            );
+            newContent = replaceSkillMdFrontmatter(existingContent, inner);
           }
           if (instructions !== undefined) {
             const fm = newContent.match(/^---\s*\n[\s\S]*?\n---\s*\n?/);
@@ -242,7 +225,21 @@ class SkillService {
           }
 
           await fs.writeFile(skillMdPath, newContent, 'utf-8');
-          (dbFields as any).instructions = skillMdBodyAfterFrontmatter(newContent);
+          const parsed = parseSkillFrontmatter(newContent);
+          fileSync = {
+            name: parsed.name,
+            description: parsed.description,
+            triggerHints: parsed.triggerHints,
+            steps: parsed.steps,
+            reminderDelay: parsed.reminderDelay,
+            maxReminders: parsed.maxReminders,
+            scheduleEnabled: parsed.scheduleEnabled,
+            scheduleCron: parsed.scheduleCron,
+            instructions: skillMdBodyAfterFrontmatter(newContent),
+          };
+          if (parsed.toolConfigExplicit) {
+            fileSync.requiredTools = parsed.requiredTools;
+          }
         } catch (err: any) {
           console.error('[SkillService] Failed to update SKILL.md:', err.message);
         }
@@ -251,7 +248,14 @@ class SkillService {
       }
     }
 
-    return Skill.findByIdAndUpdate(id, { $set: dbFields }, { new: true });
+    const yamlOnlyFormKeys = new Set(['argumentHint', 'userInvocable']);
+    const cleanedDb = Object.fromEntries(
+      Object.entries(dbFields).filter(
+        ([k, v]) => v !== undefined && !yamlOnlyFormKeys.has(k),
+      ),
+    );
+    const setPayload = { ...(fileSync || {}), ...cleanedDb };
+    return Skill.findByIdAndUpdate(id, { $set: setPayload }, { new: true });
   }
 
   async delete(id: string): Promise<boolean> {
@@ -299,7 +303,7 @@ class SkillService {
     // Load SKILL.md to parse frontmatter
     const skillMdContent = await skillStorage.loadSkillMd(tempPath);
     const parsed = parseSkillFrontmatter(skillMdContent);
-    const slug = resolveInstallSlug(parsed.name, parsed.slug);
+    const slug = resolveInstallSlug(parsed.skillId, parsed.slug);
 
     // Check existing
     const existing = await Skill.findOne({ slug });
@@ -311,42 +315,53 @@ class SkillService {
     await skillStorage.deleteSkillDirectory(storagePath); // Clean if exists
     await skillStorage.saveFromZip(createdBy, slug, zipBuffer);
 
+    // Re-parse from final SKILL.md (zip may differ slightly)
+    const finalMd = await skillStorage.loadSkillMd(storagePath);
+    const finalParsed = parseSkillFrontmatter(finalMd);
+
     // Get final structure
     const finalStructure = await skillStorage.analyzeStructure(storagePath);
 
+    const requiredTools =
+      finalParsed.toolConfigExplicit ? finalParsed.requiredTools : [];
+
     if (existing) {
-      existing.name = parsed.name;
-      existing.description = parsed.description;
-      existing.triggerHints = parsed.triggerHints;
+      existing.name = finalParsed.name;
+      existing.description = finalParsed.description;
+      existing.triggerHints = finalParsed.triggerHints;
       existing.hasReferences = finalStructure.hasReferenceMd;
       existing.hasExamples = finalStructure.hasExamplesDir;
       existing.scripts = finalStructure.scripts;
       existing.storagePath = storagePath;
-      existing.steps = parsed.steps;
-      existing.reminderDelay = parsed.reminderDelay;
-      existing.maxReminders = parsed.maxReminders;
-      existing.scheduleEnabled = parsed.scheduleEnabled;
-      existing.scheduleCron = parsed.scheduleCron;
+      existing.steps = finalParsed.steps;
+      existing.reminderDelay = finalParsed.reminderDelay;
+      existing.maxReminders = finalParsed.maxReminders;
+      existing.scheduleEnabled = finalParsed.scheduleEnabled;
+      existing.scheduleCron = finalParsed.scheduleCron;
+      if (finalParsed.toolConfigExplicit) {
+        existing.requiredTools = requiredTools;
+      }
       await existing.save();
       return existing;
     }
 
     const skill = await this.create({
-      name: parsed.name,
+      name: finalParsed.name,
       slug,
-      description: parsed.description,
-      triggerHints: parsed.triggerHints,
+      description: finalParsed.description,
+      triggerHints: finalParsed.triggerHints,
       createdBy,
       storagePath,
       hasReferences: finalStructure.hasReferenceMd,
       hasExamples: finalStructure.hasExamplesDir,
       scripts: finalStructure.scripts,
     });
-    skill.steps = parsed.steps;
-    skill.reminderDelay = parsed.reminderDelay;
-    skill.maxReminders = parsed.maxReminders;
-    skill.scheduleEnabled = parsed.scheduleEnabled;
-    skill.scheduleCron = parsed.scheduleCron;
+    skill.steps = finalParsed.steps;
+    skill.reminderDelay = finalParsed.reminderDelay;
+    skill.maxReminders = finalParsed.maxReminders;
+    skill.scheduleEnabled = finalParsed.scheduleEnabled;
+    skill.scheduleCron = finalParsed.scheduleCron;
+    skill.requiredTools = requiredTools;
     await skill.save();
     return skill;
   }
@@ -360,7 +375,7 @@ class SkillService {
     createdBy: string,
   ): Promise<ISkillDocument> {
     const parsed = parseSkillFrontmatter(content);
-    const slug = resolveInstallSlug(parsed.name, parsed.slug);
+    const slug = resolveInstallSlug(parsed.skillId, parsed.slug);
 
     // Create storage directory with just SKILL.md
     const storagePath = skillStorage.getSkillPath(createdBy, slug);
@@ -377,6 +392,8 @@ class SkillService {
       ? content.substring(frontmatterEnd[0].length).trim()
       : '';
 
+    const requiredTools = parsed.toolConfigExplicit ? parsed.requiredTools : [];
+
     const existing = await Skill.findOne({ slug });
     if (existing) {
       existing.name = parsed.name;
@@ -392,6 +409,9 @@ class SkillService {
       existing.maxReminders = parsed.maxReminders;
       existing.scheduleEnabled = parsed.scheduleEnabled;
       existing.scheduleCron = parsed.scheduleCron;
+      if (parsed.toolConfigExplicit) {
+        existing.requiredTools = requiredTools;
+      }
       await existing.save();
       return existing;
     }
@@ -413,6 +433,7 @@ class SkillService {
     skill.maxReminders = parsed.maxReminders;
     skill.scheduleEnabled = parsed.scheduleEnabled;
     skill.scheduleCron = parsed.scheduleCron;
+    skill.requiredTools = requiredTools;
     await skill.save();
     return skill;
   }
@@ -487,18 +508,21 @@ class SkillService {
     return this.unbindFromStaff(skillId, assistantId, mgr._id.toString());
   }
 
+  /** Recompute hasReferences from disk (references/ + optional legacy root reference.md). */
+  async refreshHasReferences(skillId: string): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    const { files } = await skillStorage.listReferenceDocuments(skill.storagePath);
+    skill.hasReferences = files.length > 0;
+    await skill.save();
+    return skill;
+  }
+
   async saveReference(skillId: string, content: string): Promise<ISkillDocument | null> {
     const skill = await Skill.findById(skillId);
     if (!skill || !skill.storagePath) return null;
-
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    await fs.mkdir(skill.storagePath, { recursive: true });
-    await fs.writeFile(path.join(skill.storagePath, 'reference.md'), content, 'utf-8');
-
-    skill.hasReferences = true;
-    await skill.save();
-    return skill;
+    await skillStorage.writeReferenceDocument(skill.storagePath, 'reference.md', content);
+    return this.refreshHasReferences(skillId);
   }
 
   async getReference(skillId: string): Promise<string | null> {
@@ -513,13 +537,85 @@ class SkillService {
 
     const fs = await import('fs/promises');
     const path = await import('path');
+    const skillRoot = path.resolve(skill.storagePath);
+    const refsDir = path.join(skillRoot, 'references');
     try {
-      await fs.unlink(path.join(skill.storagePath, 'reference.md'));
-    } catch { /* file may not exist */ }
+      const names = await fs.readdir(refsDir);
+      for (const n of names) {
+        try {
+          await fs.unlink(path.join(refsDir, n));
+        } catch {
+          /* ignore */
+        }
+      }
+      await fs.rm(refsDir, { recursive: true, force: true });
+    } catch {
+      /* no dir */
+    }
+    try {
+      await fs.unlink(path.join(skillRoot, 'reference.md'));
+    } catch {
+      /* no legacy file */
+    }
 
     skill.hasReferences = false;
     await skill.save();
     return skill;
+  }
+
+  async listReferenceDocuments(skillId: string): Promise<SkillReferenceListResult | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    return skillStorage.listReferenceDocuments(skill.storagePath);
+  }
+
+  async getReferenceDocument(skillId: string, filename: string): Promise<{ filename: string; content: string } | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    const content = await skillStorage.loadReferenceDocument(skill.storagePath, filename);
+    if (content === null) return null;
+    return { filename, content };
+  }
+
+  async saveReferenceDocument(
+    skillId: string,
+    filename: string,
+    content: string,
+  ): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    await skillStorage.writeReferenceDocument(skill.storagePath, filename, content);
+    return this.refreshHasReferences(skillId);
+  }
+
+  async uploadReferenceDocument(
+    skillId: string,
+    filename: string,
+    buffer: Buffer,
+  ): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    const text = buffer.toString('utf-8');
+    await skillStorage.writeReferenceDocument(skill.storagePath, filename, text);
+    return this.refreshHasReferences(skillId);
+  }
+
+  async deleteReferenceDocument(skillId: string, filename: string): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    await skillStorage.deleteReferenceDocument(skill.storagePath, filename);
+    return this.refreshHasReferences(skillId);
+  }
+
+  async renameReferenceDocument(
+    skillId: string,
+    fromName: string,
+    toName: string,
+  ): Promise<ISkillDocument | null> {
+    const skill = await Skill.findById(skillId);
+    if (!skill || !skill.storagePath) return null;
+    await skillStorage.renameReferenceDocument(skill.storagePath, fromName, toName);
+    return this.refreshHasReferences(skillId);
   }
 
   async addScript(skillId: string, filename: string, content: Buffer | string): Promise<ISkillDocument | null> {

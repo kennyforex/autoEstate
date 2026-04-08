@@ -651,7 +651,7 @@ export const conversationsApi = {
 
   update: async (
     id: string,
-    updates: Partial<Conversation>,
+    updates: Partial<Omit<Conversation, "tags">> & { tags?: string[] | Tag[] },
   ): Promise<Conversation> => {
     const { data } = await api.put(`/conversations/${id}`, updates);
     // Backend returns { conversation: {...} }, unwrap it
@@ -913,7 +913,12 @@ export const skillsApi = {
         | "avatarPreset"
         | "customAvatarUrl"
       >
-    > & { instructions?: string; frontmatterYaml?: string },
+    > & {
+      instructions?: string;
+      frontmatterYaml?: string;
+      argumentHint?: string;
+      userInvocable?: boolean;
+    },
   ): Promise<Skill> => {
     const { data } = await api.put(`/skills/${id}`, updates);
     return data.skill || data;
@@ -967,7 +972,7 @@ export const skillsApi = {
     });
   },
 
-  // ── Reference management ──
+  // ── Reference management (legacy single-file API) ──
   getReference: async (skillId: string): Promise<string | null> => {
     try {
       const { data } = await api.get(`/skills/${skillId}/reference`);
@@ -993,6 +998,70 @@ export const skillsApi = {
 
   deleteReference: async (skillId: string): Promise<Skill> => {
     const { data } = await api.delete(`/skills/${skillId}/reference`);
+    return data.skill || data;
+  },
+
+  // ── references/ folder (multiple .md / .txt) ──
+  listReferences: async (
+    skillId: string,
+  ): Promise<{
+    files: { name: string; sizeBytes: number; legacy?: boolean }[];
+    legacyRootReference: boolean;
+  }> => {
+    const { data } = await api.get(`/skills/${skillId}/references`);
+    return {
+      files: data.files || [],
+      legacyRootReference: Boolean(data.legacyRootReference),
+    };
+  },
+
+  getReferenceDocument: async (
+    skillId: string,
+    filename: string,
+  ): Promise<{ filename: string; content: string }> => {
+    const { data } = await api.get(
+      `/skills/${skillId}/references/${encodeURIComponent(filename)}`,
+    );
+    return data;
+  },
+
+  saveReferenceDocument: async (
+    skillId: string,
+    filename: string,
+    content: string,
+  ): Promise<Skill> => {
+    const { data } = await api.put(
+      `/skills/${skillId}/references/${encodeURIComponent(filename)}`,
+      { content },
+    );
+    return data.skill || data;
+  },
+
+  uploadReferenceDocument: async (skillId: string, file: File): Promise<Skill> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const { data } = await api.post(`/skills/${skillId}/references/upload`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return data.skill || data;
+  },
+
+  deleteReferenceDocument: async (skillId: string, filename: string): Promise<Skill> => {
+    const { data } = await api.delete(
+      `/skills/${skillId}/references/${encodeURIComponent(filename)}`,
+    );
+    return data.skill || data;
+  },
+
+  renameReferenceDocument: async (
+    skillId: string,
+    filename: string,
+    newName: string,
+  ): Promise<Skill> => {
+    const { data } = await api.patch(
+      `/skills/${skillId}/references/${encodeURIComponent(filename)}`,
+      { newName },
+    );
     return data.skill || data;
   },
 

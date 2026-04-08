@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import type { Dirent } from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import AdmZip from 'adm-zip';
@@ -35,6 +36,22 @@ export interface SkillAssetFileInfo {
   sizeBytes: number;
 }
 
+/** Allowed extensions for skill `references/` (markdown and plain text). */
+export const SKILL_REFERENCE_DOC_EXTENSIONS = new Set(['.md', '.txt']);
+
+export interface SkillReferenceFileInfo {
+  name: string;
+  sizeBytes: number;
+  /** True when this row is the legacy root reference.md (not under references/). */
+  legacy?: boolean;
+}
+
+export interface SkillReferenceListResult {
+  files: SkillReferenceFileInfo[];
+  /** True when skill root still has reference.md (pre-migration). */
+  legacyRootReference: boolean;
+}
+
 export interface ScriptExecutionResult {
   stdout: string;
   stderr: string;
@@ -45,7 +62,7 @@ export interface ScriptExecutionResult {
  * Service for managing skill directory storage and operations.
  * Skills are stored as directories with:
  * - SKILL.md (required, main instructions)
- * - reference.md (optional, detailed docs)
+ * - references/*.md|*.txt (optional, on-demand docs) and/or legacy reference.md at skill root
  * - examples/ (optional, usage examples)
  * - scripts/ (optional, executable scripts)
  * - assets/ (optional, templates and binary files managed via API)
@@ -136,7 +153,22 @@ class SkillStorageService {
         } else if (entry.isDirectory()) {
           const dirName = entry.name.toLowerCase();
 
-          if (dirName === 'examples') {
+          if (dirName === 'references') {
+            const refsPath = path.join(skillPath, 'references');
+            try {
+              const refFiles = await fs.readdir(refsPath, { withFileTypes: true });
+              for (const rf of refFiles) {
+                if (!rf.isFile()) continue;
+                const ext = path.extname(rf.name).toLowerCase();
+                if (SKILL_REFERENCE_DOC_EXTENSIONS.has(ext)) {
+                  structure.hasReferenceMd = true;
+                  break;
+                }
+              }
+            } catch {
+              /* ignore */
+            }
+          } else if (dirName === 'examples') {
             structure.hasExamplesDir = true;
             const examplesPath = path.join(skillPath, 'examples');
             const exampleFiles = await fs.readdir(examplesPath);
@@ -173,16 +205,226 @@ class SkillStorageService {
   }
 
   /**
-   * Load reference.md content (on-demand)
+   * List filenames in references/ (for agent prompt). Sorted basenames only.
+   */
+  async listReferenceFilenames(skillPath: string): Promise<string[]> {
+    const listed = await this.listReferenceDocuments(skillPath);
+    return listed.files.filter((f) => !f.legacy).map((f) => f.name);
+  }
+
+  /**
+   * Aggregated reference text: all references/* then, if empty, legacy root reference.md.
    */
   async loadReference(skillPath: string): Promise<string | null> {
-    const filePath = path.join(skillPath, 'reference.md');
+    const skillRoot = path.resolve(skillPath);
+    const refsDir = path.join(skillRoot, 'references');
+    const parts: string[] = [];
+
+    let entries: Dirent[] = [];
     try {
-      const content = await fs.readFile(filePath, 'utf-8');
-      return content;
+      entries = await fs.readdir(refsDir, { withFileTypes: true });
+    } catch {
+      entries = [];
+    }
+    const names = entries
+      .filter((e) => e.isFile())
+      .map((e) => e.name)
+      .filter((n) => SKILL_REFERENCE_DOC_EXTENSIONS.has(path.extname(n).toLowerCase()))
+      .sort((a, b) => a.localeCompare(b));
+
+    for (const name of names) {
+      const abs = path.join(refsDir, name);
+      try {
+        const content = await fs.readFile(abs, 'utf-8');
+        parts.push(`## File: ${name}\n\n${content}`);
+      } catch {
+        /* skip */
+      }
+    }
+
+    if (parts.length > 0) {
+      return parts.join('\n\n---\n\n');
+    }
+
+    const legacyPath = path.join(skillRoot, 'reference.md');
+    try {
+      return await fs.readFile(legacyPath, 'utf-8');
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Load a single reference document by basename (references/ only), or legacy root reference.md when name is reference.md and file is not in references/.
+   */
+  async loadReferenceDocument(skillPath: string, filename: string): Promise<string | null> {
+    const base = path.basename(filename.trim());
+    if (!base || base !== filename.trim() || base.includes('..') || /[/\\]/.test(base)) {
+      return null;
+    }
+    const ext = path.extname(base).toLowerCase();
+    if (!SKILL_REFERENCE_DOC_EXTENSIONS.has(ext)) {
+      return null;
+    }
+    const skillRoot = path.resolve(skillPath);
+    const inRefs = path.join(skillRoot, 'references', base);
+    try {
+      return await fs.readFile(inRefs, 'utf-8');
+    } catch {
+      /* fall through */
+    }
+    if (base.toLowerCase() === 'reference.md') {
+      const legacy = path.join(skillRoot, 'reference.md');
+      try {
+        return await fs.readFile(legacy, 'utf-8');
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  resolveReferenceDocAbsolutePath(skillPath: string, filename: string, requireAllowedExt: boolean): string {
+    const base = path.basename(filename.trim());
+    if (!base || base !== filename.trim() || base.includes('..') || /[/\\]/.test(base)) {
+      throw new Error('Invalid filename');
+    }
+    const ext = path.extname(base).toLowerCase();
+    if (requireAllowedExt && !SKILL_REFERENCE_DOC_EXTENSIONS.has(ext)) {
+      throw new Error(`File type not allowed: ${ext || '(none)'}`);
+    }
+    const skillRoot = path.resolve(skillPath);
+    const refsDir = path.join(skillRoot, 'references');
+    const abs = path.resolve(path.join(refsDir, base));
+    const refsResolved = path.resolve(refsDir);
+    const sep = path.sep;
+    if (abs !== refsResolved && !abs.startsWith(refsResolved + sep)) {
+      throw new Error('Path escapes references directory');
+    }
+    return abs;
+  }
+
+  async listReferenceDocuments(skillPath: string): Promise<SkillReferenceListResult> {
+    const skillRoot = path.resolve(skillPath);
+    const refsDir = path.join(skillRoot, 'references');
+    const files: SkillReferenceFileInfo[] = [];
+
+    try {
+      const entries = await fs.readdir(refsDir, { withFileTypes: true });
+      for (const ent of entries) {
+        if (!ent.isFile()) continue;
+        const ext = path.extname(ent.name).toLowerCase();
+        if (!SKILL_REFERENCE_DOC_EXTENSIONS.has(ext)) continue;
+        const abs = path.join(refsDir, ent.name);
+        try {
+          const st = await fs.stat(abs);
+          files.push({ name: ent.name, sizeBytes: st.size });
+        } catch {
+          /* skip */
+        }
+      }
+    } catch {
+      /* no references dir */
+    }
+
+    files.sort((a, b) => a.name.localeCompare(b.name));
+
+    let legacyRootReference = false;
+    const rootRef = path.join(skillRoot, 'reference.md');
+    try {
+      const st = await fs.stat(rootRef);
+      if (st.isFile()) {
+        legacyRootReference = true;
+        const hasSameInRefs = files.some((f) => f.name.toLowerCase() === 'reference.md');
+        if (!hasSameInRefs) {
+          files.push({
+            name: 'reference.md',
+            sizeBytes: st.size,
+            legacy: true,
+          });
+        }
+      }
+    } catch {
+      /* no legacy file */
+    }
+
+    return { files, legacyRootReference };
+  }
+
+  async writeReferenceDocument(skillPath: string, filename: string, content: string): Promise<void> {
+    const base = path.basename(filename.trim());
+    const abs = this.resolveReferenceDocAbsolutePath(skillPath, filename, true);
+    const skillRoot = path.resolve(skillPath);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, content, 'utf-8');
+    if (base.toLowerCase() === 'reference.md') {
+      try {
+        await fs.unlink(path.join(skillRoot, 'reference.md'));
+      } catch {
+        /* no legacy file */
+      }
+    }
+  }
+
+  async deleteReferenceDocument(skillPath: string, filename: string): Promise<void> {
+    const base = path.basename(filename.trim());
+    if (base.toLowerCase() === 'reference.md') {
+      const listed = await this.listReferenceDocuments(skillPath);
+      const legacy = listed.files.find((f) => f.name === 'reference.md' && f.legacy);
+      if (legacy) {
+        const skillRoot = path.resolve(skillPath);
+        try {
+          await fs.unlink(path.join(skillRoot, 'reference.md'));
+        } catch (e: unknown) {
+          const err = e as NodeJS.ErrnoException;
+          if (err?.code === 'ENOENT') throw new Error('File not found');
+          throw e;
+        }
+        return;
+      }
+    }
+    const abs = this.resolveReferenceDocAbsolutePath(skillPath, filename, false);
+    const ext = path.extname(abs).toLowerCase();
+    if (!SKILL_REFERENCE_DOC_EXTENSIONS.has(ext)) {
+      throw new Error('File type not allowed');
+    }
+    try {
+      await fs.unlink(abs);
+    } catch (e: unknown) {
+      const err = e as NodeJS.ErrnoException;
+      if (err?.code === 'ENOENT') throw new Error('File not found');
+      throw e;
+    }
+  }
+
+  async renameReferenceDocument(skillPath: string, fromName: string, toName: string): Promise<void> {
+    if (fromName.toLowerCase() === 'reference.md') {
+      const listed = await this.listReferenceDocuments(skillPath);
+      const legacy = listed.files.find((f) => f.name === 'reference.md' && f.legacy);
+      if (legacy) {
+        throw new Error('Rename the legacy reference.md by moving it into the references/ folder (upload a new file) or delete it first');
+      }
+    }
+    const fromAbs = this.resolveReferenceDocAbsolutePath(skillPath, fromName, false);
+    const toAbs = this.resolveReferenceDocAbsolutePath(skillPath, toName, true);
+    const extFrom = path.extname(fromAbs).toLowerCase();
+    if (!SKILL_REFERENCE_DOC_EXTENSIONS.has(extFrom)) {
+      throw new Error('Source file type not allowed');
+    }
+    try {
+      await fs.stat(fromAbs);
+    } catch {
+      throw new Error('Source file not found');
+    }
+    try {
+      await fs.stat(toAbs);
+      throw new Error('A file with that name already exists');
+    } catch (e: unknown) {
+      const err = e as NodeJS.ErrnoException;
+      if (e instanceof Error && e.message === 'A file with that name already exists') throw e;
+      if (err?.code !== 'ENOENT') throw e;
+    }
+    await fs.rename(fromAbs, toAbs);
   }
 
   /**

@@ -1,5 +1,5 @@
 /**
- * Install「建立報價」技能：註冊 SKILL.md，複製 Word 範本至技能目錄 assets/，複製 reference.md 至技能儲存目錄，並設定 requiredTools / hasReferences。
+ * Install「建立報價」技能：註冊 SKILL.md，複製 Word 範本至 assets/，複製 references/*.md|*.txt 至技能儲存目錄，並設定 requiredTools / hasReferences。
  *
  *   npx tsx src/scripts/install-mille-create-quotation-skill.ts
  */
@@ -35,15 +35,27 @@ async function main() {
   await fs.copyFile(templateSrc, templateDest);
   console.log('Copied template to', templateDest);
 
-  const refSrc = path.join(process.cwd(), 'skills/mille-create-quotation/reference.md');
+  const refsSrcDir = path.join(process.cwd(), 'skills/mille-create-quotation/references');
+  const refsDestDir = path.join(skill.storagePath, 'references');
   let hasReferences = false;
   try {
-    await fs.access(refSrc);
-    await fs.copyFile(refSrc, path.join(skill.storagePath, 'reference.md'));
-    hasReferences = true;
-    console.log('Copied reference.md to', path.join(skill.storagePath, 'reference.md'));
+    const entries = await fs.readdir(refsSrcDir, { withFileTypes: true });
+    await fs.mkdir(refsDestDir, { recursive: true });
+    for (const ent of entries) {
+      if (!ent.isFile()) continue;
+      const lower = ent.name.toLowerCase();
+      if (!lower.endsWith('.md') && !lower.endsWith('.txt')) continue;
+      const from = path.join(refsSrcDir, ent.name);
+      const to = path.join(refsDestDir, ent.name);
+      await fs.copyFile(from, to);
+      hasReferences = true;
+      console.log('Copied reference file to', to);
+    }
+    if (!hasReferences) {
+      await fs.rm(refsDestDir, { recursive: true, force: true });
+    }
   } catch {
-    console.log('No reference.md beside SKILL.md — hasReferences left false');
+    console.log('No references/ beside SKILL.md — hasReferences left false');
   }
 
   await Skill.updateOne(

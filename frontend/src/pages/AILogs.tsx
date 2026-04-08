@@ -67,22 +67,6 @@ const typeIcons: Record<string, React.ReactNode> = {
   info: <Info className="w-4 h-4" />,
 };
 
-const levelColors: Record<string, string> = {
-  info: "text-blue-600 bg-blue-50",
-  warn: "text-amber-600 bg-amber-50",
-  error: "text-red-600 bg-red-50",
-};
-
-const typeColors: Record<string, string> = {
-  classification: "text-purple-600 bg-purple-50",
-  simple_reply: "text-green-600 bg-green-50",
-  complex_reply: "text-blue-600 bg-blue-50",
-  media_analysis: "text-cyan-600 bg-cyan-50",
-  decision: "text-amber-600 bg-amber-50",
-  error: "text-red-600 bg-red-50",
-  info: "text-gray-600 bg-gray-50",
-};
-
 export const AILogs: React.FC = () => {
   const { t } = useTranslation();
   const [logs, setLogs] = useState<AILogEntry[]>([]);

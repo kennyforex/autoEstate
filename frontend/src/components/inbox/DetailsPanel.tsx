@@ -12,22 +12,16 @@ import {
   Clock,
   AlertTriangle,
   X,
-  Plus,
-  CheckCircle,
-  Shield,
-  Archive,
-  RotateCcw,
   Info,
   RefreshCw,
 } from "lucide-react";
-import { Avatar, Badge, Toggle, Button } from "../common";
+import { Avatar, Badge, Toggle } from "../common";
 import type {
   Conversation,
   Contact,
   Channel,
-  Tag as TagType,
 } from "../../lib/types";
-import { conversationsApi, tagsApi, contactsApi } from "../../lib/api";
+import { conversationsApi, contactsApi } from "../../lib/api";
 
 interface DetailsPanelProps {
   conversation: Conversation;
@@ -73,29 +67,10 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({
   const channel = conversation.channelId as Channel;
   const [aiDiagnostic, setAiDiagnostic] = useState<any>(null);
   const [loadingDiagnostic, setLoadingDiagnostic] = useState(false);
-  const [availableTags, setAvailableTags] = useState<TagType[]>([]);
-  const [isAddingTag, setIsAddingTag] = useState(false);
-  const [newTagLabel, setNewTagLabel] = useState("");
-  const [newTagColor, setNewTagColor] = useState("#3B82F6");
   const [refreshingPhoto, setRefreshingPhoto] = useState(false);
   const [contactAvatar, setContactAvatar] = useState<string | undefined>(
     contact?.avatar,
   );
-
-  const TAG_COLORS = [
-    "#3B82F6", // Blue
-    "#10B981", // Green
-    "#F59E0B", // Amber
-    "#EF4444", // Red
-    "#8B5CF6", // Purple
-    "#EC4899", // Pink
-    "#06B6D4", // Cyan
-    "#F97316", // Orange
-  ];
-
-  useEffect(() => {
-    fetchTags();
-  }, []);
 
   // Update avatar when contact changes
   useEffect(() => {
@@ -126,67 +101,6 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({
       alert("Failed to refresh profile picture");
     } finally {
       setRefreshingPhoto(false);
-    }
-  };
-
-  const fetchTags = async () => {
-    try {
-      const tags = await tagsApi.list();
-      setAvailableTags(tags);
-    } catch (error) {
-      console.error("Failed to fetch tags:", error);
-    }
-  };
-
-  const handleAddTag = async (tagId: string) => {
-    try {
-      const currentTags = conversation.tags || [];
-      if (currentTags.some((t) => t._id === tagId)) return;
-
-      const updatedTags = [...currentTags.map((t) => t._id), tagId];
-      const updated = await conversationsApi.update(conversation._id, {
-        tags: updatedTags,
-      });
-      onUpdate?.(updated);
-      onCountsChange?.();
-    } catch (error) {
-      console.error("Failed to add tag:", error);
-    }
-  };
-
-  const handleRemoveTag = async (tagId: string) => {
-    try {
-      const currentTags = conversation.tags || [];
-      const updatedTags = currentTags
-        .filter((t) => t._id !== tagId)
-        .map((t) => t._id);
-
-      const updated = await conversationsApi.update(conversation._id, {
-        tags: updatedTags,
-      });
-      onUpdate?.(updated);
-      onCountsChange?.();
-    } catch (error) {
-      console.error("Failed to remove tag:", error);
-    }
-  };
-
-  const handleCreateTag = async () => {
-    if (!newTagLabel.trim()) return;
-    try {
-      const newTag = await tagsApi.create({
-        label: newTagLabel.trim(),
-        color: newTagColor,
-      });
-      if (newTag && newTag._id) {
-        await handleAddTag(newTag._id);
-        setNewTagLabel("");
-        setNewTagColor("#3B82F6");
-        setIsAddingTag(false);
-        fetchTags();
-      }
-    } catch (error) {
-      console.error("Failed to create tag:", error);
     }
   };
 
@@ -238,67 +152,6 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({
   useEffect(() => {
     fetchAIDiagnostic();
   }, [conversation._id]);
-
-  const handleToggleAttention = async () => {
-    try {
-      const updated = await conversationsApi.update(conversation._id, {
-        needsAttention: !conversation.needsAttention,
-      });
-      onUpdate?.(updated);
-      onCountsChange?.();
-    } catch (error) {
-      console.error("Failed to toggle attention:", error);
-    }
-  };
-
-  const handleMarkResolved = async () => {
-    try {
-      // resolvedBy is auto-detected by backend based on lastMessageSender
-      const updated = await conversationsApi.update(conversation._id, {
-        status: "resolved",
-      });
-      onUpdate?.(updated);
-      onCountsChange?.();
-    } catch (error) {
-      console.error("Failed to mark as resolved:", error);
-    }
-  };
-
-  const handleMarkSpam = async () => {
-    try {
-      const updated = await conversationsApi.update(conversation._id, {
-        status: "spam",
-      });
-      onUpdate?.(updated);
-      onCountsChange?.();
-    } catch (error) {
-      console.error("Failed to mark as spam:", error);
-    }
-  };
-
-  const handleToggleArchive = async () => {
-    try {
-      const updated = await conversationsApi.update(conversation._id, {
-        isArchived: !conversation.isArchived,
-      });
-      onUpdate?.(updated);
-      onCountsChange?.();
-    } catch (error) {
-      console.error("Failed to toggle archive:", error);
-    }
-  };
-
-  const handleReopen = async () => {
-    try {
-      const updated = await conversationsApi.update(conversation._id, {
-        status: "open",
-      });
-      onUpdate?.(updated);
-      onCountsChange?.();
-    } catch (error) {
-      console.error("Failed to reopen:", error);
-    }
-  };
 
   const getSentimentBadge = () => {
     const sentiment = conversation.aiSignals.sentiment;

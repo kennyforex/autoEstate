@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from './Button';
 
 interface ModalProps {
   isOpen: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   title?: string;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
@@ -15,6 +16,8 @@ interface ModalProps {
   bodyScroll?: boolean;
   /** Extra classes on the modal panel (e.g. min-height for tall editors). */
   className?: string;
+  /** Classes on the fixed fullscreen portal root (e.g. z-[100] so confirms stack above other modals). */
+  portalClassName?: string;
 }
 
 const sizeClasses: Record<'sm' | 'md' | 'lg' | 'xl', string> = {
@@ -34,10 +37,11 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
   bodyScroll = false,
   className = '',
+  portalClassName,
 }) => {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onClose?.();
     };
 
     if (isOpen) {
@@ -57,12 +61,16 @@ export const Modal: React.FC<ModalProps> = ({
 
   return createPortal(
     <div
-      className={`fixed inset-0 z-50 ${isFull ? 'flex flex-col p-3' : 'flex items-center justify-center'}`}
+      className={cn(
+        'fixed inset-0',
+        isFull ? 'flex flex-col p-3' : 'flex items-center justify-center',
+        portalClassName ?? 'z-50',
+      )}
     >
       {/* Overlay */}
       <div
         className="absolute inset-0 bg-black/50"
-        onClick={onClose}
+        onClick={() => onClose?.()}
         aria-hidden
       />
 
@@ -85,7 +93,7 @@ export const Modal: React.FC<ModalProps> = ({
             {showClose && (
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => onClose?.()}
                 className="p-1 text-text-secondary hover:text-text-primary hover:bg-gray-100 rounded"
               >
                 <X className="w-5 h-5" />
@@ -142,6 +150,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       onClose={onClose}
       title={title}
       size="sm"
+      portalClassName="z-[100]"
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={isLoading}>

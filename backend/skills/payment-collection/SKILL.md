@@ -1,34 +1,58 @@
 ---
-name: 追收款項
-slug: payment-collection
-description: Looks up unpaid orders in the Google Sheet and reminds the customer to pay. Use when the customer asks about payment status, balance, deposit,尾款, or staff needs to chase payment for their order.
-triggerHints: 追收, 收款, 未付款, 尾款, 訂金, unpaid, payment due, balance, deposit, pay order, 付款, 轉數快, FPS
-reminderDelay: 30
-maxReminders: 2
-orderSheetId: 1kh8YbUIrrUAXed2qHfSmY600kUPH_akqkYMSYdDFu4Y
-orderSheetTab: Cake orders
-sheetFields:
-  - Order ID
-  - Order Date
-  - Customer
-  - Phone
-  - Item
-  - Flavour
-  - Size
-  - Qty
-  - Birthday Plate
-  - Pickup Date
-  - Pickup Time
-  - Pickup Method
-  - Delivery Address
-  - Notes
-  - Status
-  - Price (HKD)
-  - Payment Status
-  - Payment Amount
-  - Paid Date
-  - Payment Valid
-  - Receipt
+name: payment-collection
+description: >-
+  Looks up unpaid orders in the Google Sheet and reminds the customer to pay.
+  Use when the customer asks about payment status, balance, deposit, 尾款, FPS, bank transfer,
+  or staff need to chase payment for an order.
+argument-hint: "[order id or phone if known]"
+user-invocable: true
+metadata:
+  display_name: 追收款項
+  version: 1.0.0
+  category: payments
+  language: zh-HK + English
+  reminder_delay: 30
+  max_reminders: 2
+  trigger_hints:
+    - 追收
+    - 收款
+    - 未付款
+    - 尾款
+    - 訂金
+    - unpaid
+    - payment due
+    - balance
+    - deposit
+    - pay order
+    - 付款
+    - 轉數快
+    - FPS
+  order_sheet_id: 1kh8YbUIrrUAXed2qHfSmY600kUPH_akqkYMSYdDFu4Y
+  order_sheet_tab: Cake orders
+  sheet_fields:
+    - Order ID
+    - Order Date
+    - Customer
+    - Phone
+    - Item
+    - Flavour
+    - Size
+    - Qty
+    - Birthday Plate
+    - Pickup Date
+    - Pickup Time
+    - Pickup Method
+    - Delivery Address
+    - Notes
+    - Status
+    - Price (HKD)
+    - Payment Status
+    - Payment Amount
+    - Paid Date
+    - Payment Valid
+    - Receipt
+  required_tools:
+    - google_sheets
 steps:
   - id: lookup
     label: 用試算表查詢此客戶未付款訂單

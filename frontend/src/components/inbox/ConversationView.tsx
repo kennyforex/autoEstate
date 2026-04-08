@@ -11,7 +11,6 @@ import {
   Loader2,
   X,
   Image as ImageIcon,
-  FileText,
   Film,
   File,
   CheckCircle,
@@ -684,12 +683,12 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
 
       if (pendingFile) {
         // Upload file and send
-        const { url } = await uploadApi.uploadFile(
+        const { url } = await uploadApi.file(
           pendingFile.base64,
           pendingFile.mimeType,
           pendingFile.fileName,
         );
-        const contentTypeMap: Record<string, string> = {
+        const contentTypeMap: Record<string, Message["contentType"]> = {
           image: "image",
           video: "video",
           document: "document",
@@ -700,10 +699,12 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
             : pendingFile.fileType === "video"
               ? "[Video]"
               : `[${pendingFile.fileName}]`;
+        const ct =
+          contentTypeMap[pendingFile.fileType] ?? "document";
         message = await conversationsApi.sendMessage(
           conversation._id,
           newMessage.trim() || defaultCaption,
-          contentTypeMap[pendingFile.fileType],
+          ct,
           url,
           pendingFile.fileName,
         );

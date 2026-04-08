@@ -1,15 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import YAML from "yaml";
 import { assistantsApi, skillsApi } from "../../lib/api";
 import type { Assistant, Skill } from "../../lib/types";
+
+/** Top-level YAML keys not mirrored on Skill API — read from frontmatter inner text. */
+function parseSkillFrontmatterTopLevel(inner: string): {
+  argumentHint: string;
+  userInvocable: boolean;
+} {
+  let argumentHint = "";
+  let userInvocable = false;
+  try {
+    const doc = YAML.parse(inner);
+    if (doc && typeof doc === "object" && !Array.isArray(doc)) {
+      const d = doc as Record<string, unknown>;
+      const ah = d["argument-hint"] ?? d.argument_hint;
+      if (typeof ah === "string") argumentHint = ah;
+      const ui = d["user-invocable"] ?? d.userInvocable;
+      if (typeof ui === "boolean") userInvocable = ui;
+    }
+  } catch {
+    /* keep defaults */
+  }
+  return { argumentHint, userInvocable };
+}
 
 export type SkillEditorTabId =
   | "basic"
   | "content"
-  | "frontmatter"
   | "reference"
   | "assets"
-  | "scripts"
-  | "other";
+  | "scripts";
 
 export function useAssistantSkillLibrary(
   assistantId: string | undefined,
@@ -33,6 +54,8 @@ export function useAssistantSkillLibrary(
   const [skillFormMode, setSkillFormMode] = useState<"form" | "upload">("form");
   const [isCreatingSkill, setIsCreatingSkill] = useState(false);
   const [skillForm, setSkillForm] = useState({
+    /** Kebab-case YAML `name` / slug; empty = derived from display name on create */
+    skillId: "",
     name: "",
     description: "",
     instructions: "",
@@ -43,6 +66,8 @@ export function useAssistantSkillLibrary(
     scheduleEnabled: false,
     scheduleCron: "",
     nickname: "",
+    argumentHint: "",
+    userInvocable: false,
   });
   const [skillUploadFile, setSkillUploadFile] = useState<File | null>(null);
   const skillFileInputRef = useRef<HTMLInputElement>(null);
@@ -57,9 +82,15 @@ export function useAssistantSkillLibrary(
   /** YAML between --- delimiters in SKILL.md (not including --- lines). */
   const [skillFrontmatterYaml, setSkillFrontmatterYaml] = useState("");
 
-  const [refContent, setRefContent] = useState("");
+  const [refFiles, setRefFiles] = useState<
+    { name: string; sizeBytes: number; legacy?: boolean }[]
+  >([]);
+  const [refLegacyRoot, setRefLegacyRoot] = useState(false);
+  const [refSelectedName, setRefSelectedName] = useState<string | null>(null);
+  const [refEditorContent, setRefEditorContent] = useState("");
   const [refLoading, setRefLoading] = useState(false);
   const [refSaving, setRefSaving] = useState(false);
+  const [refDocLoading, setRefDocLoading] = useState(false);
   const [scriptList, setScriptList] = useState<string[]>([]);
   const [assetList, setAssetList] = useState<{ name: string; sizeBytes: number }[]>([]);
   const [assetSaving, setAssetSaving] = useState(false);
@@ -141,6 +172,7 @@ export function useAssistantSkillLibrary(
   const closeSkillEditorModal = () => {
     setEditingSkill(null);
     setSkillForm({
+      skillId: "",
       name: "",
       description: "",
       instructions: "",
@@ -151,8 +183,13 @@ export function useAssistantSkillLibrary(
       scheduleEnabled: false,
       scheduleCron: "",
       nickname: "",
+      argumentHint: "",
+      userInvocable: false,
     });
-    setRefContent("");
+    setRefFiles([]);
+    setRefLegacyRoot(false);
+    setRefSelectedName(null);
+    setRefEditorContent("");
     setScriptList([]);
     setAssetList([]);
     setViewingScript(null);
@@ -170,7 +207,10 @@ export function useAssistantSkillLibrary(
     setRefLoading(true);
     try {
       const full = await skillsApi.get(skill._id);
+      const fmInner = full.frontmatterYaml ?? "";
+      const top = parseSkillFrontmatterTopLevel(fmInner);
       setSkillForm({
+        skillId: "",
         name: full.name,
         description: full.description || "",
         instructions: full.instructions || "",
@@ -181,18 +221,26 @@ export function useAssistantSkillLibrary(
         scheduleEnabled: Boolean(full.scheduleEnabled),
         scheduleCron: full.scheduleCron || "",
         nickname: full.nickname || "",
+        argumentHint: top.argumentHint,
+        userInvocable: top.userInvocable,
       });
-      setSkillFrontmatterYaml(full.frontmatterYaml ?? "");
-      const [ref, scripts, assets] = await Promise.all([
-        skillsApi.getReference(skill._id),
+      setSkillFrontmatterYaml(fmInner);
+      const [refList, scripts, assets] = await Promise.all([
+        skillsApi.listReferences(skill._id),
         skillsApi.listScripts(skill._id),
         skillsApi.listAssets(skill._id),
       ]);
-      setRefContent(ref || "");
+      setRefFiles(refList.files);
+      setRefLegacyRoot(refList.legacyRootReference);
+      setRefSelectedName(null);
+      setRefEditorContent("");
       setScriptList(scripts);
       setAssetList(assets);
     } catch {
+      const fmInner = skill.frontmatterYaml ?? "";
+      const top = parseSkillFrontmatterTopLevel(fmInner);
       setSkillForm({
+        skillId: "",
         name: skill.name,
         description: skill.description || "",
         instructions: skill.instructions || "",
@@ -203,9 +251,14 @@ export function useAssistantSkillLibrary(
         scheduleEnabled: Boolean(skill.scheduleEnabled),
         scheduleCron: skill.scheduleCron || "",
         nickname: skill.nickname || "",
+        argumentHint: top.argumentHint,
+        userInvocable: top.userInvocable,
       });
-      setSkillFrontmatterYaml(skill.frontmatterYaml ?? "");
-      setRefContent("");
+      setSkillFrontmatterYaml(fmInner);
+      setRefFiles([]);
+      setRefLegacyRoot(false);
+      setRefSelectedName(null);
+      setRefEditorContent("");
       setScriptList([]);
       setAssetList([]);
     } finally {
@@ -222,6 +275,10 @@ export function useAssistantSkillLibrary(
         description: skillForm.description,
         instructions: skillForm.instructions || undefined,
         frontmatterYaml: skillFrontmatterYaml,
+        triggerHints: skillForm.triggerHints
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
         requiredTools: skillForm.requiredTools
           .split(",")
           .map((s) => s.trim())
@@ -230,11 +287,13 @@ export function useAssistantSkillLibrary(
         maxReminders: skillForm.maxReminders,
         scheduleEnabled: skillForm.scheduleEnabled,
         scheduleCron: skillForm.scheduleCron.trim() || undefined,
+        argumentHint: skillForm.argumentHint,
+        userInvocable: skillForm.userInvocable,
       });
       setAllSkills((prev) =>
         prev.map((s) => (s._id === updated._id ? updated : s)),
       );
-      closeSkillEditorModal();
+      setEditingSkill(updated);
       showSuccess("Skill updated", `"${updated.name}" has been updated.`);
     } catch (error: unknown) {
       const msg =
@@ -307,16 +366,49 @@ export function useAssistantSkillLibrary(
             : `"${skill.name}" has been added to the skill library.`,
         );
       } else {
-        const triggerHintsStr = skillForm.triggerHints
+        const slugify = (raw: string) =>
+          raw
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9-]+/g, "-")
+            .replace(/^-|-$/g, "");
+        const displayName = skillForm.name.trim() || "New skill";
+        let id = slugify(skillForm.skillId);
+        if (!id) id = slugify(skillForm.name) || "new-skill";
+        const hints = skillForm.triggerHints
           .split(",")
           .map((s) => s.trim())
-          .filter(Boolean)
-          .join(", ");
+          .filter(Boolean);
+        const hintBlock =
+          hints.length > 0
+            ? `  trigger_hints:\n${hints.map((h) => `    - ${JSON.stringify(h)}`).join("\n")}\n`
+            : "";
+        const tools = skillForm.requiredTools
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const toolsBlock =
+          tools.length > 0
+            ? `  required_tools:\n${tools.map((t) => `    - ${t}`).join("\n")}\n`
+            : "";
+        const desc = skillForm.description.trim();
+        const descYaml = desc.includes("\n")
+          ? `|\n${desc
+              .split("\n")
+              .map((line) => `  ${line}`)
+              .join("\n")}`
+          : JSON.stringify(desc);
 
         const skillMdContent = `---
-name: ${skillForm.name}
-description: ${skillForm.description}
-triggerHints: ${triggerHintsStr}
+name: ${id}
+description: ${descYaml}
+argument-hint: "[optional]"
+user-invocable: true
+metadata:
+  display_name: ${JSON.stringify(displayName)}
+  reminder_delay: ${skillForm.reminderDelay || 0}
+  max_reminders: ${skillForm.maxReminders || 0}
+${hintBlock}${toolsBlock}steps: []
 ---
 
 ${skillForm.instructions}
@@ -351,6 +443,7 @@ ${skillForm.instructions}
       }
       setShowCreateSkillModal(false);
       setSkillForm({
+        skillId: "",
         name: "",
         description: "",
         instructions: "",
@@ -361,6 +454,8 @@ ${skillForm.instructions}
         scheduleEnabled: false,
         scheduleCron: "",
         nickname: "",
+        argumentHint: "",
+        userInvocable: false,
       });
       setSkillUploadFile(null);
       fetchSkills();
@@ -419,17 +514,47 @@ ${skillForm.instructions}
     }
   };
 
-  const handleSaveReference = async (skillId: string) => {
-    setRefSaving(true);
+  const refreshReferenceList = async (skillId: string) => {
+    const data = await skillsApi.listReferences(skillId);
+    setRefFiles(data.files);
+    setRefLegacyRoot(data.legacyRootReference);
+    return data;
+  };
+
+  const handleSelectReferenceFile = async (skillId: string, filename: string) => {
+    setRefDocLoading(true);
     try {
-      const updated = await skillsApi.saveReference(skillId, refContent);
-      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
-      showSuccess("Saved", "Reference document updated.");
+      const doc = await skillsApi.getReferenceDocument(skillId, filename);
+      setRefSelectedName(filename);
+      setRefEditorContent(doc.content);
     } catch (error: unknown) {
       showError(
         "Failed",
         (error as { response?: { data?: { error?: string } } })?.response?.data
-          ?.error || "Could not save reference.",
+          ?.error || "Could not load reference file.",
+      );
+    } finally {
+      setRefDocLoading(false);
+    }
+  };
+
+  const handleSaveReferenceDocument = async (skillId: string) => {
+    if (!refSelectedName) return;
+    setRefSaving(true);
+    try {
+      const updated = await skillsApi.saveReferenceDocument(
+        skillId,
+        refSelectedName,
+        refEditorContent,
+      );
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      await refreshReferenceList(skillId);
+      showSuccess("Saved", "Reference file updated.");
+    } catch (error: unknown) {
+      showError(
+        "Failed",
+        (error as { response?: { data?: { error?: string } } })?.response?.data
+          ?.error || "Could not save reference file.",
       );
     } finally {
       setRefSaving(false);
@@ -440,13 +565,16 @@ ${skillForm.instructions}
     try {
       const updated = await skillsApi.deleteReference(skillId);
       setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
-      setRefContent("");
-      showSuccess("Deleted", "Reference document removed.");
+      setRefFiles([]);
+      setRefLegacyRoot(false);
+      setRefSelectedName(null);
+      setRefEditorContent("");
+      showSuccess("Deleted", "All reference documents removed.");
     } catch (error: unknown) {
       showError(
         "Failed",
         (error as { response?: { data?: { error?: string } } })?.response?.data
-          ?.error || "Could not delete reference.",
+          ?.error || "Could not delete reference documents.",
       );
     }
   };
@@ -454,16 +582,59 @@ ${skillForm.instructions}
   const handleUploadReference = async (skillId: string, file: File) => {
     setRefSaving(true);
     try {
-      const updated = await skillsApi.uploadReference(skillId, file);
+      const updated = await skillsApi.uploadReferenceDocument(skillId, file);
       setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
-      const content = await skillsApi.getReference(skillId);
-      setRefContent(content || "");
-      showSuccess("Uploaded", "Reference file uploaded.");
+      await refreshReferenceList(skillId);
+      showSuccess("Uploaded", `"${file.name}" added to references.`);
     } catch (error: unknown) {
       showError(
         "Failed",
         (error as { response?: { data?: { error?: string } } })?.response?.data
-          ?.error || "Could not upload reference.",
+          ?.error || "Could not upload reference file.",
+      );
+    } finally {
+      setRefSaving(false);
+    }
+  };
+
+  const handleDeleteReferenceFile = async (skillId: string, filename: string) => {
+    try {
+      const updated = await skillsApi.deleteReferenceDocument(skillId, filename);
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      await refreshReferenceList(skillId);
+      if (refSelectedName === filename) {
+        setRefSelectedName(null);
+        setRefEditorContent("");
+      }
+      showSuccess("Deleted", `"${filename}" removed.`);
+    } catch (error: unknown) {
+      showError(
+        "Failed",
+        (error as { response?: { data?: { error?: string } } })?.response?.data
+          ?.error || "Could not delete reference file.",
+      );
+    }
+  };
+
+  const handleRenameReferenceFile = async (
+    skillId: string,
+    filename: string,
+    newName: string,
+  ) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === filename) return;
+    setRefSaving(true);
+    try {
+      const updated = await skillsApi.renameReferenceDocument(skillId, filename, trimmed);
+      setAllSkills((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+      await refreshReferenceList(skillId);
+      if (refSelectedName === filename) setRefSelectedName(trimmed);
+      showSuccess("Renamed", "Reference file renamed.");
+    } catch (error: unknown) {
+      showError(
+        "Failed",
+        (error as { response?: { data?: { error?: string } } })?.response?.data
+          ?.error || "Could not rename reference file.",
       );
     } finally {
       setRefSaving(false);
@@ -631,10 +802,14 @@ ${skillForm.instructions}
     setSkillEditorTab,
     skillFrontmatterYaml,
     setSkillFrontmatterYaml,
-    refContent,
-    setRefContent,
+    refFiles,
+    refLegacyRoot,
+    refSelectedName,
+    refEditorContent,
+    setRefEditorContent,
     refLoading,
     refSaving,
+    refDocLoading,
     scriptList,
     assetList,
     assetSaving,
@@ -653,9 +828,12 @@ ${skillForm.instructions}
     scriptSaving,
     scriptUploadRef,
     refUploadRef,
-    handleSaveReference,
+    handleSelectReferenceFile,
+    handleSaveReferenceDocument,
     handleDeleteReference,
     handleUploadReference,
+    handleDeleteReferenceFile,
+    handleRenameReferenceFile,
     handleCreateScript,
     handleUploadScript,
     handleDeleteScript,

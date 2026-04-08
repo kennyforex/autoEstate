@@ -187,7 +187,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-[72px] bg-dark flex flex-col items-center py-4 z-50">
+    <aside className="fixed left-0 top-0 bottom-0 w-[72px] bg-sidebar flex flex-col items-center py-4 z-50 border-r border-border/40">
       {/* Logo */}
       <NavLink
         to="/dashboard"
@@ -212,15 +212,15 @@ export const Sidebar: React.FC = () => {
               transition-colors group
               ${
                 isActive(item.path)
-                  ? "text-white bg-white/10"
-                  : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                  ? "text-sidebar-foreground bg-white/12 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.18)]"
+                  : "text-sidebar-foreground/45 hover:text-sidebar-foreground hover:bg-white/5"
               }
             `}
             title={t(item.labelKey)}
           >
             {/* Active indicator */}
             {isActive(item.path) && (
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-primary rounded-r" />
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-7 bg-sidebar-foreground rounded-r shadow-[2px_0_10px_rgba(255,255,255,0.35)]" />
             )}
 
             {item.icon}
@@ -247,7 +247,7 @@ export const Sidebar: React.FC = () => {
               )}
 
             {/* Tooltip */}
-            <div className="absolute left-full ml-3 px-2 py-1 bg-dark-surface text-white text-sm rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity">
+            <div className="absolute left-full ml-3 px-2 py-1 bg-popover text-popover-foreground border border-border text-sm rounded-md shadow-modal opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
               {t(item.labelKey)}
             </div>
           </NavLink>
@@ -259,7 +259,7 @@ export const Sidebar: React.FC = () => {
         <button
           type="button"
           onClick={() => setProfileOpen((open) => !open)}
-          className="w-10 h-10 rounded-full overflow-hidden focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-dark"
+          className="w-10 h-10 rounded-full overflow-hidden focus:outline-none focus:ring-2 focus:ring-sidebar-foreground/45 focus:ring-offset-2 focus:ring-offset-sidebar"
         >
           <Avatar name={user?.name || "User"} src={user?.avatar} size="md" />
         </button>

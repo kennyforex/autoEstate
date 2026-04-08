@@ -100,6 +100,8 @@ export async function updateSkill(
       maxReminders,
       scheduleEnabled,
       scheduleCron,
+      argumentHint,
+      userInvocable,
       nickname,
       staffRole,
       avatarPreset,
@@ -117,6 +119,8 @@ export async function updateSkill(
       maxReminders,
       scheduleEnabled,
       scheduleCron,
+      argumentHint,
+      userInvocable,
       nickname,
       staffRole,
       avatarPreset,
@@ -331,6 +335,166 @@ export async function deleteReference(
     }
     res.json({ skill });
   } catch (error) {
+    next(error);
+  }
+}
+
+export async function listReferences(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const data = await skillService.listReferenceDocuments(req.params.id);
+    if (!data) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getReferenceDocument(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    const doc = await skillService.getReferenceDocument(req.params.id, filename);
+    if (!doc) {
+      res.status(404).json({ error: 'Reference document not found' });
+      return;
+    }
+    res.json(doc);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function saveReferenceDocument(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    const content = String(req.body?.content ?? '');
+    const skill = await skillService.saveReferenceDocument(req.params.id, filename, content);
+    if (!skill) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+    res.json({ skill });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.includes('Invalid filename') ||
+      msg.includes('not allowed') ||
+      msg.includes('escapes')
+    ) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function renameReferenceDocument(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const fromName = decodeURIComponent(req.params.filename);
+    const newName = (req.body?.newName as string | undefined)?.trim();
+    if (!newName) {
+      res.status(400).json({ error: 'newName is required' });
+      return;
+    }
+    const skill = await skillService.renameReferenceDocument(req.params.id, fromName, newName);
+    if (!skill) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+    res.json({ skill });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.includes('Invalid filename') ||
+      msg.includes('not allowed') ||
+      msg.includes('escapes') ||
+      msg.includes('not found') ||
+      msg.includes('already exists') ||
+      msg.includes('legacy')
+    ) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function uploadReferenceDocument(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const file = (req as { file?: { buffer: Buffer; originalname: string } }).file;
+    if (!file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+    const override = (req.body?.filename as string | undefined)?.trim();
+    const filename = override || file.originalname;
+    const skill = await skillService.uploadReferenceDocument(req.params.id, filename, file.buffer);
+    if (!skill) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+    res.json({ skill });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.includes('Invalid filename') ||
+      msg.includes('not allowed') ||
+      msg.includes('escapes') ||
+      msg.includes('File type')
+    ) {
+      res.status(400).json({ error: msg });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function deleteReferenceDocument(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const filename = decodeURIComponent(req.params.filename);
+    const skill = await skillService.deleteReferenceDocument(req.params.id, filename);
+    if (!skill) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+    res.json({ skill });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      msg.includes('Invalid filename') ||
+      msg.includes('not allowed') ||
+      msg.includes('escapes') ||
+      msg.includes('File not found')
+    ) {
+      res.status(400).json({ error: msg });
+      return;
+    }
     next(error);
   }
 }

@@ -69,15 +69,19 @@ async function testFrontmatter() {
   console.log('\n── Test 2: parseSkillFrontmatter ──');
   const { parseSkillFrontmatter } = await import('./services/skill.service.js');
 
-  const cw = parseSkillFrontmatter(fs.readFileSync(path.resolve(process.cwd(), 'skills/car-wash-estimator/SKILL.md'), 'utf-8'));
+  const cw = parseSkillFrontmatter(
+    fs.readFileSync(path.resolve(process.cwd(), '../test-skill/SKILL.md'), 'utf-8'),
+  );
   assert(cw.steps.length === 3, `car-wash steps = ${cw.steps.length}`);
   assert(cw.steps[0].collects === 'vehicle_type', `step[0].collects = ${cw.steps[0].collects}`);
 
-  const cb = parseSkillFrontmatter(fs.readFileSync(path.resolve(process.cwd(), 'skills/car-booking.md'), 'utf-8'));
-  assert(cb.steps.length === 5, `car-booking steps = ${cb.steps.length}`);
-  assert(cb.steps[3].collects === 'phone_number', `step[3].collects = ${cb.steps[3].collects}`);
+  const cb = parseSkillFrontmatter(
+    fs.readFileSync(path.resolve(process.cwd(), 'skills/cake-booking/SKILL.md'), 'utf-8'),
+  );
+  assert(cb.steps.length === 9, `cake-booking steps = ${cb.steps.length}`);
+  assert(cb.steps[3].collects === 'pickup_datetime', `step[3].collects = ${cb.steps[3].collects}`);
 
-  const noSteps = parseSkillFrontmatter('---\nname: X\ndescription: Y\n---\nBody');
+  const noSteps = parseSkillFrontmatter('---\nname: x-test\ndescription: Y\n---\nBody');
   assert(noSteps.steps.length === 0, `no-steps skill = ${noSteps.steps.length}`);
 }
 

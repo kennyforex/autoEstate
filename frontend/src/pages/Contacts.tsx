@@ -149,7 +149,7 @@ export const Contacts: React.FC = () => {
     return daysSinceLastChat <= 7;
   };
 
-  const handleRowClick = (contact: ContactWithStats) => {
+  const handleRowClick = (_contact: ContactWithStats) => {
     // Navigate to inbox filtered by this contact
     // For now, just navigate to inbox - can be enhanced later
     navigate("/inbox");
