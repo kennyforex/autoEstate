@@ -87,25 +87,43 @@ export function extractIdFromJid(jid: string): {
 /**
  * Walk JID strings in priority order (Evolution: `sender` → `key.senderPn` → `key.remoteJid`)
  * and return the first dialable phone local part (skips LIDs).
+ *
+ * Some Evolution builds put the **connected instance / channel** JID in `sender` and the peer’s
+ * real number in `senderPn`. Use {@link extractFirstPhoneFromJidCandidatesExcluding} with the
+ * channel’s normalized digits so the customer’s PN is not mistaken for the business line.
  */
 export function extractFirstPhoneFromJidCandidates(
   ...candidates: (string | undefined)[]
 ): string | undefined {
+  return extractFirstPhoneFromJidCandidatesExcluding(undefined, ...candidates);
+}
+
+/**
+ * Same as {@link extractFirstPhoneFromJidCandidates}, but skips any candidate whose local part
+ * (digits only) equals `excludeNormalizedDigits` (e.g. the AutoEstate channel `phoneNumber`).
+ */
+export function extractFirstPhoneFromJidCandidatesExcluding(
+  excludeNormalizedDigits: string | undefined,
+  ...candidates: (string | undefined)[]
+): string | undefined {
+  const ex =
+    excludeNormalizedDigits?.replace(/\D/g, "").trim() ?? "";
   for (const jid of candidates) {
     if (!jid) continue;
     const { type, value } = extractIdFromJid(jid);
-    if (type === "phone") return value;
+    if (type !== "phone") continue;
+    const digits = value.replace(/\D/g, "");
+    if (ex.length > 0 && digits === ex) continue;
+    return value;
   }
   return undefined;
 }
 
 /**
- * Evolution sendText/sendMedia `number` field: prefer a dialable phone when we have one.
- * If only a WhatsApp internal id (LID) is known, pass it as `digits@lid` so 13-digit LIDs work.
- * (Media decryption should still use {@link extractIdFromJid} / message key JID, not this.)
- *
- * Important: `phoneNumber` in DB may still hold a LID from older bugs; we only trust it when
- * {@link isValidInternationalPhoneDigits} passes and it is not identical to `whatsappId`.
+ * Evolution sendText/sendMedia `number` field: when the contact has a WhatsApp LID (`whatsappId`),
+ * prefer `digits@lid` so outbound stays on the same thread as inbound `@lid` chats (matches
+ * media `remoteJid` in ai.service / media.routes). Otherwise use a dialable E.164-style number,
+ * or `digits@lid` for long internal ids.
  *
  * Coerces values with `String()` so MongoDB `Number` types (raw imports) do not break `.trim` / `.replace`.
  */
@@ -122,21 +140,11 @@ export function recipientJidForEvolutionSend(contact: {
       ? String(contact.phoneNumber).trim()
       : "";
 
-  if (rawPhone) {
-    const digits = rawPhone.replace(/\D/g, "");
-    if (digits.length > 0) {
-      const sameAsWhatsappId = wid.length > 0 && digits === wid;
-      if (!sameAsWhatsappId && isValidInternationalPhoneDigits(digits)) {
-        return digits;
-      }
-    }
-  }
-
   if (wid) {
     return `${wid}@lid`;
   }
 
-  // Phone-only contact (no LID): send validated number, or raw digits as last resort
+  // Phone-only contact (no LID)
   if (rawPhone) {
     const digits = rawPhone.replace(/\D/g, "");
     if (digits.length > 0) {

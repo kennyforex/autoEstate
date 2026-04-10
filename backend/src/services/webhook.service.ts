@@ -6,7 +6,7 @@ import { Contact, Conversation } from "../models/index.js";
 import {
   extractPhoneFromJid,
   extractIdFromJid,
-  extractFirstPhoneFromJidCandidates,
+  extractFirstPhoneFromJidCandidatesExcluding,
   parseMessageContent,
   detectCountryFromPhone,
 } from "../utils/helpers.js";
@@ -103,6 +103,11 @@ class WebhookService {
       return;
     }
 
+    const channelDigits =
+      channel.phoneNumber != null && channel.phoneNumber !== ""
+        ? String(channel.phoneNumber).replace(/\D/g, "").trim()
+        : "";
+
     // Log the raw data for debugging
     console.log(`[Webhook Debug] Raw remoteJid: ${data.key.remoteJid}`);
     console.log(`[Webhook Debug] sender (Evolution): ${data.sender || "not provided"}`);
@@ -112,8 +117,10 @@ class WebhookService {
     // Extract ID from remoteJid (this is the WhatsApp identifier for the conversation)
     const { type: remoteIdType, value: remoteIdValue } = extractIdFromJid(data.key.remoteJid);
 
-    // Real dialable phone: newer Evolution uses body `sender` first, then senderPn, then remoteJid
-    const realPhoneNumber = extractFirstPhoneFromJidCandidates(
+    // Real dialable phone: Evolution order is `sender` → senderPn → remoteJid, but `sender` may
+    // be the instance/channel JID — exclude channel.phoneNumber so senderPn wins for the peer.
+    const realPhoneNumber = extractFirstPhoneFromJidCandidatesExcluding(
+      channelDigits.length > 0 ? channelDigits : undefined,
       data.sender,
       data.key.senderPn,
       data.key.remoteJid,
@@ -189,8 +196,16 @@ class WebhookService {
         console.log(`[Webhook Debug] Moved LID from phoneNumber to whatsappId: ${contact.whatsappId}`);
       }
 
-      // Update phoneNumber if we have the real phone and contact doesn't have a valid one yet
-      if (realPhoneNumber && (!contact.phoneNumber || currentPhoneIsLid)) {
+      const contactDigits = (contact.phoneNumber ?? "").replace(/\D/g, "");
+      const storedNumberIsChannel =
+        channelDigits.length > 0 && contactDigits === channelDigits;
+
+      // Update phoneNumber if we have the real phone and contact doesn't have a valid one yet,
+      // or the stored value is mistakenly the channel line (Evolution `sender` = instance JID).
+      if (
+        realPhoneNumber &&
+        (!contact.phoneNumber || currentPhoneIsLid || storedNumberIsChannel)
+      ) {
         contact.phoneNumber = realPhoneNumber;
         needsUpdate = true;
         console.log(`[Webhook Debug] Updated contact with real phone number: ${realPhoneNumber}`);

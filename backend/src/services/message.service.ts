@@ -147,6 +147,7 @@ class MessageService {
     fileName?: string,
   ): Promise<string | null> {
     try {
+      console.log('sendViaWhatsApp', phoneNumber);
       const evolutionClient = getEvolutionClient();
 
       // Evolution `number`: E.164 digits for real phones, or `id@lid` for WhatsApp LIDs.
