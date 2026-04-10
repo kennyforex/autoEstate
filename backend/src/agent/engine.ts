@@ -125,6 +125,10 @@ export class AgentEngine {
         : 'auto' as const;
       const response = await this.callLLM(messages, tools, model, toolChoice, signal);
       const assistantMsg = response.choices[0].message;
+      const tc = assistantMsg.tool_calls?.length ?? 0;
+      console.log(
+        `[Agent] LLM returned: tool_calls=${tc}, contentLen=${(assistantMsg.content ?? '').length}`,
+      );
 
       if (response.usage) {
         totalUsage.prompt_tokens += response.usage.prompt_tokens;

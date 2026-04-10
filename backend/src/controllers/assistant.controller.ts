@@ -616,8 +616,49 @@ export async function agentChat(
       'Connection': 'keep-alive',
     });
 
-    const sendEvent = (data: Record<string, unknown>) => {
+    const writeSseJson = (data: Record<string, unknown>): void => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    /** Status / agent_step / warning — may downgrade to a warning if serialization fails. */
+    const sendEvent = (data: Record<string, unknown>) => {
+      try {
+        writeSseJson(data);
+      } catch (serErr) {
+        const hint = serErr instanceof Error ? serErr.message : String(serErr);
+        console.error('[AgentChat] SSE progress event failed:', hint, 'keys:', Object.keys(data));
+        try {
+          writeSseJson({
+            type: 'warning',
+            code: 'sse_serialize',
+            message: 'A progress event could not be sent.',
+            detail: hint.slice(0, 200),
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    /** Terminal done — must stay type "done" for the playground client. */
+    const sendDone = (payload: Record<string, unknown>): void => {
+      try {
+        writeSseJson(payload);
+        return;
+      } catch (firstErr) {
+        const hint = firstErr instanceof Error ? firstErr.message : String(firstErr);
+        console.error('[AgentChat] Full done payload failed; sending minimal done:', hint);
+      }
+      const msg = payload.message as { content?: string } | undefined;
+      const rawContent = typeof msg?.content === 'string' ? msg.content : '';
+      const content = rawContent.length > 500_000 ? `${rawContent.slice(0, 500_000)}…` : rawContent;
+      writeSseJson({
+        type: 'done',
+        message: { role: 'assistant', content },
+        resultType: payload.resultType === 'clarification' ? 'clarification' : 'final_answer',
+        ...(payload.activeStaffId != null ? { activeStaffId: payload.activeStaffId } : {}),
+        ...(payload.activeSkillSlug != null ? { activeSkillSlug: payload.activeSkillSlug } : {}),
+      });
     };
 
     let effectiveContent = lastUserMsg.content || '';
@@ -724,6 +765,14 @@ export async function agentChat(
       });
     }
 
+    const sseSafeArgs = (args: Record<string, unknown>): Record<string, unknown> => {
+      try {
+        return JSON.parse(JSON.stringify(args)) as Record<string, unknown>;
+      } catch {
+        return { _note: 'args omitted (not JSON-safe for SSE)' };
+      }
+    };
+
     const onEvent = (event: AgentEvent) => {
       switch (event.type) {
         case 'tool_start':
@@ -731,18 +780,23 @@ export async function agentChat(
             number: event.iteration + 1,
             total: event.maxIterations,
             thought: `Calling ${event.toolName}`,
-            action: { tool: event.toolName, args: event.args },
+            action: { tool: event.toolName, args: sseSafeArgs(event.args) },
           }});
           break;
-        case 'tool_end':
+        case 'tool_end': {
+          const raw =
+            event.result?.summary != null && typeof event.result.summary === 'string'
+              ? event.result.summary
+              : String(event.result?.summary ?? '');
           sendEvent({ type: 'agent_step', step: {
             number: event.iteration + 1,
             total: event.maxIterations,
             thought: `Observed result from ${event.toolName}`,
             action: { tool: event.toolName, args: {} },
-            observation: event.result.summary.substring(0, 500),
+            observation: raw.slice(0, 500),
           }});
           break;
+        }
         case 'tool_error':
           sendEvent({ type: 'agent_step', step: {
             number: event.iteration + 1,
@@ -760,7 +814,7 @@ export async function agentChat(
 
     const result = await agentEngine.run(effectiveContent, context, onEvent);
 
-    sendEvent({
+    const donePayload: Record<string, unknown> = {
       type: 'done',
       message: { role: 'assistant', content: result.content },
       resultType: result.type,
@@ -770,11 +824,15 @@ export async function agentChat(
       steps: result.steps,
       ...(result.activeStaffId != null ? { activeStaffId: result.activeStaffId } : {}),
       ...(result.activeSkillSlug != null ? { activeSkillSlug: result.activeSkillSlug } : {}),
-    });
+    };
+    sendDone(donePayload);
 
     res.end();
   } catch (error) {
     console.error('[AgentChat] Error:', error instanceof Error ? error.message : error);
+    if (error instanceof Error && error.stack) {
+      console.error(error.stack);
+    }
     // If headers already sent (SSE started), send error as event then close
     if (res.headersSent) {
       try {
