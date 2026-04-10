@@ -1,4 +1,4 @@
-import { Assistant, Channel, Contact, Conversation, Message } from '../models/index.js';
+import { Assistant, Contact, Conversation, Message, Skill } from '../models/index.js';
 import { conversationStateService } from '../services/conversationState.service.js';
 import type {
   AgentContext,
@@ -39,7 +39,6 @@ async function loadAssistantSkillsAndRoster(assistantId: string): Promise<{
   skillBindingMismatch?: string;
 }> {
   try {
-    const { Skill } = await import('../models/Skill.js');
     const assistant = await Assistant.findById(assistantId).lean();
 
     if (!assistant) {

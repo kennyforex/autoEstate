@@ -154,8 +154,11 @@ const skillSchema = new Schema<ISkillDocument>(
   },
 );
 
-skillSchema.index({ slug: 1 }, { unique: true });
+// slug already has unique: true on the field (do not add a second index — Mongoose warns).
 skillSchema.index({ status: 1 });
 skillSchema.index({ createdBy: 1 });
 
-export const Skill = mongoose.model<ISkillDocument>('Skill', skillSchema);
+/** Re-use compiled model across dynamic imports and tsx watch reloads. */
+export const Skill =
+  (mongoose.models.Skill as mongoose.Model<ISkillDocument> | undefined) ??
+  mongoose.model<ISkillDocument>('Skill', skillSchema);
