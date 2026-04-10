@@ -6,7 +6,7 @@ import { Contact, Conversation } from "../models/index.js";
 import {
   extractPhoneFromJid,
   extractIdFromJid,
-  extractFirstPhoneFromJidCandidatesExcluding,
+  extractPeerPhoneFromEvolutionInbound,
   parseMessageContent,
   detectCountryFromPhone,
 } from "../utils/helpers.js";
@@ -80,6 +80,14 @@ class WebhookService {
         );
         break;
 
+      case "MESSAGES_UPDATE":
+      case "messages.update":
+        // Read receipts / delivery acks from Evolution; persist later if we add message status fields
+        console.log(
+          `[Webhook Debug] messages.update for instance ${instanceName} (ack only, not persisted)`,
+        );
+        break;
+
       default:
         console.log(`Unhandled webhook event: ${payload.event}`);
     }
@@ -117,24 +125,43 @@ class WebhookService {
     // Extract ID from remoteJid (this is the WhatsApp identifier for the conversation)
     const { type: remoteIdType, value: remoteIdValue } = extractIdFromJid(data.key.remoteJid);
 
-    // Real dialable phone: Evolution order is `sender` → senderPn → remoteJid, but `sender` may
-    // be the instance/channel JID — exclude channel.phoneNumber so senderPn wins for the peer.
-    const realPhoneNumber = extractFirstPhoneFromJidCandidatesExcluding(
-      channelDigits.length > 0 ? channelDigits : undefined,
+    // Peer phone: for @lid, try senderPn before sender (sender is often the business line).
+    const realPhoneNumber = extractPeerPhoneFromEvolutionInbound(
+      data.key.remoteJid,
       data.sender,
       data.key.senderPn,
-      data.key.remoteJid,
+      channelDigits.length > 0 ? channelDigits : undefined,
     );
 
-    console.log(`[Webhook Debug] Remote ID type: ${remoteIdType}, value: ${remoteIdValue}`);
-    console.log(`[Webhook Debug] Real phone number: ${realPhoneNumber || 'not available'}`);
+    const senderJidDigits =
+      data.sender && extractIdFromJid(data.sender).type === "phone"
+        ? data.sender.split("@")[0].replace(/\D/g, "")
+        : "";
+    const realPhoneNorm = realPhoneNumber?.replace(/\D/g, "") ?? "";
+    const realPhoneMatchesChannel =
+      realPhoneNorm.length > 0 &&
+      channelDigits.length > 0 &&
+      realPhoneNorm === channelDigits;
+    const realPhoneMatchesSenderOnly =
+      realPhoneNorm.length > 0 &&
+      channelDigits.length === 0 &&
+      senderJidDigits.length > 0 &&
+      realPhoneNorm === senderJidDigits;
 
-    // Find contact - try by whatsappId first (for LID contacts), then by phoneNumber
+    console.log(`[Webhook Debug] Remote ID type: ${remoteIdType}, value: ${remoteIdValue}`);
+    console.log(`[Webhook Debug] Real phone number: ${realPhoneNumber || "not available"}`);
+
+    // Find contact — never match by phone when that phone is the business line (wrong row)
+    const phoneLookupClause =
+      realPhoneNumber && !realPhoneMatchesChannel && !realPhoneMatchesSenderOnly
+        ? [{ phoneNumber: realPhoneNumber, channelId: channel._id }]
+        : [];
+
     let contact = await Contact.findOne({
       $or: [
         { whatsappId: remoteIdValue, channelId: channel._id },
         { phoneNumber: remoteIdValue, channelId: channel._id },
-        ...(realPhoneNumber ? [{ phoneNumber: realPhoneNumber, channelId: channel._id }] : []),
+        ...phoneLookupClause,
       ],
     });
 
@@ -162,8 +189,32 @@ class WebhookService {
       }
 
       contact = new Contact(contactData);
-      await contact.save();
-      console.log(`[Webhook Debug] Created new contact: ${contact._id}`);
+      try {
+        await contact.save();
+        console.log(`[Webhook Debug] Created new contact: ${contact._id}`);
+      } catch (err: unknown) {
+        const code = (err as { code?: number })?.code;
+        if (code === 11000) {
+          const existing = await Contact.findOne({
+            $or: [
+              { whatsappId: remoteIdValue, channelId: channel._id },
+              ...(realPhoneNumber
+                ? [{ phoneNumber: realPhoneNumber, channelId: channel._id }]
+                : []),
+            ],
+          });
+          if (existing) {
+            contact = existing;
+            console.log(
+              `[Webhook Debug] Duplicate key on create — using existing contact: ${contact._id}`,
+            );
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
 
       // Fetch profile picture in background (non-blocking)
       profilePictureService.updateContactProfilePicture(
@@ -177,12 +228,6 @@ class WebhookService {
       // Update name if changed
       if (data.pushName && contact.name !== data.pushName) {
         contact.name = data.pushName;
-        needsUpdate = true;
-      }
-
-      // Update whatsappId if we have a LID and contact doesn't have it yet
-      if (remoteIdType === "lid" && !contact.whatsappId) {
-        contact.whatsappId = remoteIdValue;
         needsUpdate = true;
       }
 
@@ -222,7 +267,18 @@ class WebhookService {
       }
 
       if (needsUpdate) {
-        await contact.save();
+        try {
+          await contact.save();
+        } catch (err: unknown) {
+          const code = (err as { code?: number })?.code;
+          if (code === 11000) {
+            console.error(
+              `[Webhook] Duplicate whatsappId+channel for LID ${remoteIdValue}; resolve contacts manually`,
+            );
+          } else {
+            throw err;
+          }
+        }
       }
 
       // If contact doesn't have a profile picture, try to fetch it (non-blocking)
@@ -231,6 +287,26 @@ class WebhookService {
           contact._id.toString(),
           channel._id.toString()
         ).catch(err => console.error("[Webhook] Failed to fetch profile picture:", err));
+      }
+    }
+
+    if (
+      remoteIdType === "lid" &&
+      String(contact.whatsappId ?? "") !== String(remoteIdValue)
+    ) {
+      contact.whatsappId = remoteIdValue;
+      try {
+        await contact.save();
+        console.log(`[Webhook Debug] Aligned whatsappId to inbound LID: ${remoteIdValue}`);
+      } catch (err: unknown) {
+        const code = (err as { code?: number })?.code;
+        if (code === 11000) {
+          console.error(
+            `[Webhook] Duplicate whatsappId+channel for LID ${remoteIdValue}; resolve contacts manually`,
+          );
+        } else {
+          throw err;
+        }
       }
     }
 

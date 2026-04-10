@@ -707,14 +707,16 @@ export async function agentChat(
       switch (event.type) {
         case 'tool_start':
           sendEvent({ type: 'agent_step', step: {
-            number: 0, total: 0,
+            number: event.iteration + 1,
+            total: event.maxIterations,
             thought: `Calling ${event.toolName}`,
             action: { tool: event.toolName, args: event.args },
           }});
           break;
         case 'tool_end':
           sendEvent({ type: 'agent_step', step: {
-            number: 0, total: 0,
+            number: event.iteration + 1,
+            total: event.maxIterations,
             thought: `Observed result from ${event.toolName}`,
             action: { tool: event.toolName, args: {} },
             observation: event.result.summary.substring(0, 500),
@@ -722,7 +724,8 @@ export async function agentChat(
           break;
         case 'tool_error':
           sendEvent({ type: 'agent_step', step: {
-            number: 0, total: 0,
+            number: event.iteration + 1,
+            total: event.maxIterations,
             thought: `Tool ${event.toolName} failed`,
             action: { tool: event.toolName, args: {} },
             observation: `Error: ${event.error}`,

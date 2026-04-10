@@ -120,6 +120,53 @@ export function extractFirstPhoneFromJidCandidatesExcluding(
 }
 
 /**
+ * Dialable peer phone for inbound WhatsApp webhooks. For `@lid` threads, `senderPn` is usually the
+ * customer's number and `sender` may be the business instance — try senderPn first. Still applies
+ * {@link extractFirstPhoneFromJidCandidatesExcluding}. If exclusion is empty and the first hit equals
+ * `sender` but `senderPn` is a different valid E.164, prefer `senderPn`.
+ */
+export function extractPeerPhoneFromEvolutionInbound(
+  remoteJid: string | undefined,
+  sender: string | undefined,
+  senderPn: string | undefined,
+  excludeNormalizedDigits: string | undefined,
+): string | undefined {
+  const { type: remoteType } = extractIdFromJid(remoteJid || "");
+  const exRaw = excludeNormalizedDigits?.replace(/\D/g, "").trim() ?? "";
+  const ex = exRaw.length > 0 ? exRaw : undefined;
+
+  const order: (string | undefined)[] =
+    remoteType === "lid"
+      ? [senderPn, sender, remoteJid]
+      : [sender, senderPn, remoteJid];
+
+  let picked = extractFirstPhoneFromJidCandidatesExcluding(ex, ...order);
+
+  const senderDigits =
+    sender && extractIdFromJid(sender).type === "phone"
+      ? sender.split("@")[0].replace(/\D/g, "")
+      : "";
+  const senderPnDigits =
+    senderPn && extractIdFromJid(senderPn).type === "phone"
+      ? senderPn.split("@")[0].replace(/\D/g, "")
+      : "";
+  const pickedDigits = picked ? picked.replace(/\D/g, "") : "";
+
+  if (
+    remoteType === "lid" &&
+    senderPnDigits.length > 0 &&
+    senderDigits.length > 0 &&
+    pickedDigits === senderDigits &&
+    senderPnDigits !== senderDigits &&
+    isValidInternationalPhoneDigits(senderPnDigits)
+  ) {
+    return senderPnDigits;
+  }
+
+  return picked;
+}
+
+/**
  * Evolution sendText/sendMedia `number` field: when the contact has a WhatsApp LID (`whatsappId`),
  * prefer `digits@lid` so outbound stays on the same thread as inbound `@lid` chats (matches
  * media `remoteJid` in ai.service / media.routes). Otherwise use a dialable E.164-style number,

@@ -267,7 +267,13 @@ export class AgentEngine {
           observation: errorMsg,
           timestamp: new Date(),
         });
-        onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
+        onEvent?.({
+          type: 'tool_error',
+          toolName,
+          error: errorMsg,
+          iteration,
+          maxIterations: this.config.maxIterations,
+        });
         continue;
       }
 
@@ -282,7 +288,13 @@ export class AgentEngine {
           observation: errorMsg,
           timestamp: new Date(),
         });
-        onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
+        onEvent?.({
+          type: 'tool_error',
+          toolName,
+          error: errorMsg,
+          iteration,
+          maxIterations: this.config.maxIterations,
+        });
         continue;
       }
 
@@ -299,7 +311,13 @@ export class AgentEngine {
             observation: errorMsg,
             timestamp: new Date(),
           });
-          onEvent?.({ type: 'tool_error', toolName, error: errorMsg });
+          onEvent?.({
+            type: 'tool_error',
+            toolName,
+            error: errorMsg,
+            iteration,
+            maxIterations: this.config.maxIterations,
+          });
           continue;
         }
       }
@@ -331,7 +349,13 @@ export class AgentEngine {
             observation: errorMsg,
             timestamp: new Date(),
           });
-          onEvent?.({ type: 'tool_error', toolName: entry.toolName, error: errorMsg });
+          onEvent?.({
+            type: 'tool_error',
+            toolName: entry.toolName,
+            error: errorMsg,
+            iteration,
+            maxIterations: this.config.maxIterations,
+          });
           continue;
         }
       }
@@ -353,7 +377,13 @@ export class AgentEngine {
       const settled = await Promise.allSettled(
         approved.map(async (entry) => {
           if (signal?.aborted) throw new Error('Aborted');
-          onEvent?.({ type: 'tool_start', toolName: entry.toolName, args: entry.args });
+          onEvent?.({
+            type: 'tool_start',
+            toolName: entry.toolName,
+            args: entry.args,
+            iteration,
+            maxIterations: this.config.maxIterations,
+          });
           console.log(`[Agent] Tool call: ${entry.toolName}(${JSON.stringify(entry.args).substring(0, 200)})`);
           const result = await entry.tool.execute(entry.args, context, signal);
           return { entry, result };
@@ -371,7 +401,13 @@ export class AgentEngine {
           execResults.push({ entry, error: 'Aborted' });
           break;
         }
-        onEvent?.({ type: 'tool_start', toolName: entry.toolName, args: entry.args });
+        onEvent?.({
+          type: 'tool_start',
+          toolName: entry.toolName,
+          args: entry.args,
+          iteration,
+          maxIterations: this.config.maxIterations,
+        });
         console.log(`[Agent] Tool call: ${entry.toolName}(${JSON.stringify(entry.args).substring(0, 200)})`);
         try {
           const result = await entry.tool.execute(entry.args, context, signal);
@@ -395,7 +431,13 @@ export class AgentEngine {
           observation: `Error: ${error}`,
           timestamp: new Date(),
         });
-        onEvent?.({ type: 'tool_error', toolName: entry.toolName, error: error || 'unknown error' });
+        onEvent?.({
+          type: 'tool_error',
+          toolName: entry.toolName,
+          error: error || 'unknown error',
+          iteration,
+          maxIterations: this.config.maxIterations,
+        });
         console.error(`[Agent] Tool "${entry.toolName}" threw:`, error);
         continue;
       }
@@ -413,7 +455,13 @@ export class AgentEngine {
         ...(kbCitations ? { citations: kbCitations } : {}),
         timestamp: new Date(),
       });
-      onEvent?.({ type: 'tool_end', toolName: entry.toolName, result });
+      onEvent?.({
+        type: 'tool_end',
+        toolName: entry.toolName,
+        result,
+        iteration,
+        maxIterations: this.config.maxIterations,
+      });
       console.log(`[Agent] Tool "${entry.toolName}" result (${result.success ? 'ok' : 'fail'}): ${result.summary.substring(0, 150)}`);
 
       // afterToolCall hook

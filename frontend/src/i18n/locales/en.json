@@ -666,6 +666,7 @@
         "managerAnalyzingImage": "{{name}} is analyzing the image...",
         "managerAnalyzingAudio": "{{name}} is analyzing the audio...",
         "managerThinking": "{{name}} is thinking",
+        "roundProgress": "Round {{current}} of {{total}}",
         "managerAssigns": "{{manager}} assigns this to {{worker}}",
         "workerWorking": "{{worker}} is working",
         "workerWorkingOnSkill": "{{worker}} is running “{{skill}}”",

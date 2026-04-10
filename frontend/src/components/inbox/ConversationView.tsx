@@ -355,24 +355,25 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
           setAgentSteps([]); // Clear steps when done
         } else if (data.status === "agent_step" && data.step) {
           setAiStatus({ status: data.status, step: data.step });
-          // Update agent steps list
-          setAgentSteps(prev => {
-            const existingIndex = prev.findIndex(s => s.number === data.step!.number);
-            const toolName = data.step?.action?.tool || 'thinking';
+          // Update agent steps list (match playground: same iteration + tool updates one row)
+          setAgentSteps((prev) => {
+            const toolName = data.step?.action?.tool || "thinking";
+            const existingIndex = prev.findIndex(
+              (s) => s.number === data.step!.number && s.tool === toolName,
+            );
             const newStep = {
               number: data.step!.number,
               tool: toolName,
-              status: data.step?.observation ? 'completed' : 'running' as 'running' | 'completed' | 'error'
+              status: data.step?.observation
+                ? ("completed" as const)
+                : ("running" as const),
             };
             if (existingIndex >= 0) {
-              // Update existing step
               const updated = [...prev];
               updated[existingIndex] = newStep;
               return updated;
-            } else {
-              // Add new step
-              return [...prev, newStep];
             }
+            return [...prev, newStep];
           });
         } else {
           setAiStatus({ status: data.status, result: data.result });
@@ -1057,45 +1058,58 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                   </div>
                   <div className="rounded-lg bg-slate-800 p-4 text-white shadow-sm">
                     {/* Current status text */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm">
-                        {aiStatus.status === "analyzing_image"
-                          ? t(
-                              "assistants.playground.agentWorkflow.managerAnalyzingImage",
-                              { name: managerDisplayName },
-                            )
-                          : aiStatus.status === "analyzing_audio"
+                    <div className="flex flex-col gap-0.5 mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">
+                          {aiStatus.status === "analyzing_image"
                             ? t(
-                                "assistants.playground.agentWorkflow.managerAnalyzingAudio",
+                                "assistants.playground.agentWorkflow.managerAnalyzingImage",
                                 { name: managerDisplayName },
                               )
-                            : agentSteps.length > 0
-                              ? `Step ${agentSteps.length} of 10`
+                            : aiStatus.status === "analyzing_audio"
+                              ? t(
+                                  "assistants.playground.agentWorkflow.managerAnalyzingAudio",
+                                  { name: managerDisplayName },
+                                )
                               : t(
                                   "assistants.playground.agentWorkflow.managerThinking",
                                   { name: managerDisplayName },
                                 )}
-                      </span>
-                      <div className="flex gap-1">
-                        <span
-                          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                          style={{ animationDelay: "0ms" }}
-                        />
-                        <span
-                          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                          style={{ animationDelay: "150ms" }}
-                        />
-                        <span
-                          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-                          style={{ animationDelay: "300ms" }}
-                        />
+                        </span>
+                        <div className="flex gap-1">
+                          <span
+                            className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                            style={{ animationDelay: "0ms" }}
+                          />
+                          <span
+                            className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                            style={{ animationDelay: "150ms" }}
+                          />
+                          <span
+                            className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+                            style={{ animationDelay: "300ms" }}
+                          />
+                        </div>
                       </div>
+                      {aiStatus.status === "agent_step" &&
+                        aiStatus.step &&
+                        aiStatus.step.total > 0 && (
+                          <span className="text-xs text-gray-400 pl-0">
+                            {t("assistants.playground.agentWorkflow.roundProgress", {
+                              current: aiStatus.step.number,
+                              total: aiStatus.step.total,
+                            })}
+                          </span>
+                        )}
                     </div>
                     {/* Agent steps - like Cursor's progress */}
                     {agentSteps.length > 0 && (
                       <div className="mt-3 space-y-1.5 border-t border-gray-700 pt-2">
                         {agentSteps.slice(-5).map((step) => (
-                          <div key={step.number} className="flex items-center gap-2 text-xs">
+                          <div
+                            key={`${step.number}-${step.tool}`}
+                            className="flex items-center gap-2 text-xs"
+                          >
                             <span className={
                               step.status === 'running'
                                 ? 'text-yellow-400'

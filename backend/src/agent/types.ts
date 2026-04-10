@@ -281,9 +281,28 @@ export type AgentEvent =
   | { type: 'agent_end'; result: AgentResult }
   | { type: 'turn_start'; iteration: number }
   | { type: 'turn_end'; iteration: number }
-  | { type: 'tool_start'; toolName: string; args: Record<string, unknown> }
-  | { type: 'tool_end'; toolName: string; result: ToolResult }
-  | { type: 'tool_error'; toolName: string; error: string }
+  | {
+      type: 'tool_start';
+      toolName: string;
+      args: Record<string, unknown>;
+      /** 0-based main-agent loop index (for UI: step number = iteration + 1). */
+      iteration: number;
+      maxIterations: number;
+    }
+  | {
+      type: 'tool_end';
+      toolName: string;
+      result: ToolResult;
+      iteration: number;
+      maxIterations: number;
+    }
+  | {
+      type: 'tool_error';
+      toolName: string;
+      error: string;
+      iteration: number;
+      maxIterations: number;
+    }
   | { type: 'thinking'; content: string };
 
 export type AgentEventCallback = (event: AgentEvent) => void;

@@ -712,6 +712,7 @@
         "managerAnalyzingImage": "{{name}} 正在分析图片…",
         "managerAnalyzingAudio": "{{name}} 正在分析音频…",
         "managerThinking": "{{name}} is thinking（在思考）",
+        "roundProgress": "第 {{current}} / {{total}} 轮",
         "managerAssigns": "{{manager}} 将任务交给 {{worker}} 负责",
         "workerWorking": "{{worker}} 正在工作",
         "workerWorkingOnSkill": "{{worker}} 正在执行「{{skill}}」",

@@ -113,16 +113,16 @@ class AIService {
       switch (event.type) {
         case 'tool_start':
           this.emitAIStatus(conversationId, "agent_step", undefined, {
-            number: 0,
-            total: 0,
+            number: event.iteration + 1,
+            total: event.maxIterations,
             thought: `Calling ${event.toolName}`,
             action: { tool: event.toolName, args: event.args },
           });
           break;
         case 'tool_end':
           this.emitAIStatus(conversationId, "agent_step", undefined, {
-            number: 0,
-            total: 0,
+            number: event.iteration + 1,
+            total: event.maxIterations,
             thought: `Observed result from ${event.toolName}`,
             action: { tool: event.toolName, args: {} },
             observation: event.result.summary.substring(0, 500),
@@ -130,8 +130,8 @@ class AIService {
           break;
         case 'tool_error':
           this.emitAIStatus(conversationId, "agent_step", undefined, {
-            number: 0,
-            total: 0,
+            number: event.iteration + 1,
+            total: event.maxIterations,
             thought: `Tool ${event.toolName} failed`,
             action: { tool: event.toolName, args: {} },
             observation: `Error: ${event.error}`,
