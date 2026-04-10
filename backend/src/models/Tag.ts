@@ -30,4 +30,6 @@ const tagSchema = new Schema<ITagDocument>(
 // Index for faster lookups
 tagSchema.index({ label: 1 });
 
-export const Tag = mongoose.model<ITagDocument>("Tag", tagSchema);
+export const Tag =
+  (mongoose.models.Tag as mongoose.Model<ITagDocument> | undefined) ??
+  mongoose.model<ITagDocument>("Tag", tagSchema);

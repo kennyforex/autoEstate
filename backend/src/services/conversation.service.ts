@@ -1,5 +1,9 @@
 import { Server } from "socket.io";
-import { Conversation, type IConversationDocument } from "../models/index.js";
+import {
+  Conversation,
+  Tag,
+  type IConversationDocument,
+} from "../models/index.js";
 import { Message } from "../models/index.js";
 import { Contact } from "../models/index.js";
 import type {
@@ -411,9 +415,7 @@ class ConversationService {
       Conversation.countDocuments({ ...channelFilter, isArchived: true }),
       // Get counts for each tag
       (async () => {
-        const allTags = await (
-          await import("../models/Tag.js")
-        ).Tag.find().sort({ label: 1 });
+        const allTags = await Tag.find().sort({ label: 1 });
         const tagCounts = await Promise.all(
           allTags.map(async (tag) => {
             const count = await Conversation.countDocuments({
