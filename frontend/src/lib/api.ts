@@ -243,6 +243,13 @@ export interface AgentStatusEvent {
   status: 'analyzing_image' | 'analyzing_audio' | 'thinking';
 }
 
+export interface AgentWarningEvent {
+  type: 'warning';
+  code: string;
+  message: string;
+  detail?: string;
+}
+
 export interface AgentDoneEvent {
   type: 'done';
   message: { role: string; content: string };
@@ -255,7 +262,11 @@ export interface AgentDoneEvent {
   activeSkillSlug?: string;
 }
 
-export type AgentStreamEvent = AgentStepEvent | AgentStatusEvent | AgentDoneEvent;
+export type AgentStreamEvent =
+  | AgentStepEvent
+  | AgentStatusEvent
+  | AgentWarningEvent
+  | AgentDoneEvent;
 
 export interface AgentChatResult {
   message: { role: string; content: string };

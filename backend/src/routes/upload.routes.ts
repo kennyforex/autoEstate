@@ -59,13 +59,17 @@ router.post(
       const buffer = Buffer.from(base64, "base64");
       fs.writeFileSync(filePath, buffer);
 
+      // Path only — browser resolves via VITE_API_URL origin (see resolveLogoUrl).
+      // Absolute BACKEND_PUBLIC_URL often differs from the API host and breaks <img src>.
+      const url = `/uploads/logos/${filename}`;
       const baseUrl =
         process.env.BACKEND_PUBLIC_URL ||
         process.env.WEBHOOK_BASE_URL ||
         `http://localhost:${process.env.PORT || 3001}`;
-      const url = `${baseUrl.replace(/\/$/, "")}/uploads/logos/${filename}`;
-
-      console.log('✅ Image uploaded successfully:', url);
+      console.log(
+        "✅ Image uploaded successfully:",
+        `${baseUrl.replace(/\/$/, "")}${url}`,
+      );
       res.json({
         url,
         mimeType,

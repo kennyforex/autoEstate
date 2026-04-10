@@ -703,6 +703,27 @@ export async function agentChat(
 
     const context = await buildPlaygroundContext(id, history);
 
+    const roster = context.assistant.teamRoster ?? [];
+    const useDeptPersona =
+      roster.length > 0 || Boolean(String(context.assistant.departmentName ?? '').trim());
+    if (useDeptPersona && context.skills.length === 0) {
+      const detailParts: string[] = [];
+      if (context.skillLoadError) detailParts.push(context.skillLoadError);
+      if (context.skillBindingMismatch) detailParts.push(context.skillBindingMismatch);
+      const detail = detailParts.length > 0 ? detailParts.join(' ') : undefined;
+      console.warn(
+        `[AgentChat] Playground: department mode but 0 active skills for assistant ${id}` +
+          (detail ? ` — ${detail}` : ''),
+      );
+      sendEvent({
+        type: 'warning',
+        code: 'no_active_skills',
+        message:
+          'No active skills loaded — the manager model will answer without execute_skill. Check Skill Library bindings and Skill.status, or server logs for [AgentContext] / SKILL_LOAD_FAILED.',
+        ...(detail ? { detail } : {}),
+      });
+    }
+
     const onEvent = (event: AgentEvent) => {
       switch (event.type) {
         case 'tool_start':

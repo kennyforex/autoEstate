@@ -253,6 +253,10 @@ export interface AgentContext {
   lastUserTurnContent?: string;
   /** Set for a single `AgentEngine.run` when router returns a soft hint (not persisted). */
   routerHint?: { slug: string; reason: string; confidence: number };
+  /** Populated when skill loading threw (agent still runs with zero skills). */
+  skillLoadError?: string;
+  /** Populated when assistant has skill bindings but none resolve as active Skill documents. */
+  skillBindingMismatch?: string;
 }
 
 // ── Agent Result ──

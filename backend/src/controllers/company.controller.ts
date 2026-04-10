@@ -2,6 +2,33 @@ import { Response, NextFunction } from "express";
 import { companyService } from "../services/company.service.js";
 import { sendTestEmail } from "../services/email.service.js";
 import type { AuthRequest } from "../types/index.js";
+import type { ICompanyDocument } from "../models/index.js";
+
+/**
+ * Strip scheme/host for logos stored under our /uploads/ tree so clients resolve
+ * against VITE_API_URL (same origin as /api). Absolute URLs from BACKEND_PUBLIC_URL
+ * often point at a host that does not proxy /uploads, which breaks <img src>.
+ */
+function normalizeUploadsLogo(logo: string | undefined): string | undefined {
+  if (!logo || typeof logo !== "string") return logo;
+  const isUploadsUrl =
+    logo.startsWith("/uploads/") ||
+    (logo.startsWith("http") && logo.includes("/uploads/"));
+  if (!isUploadsUrl) return logo;
+  try {
+    return new URL(logo, "http://localhost").pathname;
+  } catch {
+    return logo;
+  }
+}
+
+function companyJson(company: ICompanyDocument) {
+  const plain = company.toJSON() as Record<string, unknown>;
+  return {
+    ...plain,
+    logo: normalizeUploadsLogo(company.logo),
+  };
+}
 
 /**
  * GET /company/public - Public branding (logo, name) for login page. No auth required.
@@ -15,22 +42,8 @@ export async function getCompanyPublic(
 ): Promise<void> {
   try {
     const company = await companyService.getCompany();
-    let logo = company.logo;
-    if (logo && typeof logo === "string") {
-      const isUploadsUrl =
-        logo.startsWith("/uploads/") ||
-        (logo.startsWith("http") && logo.includes("/uploads/"));
-      if (isUploadsUrl) {
-        try {
-          const u = new URL(logo, "http://localhost");
-          logo = u.pathname;
-        } catch {
-          // keep logo as-is if URL parse fails
-        }
-      }
-    }
     res.json({
-      logo: logo || undefined,
+      logo: normalizeUploadsLogo(company.logo) || undefined,
       name: company.name,
     });
   } catch (error) {
@@ -54,7 +67,7 @@ export async function getCompany(
     }
 
     const company = await companyService.getCompany();
-    res.json({ company });
+    res.json({ company: companyJson(company) });
   } catch (error) {
     next(error);
   }
@@ -103,7 +116,10 @@ export async function updateCompany(
       appUrl: string;
     }> = {};
     if (name !== undefined) updates.name = name;
-    if (logo !== undefined) updates.logo = logo;
+    if (logo !== undefined) {
+      updates.logo =
+        typeof logo === "string" ? normalizeUploadsLogo(logo) ?? logo : logo;
+    }
     if (email !== undefined) updates.email = email;
     if (phone !== undefined) updates.phone = phone;
     if (address !== undefined) updates.address = address;
@@ -123,7 +139,7 @@ export async function updateCompany(
       return;
     }
 
-    res.json({ company });
+    res.json({ company: companyJson(company) });
   } catch (error) {
     next(error);
   }

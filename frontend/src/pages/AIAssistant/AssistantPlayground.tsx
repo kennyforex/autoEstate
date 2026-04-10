@@ -580,7 +580,7 @@ export const AssistantPlayground: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const { toasts, dismissToast, showSuccess, showError } = useToasts();
+  const { toasts, dismissToast, showSuccess, showError, showWarning } = useToasts();
 
   const skillLib = useAssistantSkillLibrary(id, assistant, setAssistant, {
     showSuccess,
@@ -962,6 +962,17 @@ export const AssistantPlayground: React.FC = () => {
     const handleProgress = (event: AgentStreamEvent) => {
       if (event.type === "status") {
         setAgentStatus(event.status);
+      } else if (event.type === "warning") {
+        if (event.code === "no_active_skills") {
+          showWarning(
+            t("assistants.playground.noActiveSkillsTitle"),
+            event.detail
+              ? `${t("assistants.playground.noActiveSkillsBody")}\n\n${event.detail}`
+              : t("assistants.playground.noActiveSkillsBody"),
+          );
+        } else {
+          showWarning(event.message, event.detail);
+        }
       } else if (event.type === "agent_step") {
         const tool = event.step.action?.tool;
         const args = event.step.action?.args;

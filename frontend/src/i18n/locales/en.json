@@ -583,6 +583,8 @@
       "backToManager": "Back to manager",
       "viewScript": "View",
       "unknownStaff": "Select a team member from the org chart.",
+      "noActiveSkillsTitle": "No active skills loaded",
+      "noActiveSkillsBody": "The playground will answer as the manager without running installed skills. Bind skills in Skill Library, ensure each Skill is active in the database, or check server logs for [AgentContext] / SKILL_LOAD_FAILED.",
       "managerSkillsNeedStaff": "This assistant has no manager staff record yet. Refresh the page or run staff migration, then try again.",
       "staffNicknameSaved": "Nickname updated.",
       "staffDisplaySaved": "Role and nickname updated.",

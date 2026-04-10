@@ -18,7 +18,8 @@
     "test:all-tools": "tsx src/scripts/test-all-tools.ts",
     "install:payment-collection-skill": "tsx src/scripts/install-payment-collection-skill.ts",
     "install:hello-cron-test-skill": "tsx src/scripts/install-hello-cron-test-skill.ts",
-    "test:lpc-documents": "tsx src/scripts/test-lpc-megafintech-documents.ts"
+    "test:lpc-documents": "tsx src/scripts/test-lpc-megafintech-documents.ts",
+    "verify:assistant-skills": "tsx src/scripts/verify-assistant-skills.ts"
   },
   "keywords": [
     "customer-support",

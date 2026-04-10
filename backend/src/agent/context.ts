@@ -35,6 +35,8 @@ function buildTeamRoster(
 async function loadAssistantSkillsAndRoster(assistantId: string): Promise<{
   skills: AgentSkillInfo[];
   teamRoster: AgentTeamMemberInfo[];
+  skillLoadError?: string;
+  skillBindingMismatch?: string;
 }> {
   try {
     const { Skill } = await import('../models/Skill.js');
@@ -58,6 +60,14 @@ async function loadAssistantSkillsAndRoster(assistantId: string): Promise<{
             _id: { $in: skillIds },
             status: 'active',
           }).lean();
+
+    let skillBindingMismatch: string | undefined;
+    if (skillIds.length > 0 && skillsLean.length === 0) {
+      skillBindingMismatch =
+        `Assistant has ${skillIds.length} skill binding(s) but none are active Skill documents ` +
+        '(check Skill.status === "active", deleted skills, or wrong database).';
+      console.warn(`[AgentContext] ${skillBindingMismatch}`);
+    }
 
     const idToSlug = new Map<string, string>();
     for (const s of skillsLean) {
@@ -126,11 +136,14 @@ async function loadAssistantSkillsAndRoster(assistantId: string): Promise<{
       `[AgentContext] Loaded ${skills.length} active skill(s): ${skills.map((x) => x.slug).join(', ')}`,
     );
 
-    return { skills, teamRoster };
+    return { skills, teamRoster, ...(skillBindingMismatch ? { skillBindingMismatch } : {}) };
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('[AgentContext] Failed to load skills:', msg);
-    return { skills: [], teamRoster: [] };
+    console.error(
+      '[AgentContext] SKILL_LOAD_FAILED — agent will run with 0 skills (check DB connectivity / schema):',
+      msg,
+    );
+    return { skills: [], teamRoster: [], skillLoadError: msg };
   }
 }
 
@@ -159,7 +172,12 @@ export async function buildAgentContext(
   if (!assistant) throw new Error(`Assistant ${assistantId} not found`);
   if (!contact) throw new Error(`Contact ${contactId} not found`);
 
-  const { skills: skillDocs, teamRoster } = loaded;
+  const {
+    skills: skillDocs,
+    teamRoster,
+    skillLoadError,
+    skillBindingMismatch,
+  } = loaded;
 
   const contactInfo: AgentContactInfo = {
     id: (contact as { _id: { toString(): string } })._id.toString(),
@@ -232,6 +250,8 @@ export async function buildAgentContext(
     messageHistory,
     session,
     goalStack: goalStack || undefined,
+    ...(skillLoadError ? { skillLoadError } : {}),
+    ...(skillBindingMismatch ? { skillBindingMismatch } : {}),
   };
 }
 
@@ -250,7 +270,12 @@ export async function buildPlaygroundContext(
 
   if (!assistant) throw new Error(`Assistant ${assistantId} not found`);
 
-  const { skills: skillDocs, teamRoster } = loaded;
+  const {
+    skills: skillDocs,
+    teamRoster,
+    skillLoadError,
+    skillBindingMismatch,
+  } = loaded;
 
   const a = assistant as Record<string, unknown>;
   const mgr = teamRoster.find((t) => t.isManager);
@@ -286,5 +311,7 @@ export async function buildPlaygroundContext(
     messageHistory,
     session,
     markdownEnabled: true,
+    ...(skillLoadError ? { skillLoadError } : {}),
+    ...(skillBindingMismatch ? { skillBindingMismatch } : {}),
   };
 }

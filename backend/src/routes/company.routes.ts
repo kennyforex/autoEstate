@@ -6,9 +6,11 @@ import * as companyController from "../controllers/company.controller.js";
 
 const router = Router();
 
-// Logo can be a normal URL or a data URL (from upload/image)
+// Logo: data URL, http(s), or our uploads path (resolved on the client via API origin)
 const isUrlOrDataUrl = (value: string) =>
-  value.startsWith("data:") || /^https?:\/\//i.test(value);
+  value.startsWith("data:") ||
+  /^https?:\/\//i.test(value) ||
+  value.startsWith("/uploads/");
 
 // Public branding for login page (no auth)
 router.get("/public", companyController.getCompanyPublic);

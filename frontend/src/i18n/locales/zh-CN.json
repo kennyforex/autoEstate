@@ -629,6 +629,8 @@
       "backToManager": "返回经理",
       "viewScript": "查看",
       "unknownStaff": "请从架构图选择团队成员。",
+      "noActiveSkillsTitle": "未加载任何启用中的技能",
+      "noActiveSkillsBody": "测试区将由经理模型直接回复，而不会执行已安装技能。请在技能库绑定技能、确认数据库中 Skill 为启用，或查看服务器日志 [AgentContext] / SKILL_LOAD_FAILED。",
       "managerSkillsNeedStaff": "此助理尚未建立经理成员记录。请刷新页面或运行员工数据迁移后再试。",
       "staffNicknameSaved": "昵称已更新。",
       "staffDisplaySaved": "角色与昵称已更新。",
