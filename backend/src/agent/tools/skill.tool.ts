@@ -109,7 +109,7 @@ export class SkillExecutionTool extends BaseTool {
   async execute(
     args: Record<string, unknown>,
     context: AgentContext,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<ToolResult> {
     const slug = args.slug as string;
     const userRequest = args.userRequest as string;
@@ -135,14 +135,15 @@ export class SkillExecutionTool extends BaseTool {
     console.log(`[SkillExecution] Running skill "${skill.name}" (${slug})`);
 
     try {
-      const skillResult = await this.executeSkillWithScripts(skill, userRequest, context);
+      const skillResult = await this.executeSkillWithScripts(skill, userRequest, context, signal);
       return this.mapToToolResult(slug, skillResult);
     } catch (error: any) {
-      console.error(`[SkillExecution] Skill "${slug}" failed:`, error.message);
+      const msg = error?.message ?? String(error);
+      console.error(`[SkillExecution] Skill "${slug}" failed:`, msg);
       return {
         success: false,
         data: null,
-        summary: `Skill "${slug}" execution failed: ${error.message}`,
+        summary: `Skill "${slug}" execution failed: ${msg}`,
       };
     }
   }
@@ -172,11 +173,12 @@ export class SkillExecutionTool extends BaseTool {
     skill: AgentSkillInfo,
     userRequest: string,
     context: AgentContext,
+    signal?: AbortSignal,
   ): Promise<SkillExecutionResult> {
     const prevActiveSlug = context.activeSkillSlug;
     context.activeSkillSlug = skill.slug;
     try {
-      return await this.runSkillWithScriptsInner(skill, userRequest, context);
+      return await this.runSkillWithScriptsInner(skill, userRequest, context, signal);
     } finally {
       context.activeSkillSlug = prevActiveSlug;
     }
@@ -186,6 +188,7 @@ export class SkillExecutionTool extends BaseTool {
     skill: AgentSkillInfo,
     userRequest: string,
     context: AgentContext,
+    signal?: AbortSignal,
   ): Promise<SkillExecutionResult> {
     // 1. Load SKILL.md from storage (file is source of truth; YAML may contain orderSheetId, etc.)
     let rawSkillMd: string;
@@ -438,7 +441,21 @@ export class SkillExecutionTool extends BaseTool {
     while (iterations < maxIterations) {
       iterations++;
 
-      const response = await this.callSkillLLM(messages, skillTools.length > 0 ? skillTools : undefined);
+      if (signal?.aborted) {
+        throw new Error(typeof signal.reason === 'string' ? signal.reason : 'Skill execution aborted');
+      }
+
+      console.log(
+        `[SkillTool] Sub-LLM iteration ${iterations}/${maxIterations} start (skill=${skill.slug})`,
+      );
+      const response = await this.callSkillLLM(
+        messages,
+        skillTools.length > 0 ? skillTools : undefined,
+        signal,
+      );
+      console.log(
+        `[SkillTool] Sub-LLM iteration ${iterations}/${maxIterations} response received`,
+      );
       const assistantMsg = response.choices?.[0]?.message;
       const content = assistantMsg?.content || '';
       const toolCalls = assistantMsg?.tool_calls;
@@ -472,7 +489,7 @@ export class SkillExecutionTool extends BaseTool {
           toolCalledInLoop = true;
           calledToolNames.add(toolName);
           try {
-            const toolResult = await tool.execute(toolArgs, context);
+            const toolResult = await tool.execute(toolArgs, context, signal);
             console.log(`[SkillTool] Tool "${toolName}" result (${toolResult.success ? 'ok' : 'fail'}): ${toolResult.summary.substring(0, 150)}`);
             messages.push({
               role: 'tool',
@@ -771,6 +788,7 @@ export class SkillExecutionTool extends BaseTool {
   private async callSkillLLM(
     messages: Array<{ role: string; content: string; tool_calls?: any[]; tool_call_id?: string }>,
     tools?: OpenAITool[],
+    signal?: AbortSignal,
   ): Promise<any> {
     const body: any = {
       model: openRouterConfig.models.agent,
@@ -794,6 +812,7 @@ export class SkillExecutionTool extends BaseTool {
           'X-Title': 'AutoEstate Skill Execution',
         },
         timeout: 90_000,
+        signal,
       },
     );
 

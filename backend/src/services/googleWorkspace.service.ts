@@ -10,6 +10,15 @@ import {
 import { createOAuth2Client } from "../config/google.js";
 import { spreadsheetColumnLettersToCount } from "../utils/spreadsheetColumns.js";
 
+/** Per-request timeout for Google API clients (ms). Set GOOGLE_API_REQUEST_TIMEOUT_MS to override. */
+const GOOGLE_API_REQUEST_TIMEOUT_MS = Math.min(
+  300_000,
+  Math.max(
+    15_000,
+    parseInt(process.env.GOOGLE_API_REQUEST_TIMEOUT_MS || "60000", 10) || 60_000,
+  ),
+);
+
 class GoogleWorkspaceService {
   async getAuthedClient(userId: string): Promise<OAuth2Client> {
     const connection = await GoogleConnection.findOne({ userId });
@@ -54,7 +63,7 @@ class GoogleWorkspaceService {
     params: { to: string; subject: string; body: string },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const gmail = google.gmail({ version: "v1", auth });
+    const gmail = google.gmail({ version: "v1", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const encodedSubject = `=?UTF-8?B?${Buffer.from(params.subject).toString("base64")}?=`;
     const message = [
@@ -82,7 +91,7 @@ class GoogleWorkspaceService {
     params: { query?: string; maxResults?: number } = {},
   ) {
     const auth = await this.getAuthedClient(userId);
-    const gmail = google.gmail({ version: "v1", auth });
+    const gmail = google.gmail({ version: "v1", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const result = await gmail.users.messages.list({
       userId: "me",
@@ -119,7 +128,7 @@ class GoogleWorkspaceService {
 
   async getMessage(userId: string, messageId: string) {
     const auth = await this.getAuthedClient(userId);
-    const gmail = google.gmail({ version: "v1", auth });
+    const gmail = google.gmail({ version: "v1", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const result = await gmail.users.messages.get({
       userId: "me",
@@ -158,7 +167,7 @@ class GoogleWorkspaceService {
     params: { messageId: string; body: string },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const gmail = google.gmail({ version: "v1", auth });
+    const gmail = google.gmail({ version: "v1", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const original = await gmail.users.messages.get({
       userId: "me",
@@ -202,7 +211,7 @@ class GoogleWorkspaceService {
 
   async getAgenda(userId: string, params: { timezone?: string } = {}) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: "v3", auth });
+    const calendar = google.calendar({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const now = new Date();
     const endOfDay = new Date(now);
@@ -241,7 +250,7 @@ class GoogleWorkspaceService {
     },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: "v3", auth });
+    const calendar = google.calendar({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const result = await calendar.events.insert({
       calendarId: "primary",
@@ -277,7 +286,7 @@ class GoogleWorkspaceService {
     },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: "v3", auth });
+    const calendar = google.calendar({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const requestBody: Record<string, unknown> = {};
     if (params.summary !== undefined) requestBody.summary = params.summary;
@@ -312,7 +321,7 @@ class GoogleWorkspaceService {
     params: { timeMin?: string; timeMax?: string; maxResults?: number } = {},
   ) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: "v3", auth });
+    const calendar = google.calendar({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const result = await calendar.events.list({
       calendarId: "primary",
@@ -336,7 +345,7 @@ class GoogleWorkspaceService {
 
   async deleteEvent(userId: string, eventId: string) {
     const auth = await this.getAuthedClient(userId);
-    const calendar = google.calendar({ version: "v3", auth });
+    const calendar = google.calendar({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     await calendar.events.delete({ calendarId: "primary", eventId });
     return { deleted: true, eventId };
   }
@@ -348,7 +357,7 @@ class GoogleWorkspaceService {
     params: { query?: string; pageSize?: number } = {},
   ) {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const result = await drive.files.list({
       q: params.query || undefined,
@@ -372,7 +381,7 @@ class GoogleWorkspaceService {
 
   async getFileInfo(userId: string, fileId: string) {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const result = await drive.files.get({
       fileId,
@@ -392,7 +401,7 @@ class GoogleWorkspaceService {
     parentId?: string,
   ): Promise<string | null> {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     const escaped = name.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     let q = `name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     if (parentId) {
@@ -418,7 +427,7 @@ class GoogleWorkspaceService {
     parentId?: string,
   ): Promise<string> {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     const requestBody: { name: string; mimeType: string; parents?: string[] } =
       {
         name,
@@ -478,7 +487,7 @@ class GoogleWorkspaceService {
     },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const httpResp = await axios.get<ArrayBuffer>(params.fileUrl, {
       responseType: "arraybuffer",
@@ -533,7 +542,7 @@ class GoogleWorkspaceService {
     range: string,
   ) {
     const auth = await this.getAuthedClient(userId);
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = google.sheets({ version: "v4", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const result = await sheets.spreadsheets.values.get({
       spreadsheetId,
@@ -551,7 +560,7 @@ class GoogleWorkspaceService {
     params: { title: string; sheetTitle?: string; rows: string[][] },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = google.sheets({ version: "v4", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
 
     const sheetTitle = params.sheetTitle ?? "Orders";
     const createRes = await sheets.spreadsheets.create({
@@ -601,7 +610,7 @@ class GoogleWorkspaceService {
     },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = google.sheets({ version: "v4", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     const col = params.lastColumnLetter ?? "N";
     const escaped = params.sheetName.replace(/'/g, "''");
     const range = `'${escaped}'!A:${col}`;
@@ -637,7 +646,7 @@ class GoogleWorkspaceService {
     },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = google.sheets({ version: "v4", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     const escaped = params.sheetName.replace(/'/g, "''");
     const col = params.matchColumnLetter.trim().toUpperCase() || "A";
     const matchRange = `'${escaped}'!${col}:${col}`;
@@ -712,7 +721,7 @@ class GoogleWorkspaceService {
 
   async createGoogleDocument(userId: string, title: string) {
     const auth = await this.getAuthedClient(userId);
-    const docs = google.docs({ version: "v1", auth });
+    const docs = google.docs({ version: "v1", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     const res = await docs.documents.create({
       requestBody: { title: title.trim() || "Untitled" },
     });
@@ -729,7 +738,7 @@ class GoogleWorkspaceService {
 
   async appendGoogleDocText(userId: string, documentId: string, text: string) {
     const auth = await this.getAuthedClient(userId);
-    const docs = google.docs({ version: "v1", auth });
+    const docs = google.docs({ version: "v1", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     await docs.documents.batchUpdate({
       documentId,
       requestBody: {
@@ -748,7 +757,7 @@ class GoogleWorkspaceService {
 
   async getGoogleDocPlainText(userId: string, documentId: string): Promise<string> {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     const res = await drive.files.export(
       {
         fileId: documentId,
@@ -761,7 +770,7 @@ class GoogleWorkspaceService {
 
   async exportGoogleDocAsPdfBuffer(userId: string, documentId: string): Promise<Buffer> {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     const res = await drive.files.export(
       {
         fileId: documentId,
@@ -785,7 +794,7 @@ class GoogleWorkspaceService {
     },
   ) {
     const auth = await this.getAuthedClient(userId);
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth, timeout: GOOGLE_API_REQUEST_TIMEOUT_MS });
     const body = Readable.from(params.body);
     const createRes = await drive.files.create({
       requestBody: {
