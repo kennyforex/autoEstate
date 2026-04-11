@@ -6,6 +6,7 @@ import { SetPassword } from "./pages/SetPassword";
 import { Dashboard } from "./pages/Dashboard";
 import { Inbox } from "./pages/Inbox";
 import { AILogs } from "./pages/AILogs";
+import { SkillTasks } from "./pages/SkillTasks";
 import {
   AssistantList,
   AssistantPlayground,
@@ -65,6 +66,7 @@ function App() {
 
             {/* AI Logs route */}
             <Route path="ai-logs" element={<AILogs />} />
+            <Route path="skill-tasks" element={<SkillTasks />} />
 
             {/* Channels routes */}
             <Route path="channels" element={<ChannelList />} />

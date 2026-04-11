@@ -317,6 +317,7 @@
     "channels": "Channels",
     "contacts": "Contacts",
     "aiLogs": "AI Logs",
+    "skillTasks": "Past tasks",
     "integration": "Integration",
     "settings": "Settings",
     "logout": "Logout"
@@ -869,5 +870,46 @@
       "warn": "Warning",
       "error": "Error"
     }
+  },
+  "skillTasks": {
+    "title": "Past tasks",
+    "subtitle": "Goal completion flow",
+    "refresh": "Refresh",
+    "loading": "Loading past tasks…",
+    "retry": "Retry",
+    "loadError": "Failed to load past tasks",
+    "filters": "Filters",
+    "allStatuses": "All statuses",
+    "searchPlaceholder": "Search contact…",
+    "skillSlugPlaceholder": "Skill slug",
+    "empty": "No past tasks yet. They appear when customers run skills on WhatsApp.",
+    "columns": {
+      "status": "Status",
+      "skill": "Skill",
+      "contact": "Contact",
+      "assistant": "Assistant",
+      "started": "Started",
+      "ended": "Completed",
+      "steps": "Steps",
+      "tokens": "Tokens (approx.)",
+      "aiMsgs": "AI msgs",
+      "inbox": "Inbox"
+    },
+    "status": {
+      "active": "Active",
+      "suspended": "Suspended",
+      "completed": "Completed"
+    },
+    "openInbox": "Open",
+    "detailLoading": "Loading details…",
+    "detailError": "Could not load details.",
+    "stepsTitle": "Steps",
+    "observationsTitle": "Collected fields",
+    "aiMessagesTitle": "AI messages (time window)",
+    "noAiMessages": "No AI messages in this window.",
+    "viewAiLogs": "View AI logs",
+    "pageOf": "{{from}}–{{to}} of {{total}}",
+    "prev": "Previous",
+    "next": "Next"
   }
 }

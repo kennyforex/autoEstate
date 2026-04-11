@@ -363,6 +363,7 @@
     "channels": "頻道",
     "contacts": "聯絡人",
     "aiLogs": "AI 日誌",
+    "skillTasks": "過往任務",
     "integration": "整合",
     "settings": "設定",
     "logout": "登出"
@@ -912,5 +913,46 @@
       "noRuns": "尚無執行紀錄。",
       "delivery": "傳遞"
     }
+  },
+  "skillTasks": {
+    "title": "過往任務",
+    "subtitle": "目標完成流程",
+    "refresh": "重新整理",
+    "loading": "正在載入過往任務…",
+    "retry": "重試",
+    "loadError": "載入過往任務失敗",
+    "filters": "篩選",
+    "allStatuses": "全部狀態",
+    "searchPlaceholder": "搜尋聯絡人…",
+    "skillSlugPlaceholder": "技能 slug",
+    "empty": "尚無過往任務。客戶在 WhatsApp 中執行技能後會顯示於此。",
+    "columns": {
+      "status": "狀態",
+      "skill": "技能",
+      "contact": "聯絡人",
+      "assistant": "助理",
+      "started": "開始時間",
+      "ended": "完成時間",
+      "steps": "步驟",
+      "tokens": "Token（約）",
+      "aiMsgs": "AI 訊息",
+      "inbox": "收件匣"
+    },
+    "status": {
+      "active": "進行中",
+      "suspended": "已暫停",
+      "completed": "已完成"
+    },
+    "openInbox": "開啟",
+    "detailLoading": "正在載入詳情…",
+    "detailError": "無法載入詳情。",
+    "stepsTitle": "步驟",
+    "observationsTitle": "已收集欄位",
+    "aiMessagesTitle": "AI 訊息（時間範圍內）",
+    "noAiMessages": "此時間範圍內無 AI 訊息。",
+    "viewAiLogs": "查看 AI 日誌",
+    "pageOf": "第 {{from}}–{{to}} 筆，共 {{total}} 筆",
+    "prev": "上一頁",
+    "next": "下一頁"
   }
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   InboxSidebar,
   ConversationList,
@@ -87,6 +88,8 @@ const conversationMatchesFilter = (
 };
 
 export const Inbox: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(
@@ -110,6 +113,31 @@ export const Inbox: React.FC = () => {
     showErrorRef.current = showError;
     showInfoRef.current = showInfo;
   }, [showError, showInfo]);
+
+  useEffect(() => {
+    const raw = location.state as { openConversationId?: string } | undefined;
+    const id = raw?.openConversationId;
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const conv = await conversationsApi.get(id);
+        if (cancelled) return;
+        setSelectedConversation(conv);
+      } catch {
+        if (!cancelled) {
+          showErrorRef.current("Failed to open conversation");
+        }
+      } finally {
+        if (!cancelled) {
+          navigate("/inbox", { replace: true, state: {} });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.state, navigate]);
 
   const fetchConversations = useCallback(async () => {
     try {

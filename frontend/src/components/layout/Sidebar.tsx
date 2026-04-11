@@ -11,6 +11,7 @@ import {
   Users,
   Plug2,
   Clock,
+  ListTodo,
 } from "lucide-react";
 import { Avatar } from "../common/Avatar";
 import { useAuth } from "../../context/AuthContext";
@@ -64,6 +65,11 @@ const getNavItems = (): NavItem[] => [
     path: "/ai-logs",
     icon: <ScrollText className="w-6 h-6" />,
     labelKey: "sidebar.aiLogs",
+  },
+  {
+    path: "/skill-tasks",
+    icon: <ListTodo className="w-6 h-6" />,
+    labelKey: "sidebar.skillTasks",
   },
   {
     path: "/integration",

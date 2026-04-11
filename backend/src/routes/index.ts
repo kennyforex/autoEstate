@@ -16,6 +16,7 @@ import skillRoutes from "./skill.routes.js";
 import googleRoutes from "./google.routes.js";
 import cronRoutes from "./cron.routes.js";
 import scheduledJobRoutes from "./scheduledJob.routes.js";
+import skillTasksRoutes from "./skillTasks.routes.js";
 import { notFoundHandler } from "../middleware/error.middleware.js";
 
 const router = Router();
@@ -38,6 +39,7 @@ router.use("/skills", skillRoutes);
 router.use("/google", googleRoutes);
 router.use("/cron", cronRoutes);
 router.use("/scheduled-jobs", scheduledJobRoutes);
+router.use("/skill-tasks", skillTasksRoutes);
 
 // 404 handler for API routes
 router.use(notFoundHandler);

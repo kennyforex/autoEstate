@@ -850,6 +850,79 @@ export const contactsApi = {
 };
 
 // AI Logs API
+export interface SkillTaskListItem {
+  conversationId: string;
+  goalId: string;
+  skillSlug: string;
+  skillDisplayName?: string;
+  status: "active" | "suspended" | "completed";
+  createdAt: string;
+  suspendedAt?: string;
+  completedAt?: string;
+  steps: Array<{
+    id: string;
+    label: string;
+    status: string;
+    collects?: string;
+    collectedValue?: string;
+  }>;
+  stepsSummary: { completed: number; total: number };
+  observations: Record<string, string>;
+  tokensApprox: { input: number; output: number; total: number };
+  aiMessageCount: number;
+  tokensNote?: string;
+  contact: {
+    name?: string;
+    phoneNumber?: string;
+    whatsappId?: string;
+  };
+  assistant: { id?: string; name?: string };
+  channel: { id?: string; name?: string };
+}
+
+export interface SkillTaskDetail extends SkillTaskListItem {
+  messages: Array<{
+    id: string;
+    content: string;
+    contentType: string;
+    createdAt: string;
+    aiGenerated: boolean;
+  }>;
+}
+
+export const skillTasksApi = {
+  list: async (params?: {
+    status?: string;
+    skillSlug?: string;
+    conversationId?: string;
+    channelId?: string;
+    createdFrom?: string;
+    createdTo?: string;
+    completedFrom?: string;
+    completedTo?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    tasks: SkillTaskListItem[];
+    total: number;
+    tokensNote?: string;
+  }> => {
+    const { data } = await api.get("/skill-tasks", { params });
+    return data;
+  },
+
+  getDetail: async (
+    conversationId: string,
+    goalId: string,
+  ): Promise<SkillTaskDetail> => {
+    const { data } = await api.get(
+      `/skill-tasks/${conversationId}/${encodeURIComponent(goalId)}`,
+    );
+    return data;
+  },
+};
+
 export const aiLogsApi = {
   getLogs: async (params?: {
     type?: string;

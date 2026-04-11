@@ -852,6 +852,7 @@ IMPORTANT RULES:
 
           const onAgentEvent = this.createAgentEventHandler(conversationId);
 
+          const clarificationStartTime = Date.now();
           const agentResult = await agentEngine.run(effectiveContent, agentContext, onAgentEvent);
 
           // Clean up old session
@@ -865,14 +866,22 @@ IMPORTANT RULES:
           citations = agentResult.citations || [];
           classification = "COMPLEX";
 
+          const uResume = agentResult.usage;
           aiLogger.logComplexReply({
             conversationId,
             assistantId: channel.assistantId.toString(),
             input: effectiveContent,
             output: aiResponseContent,
-            duration: Date.now() - Date.now(),
+            duration: Date.now() - clarificationStartTime,
             citations,
             model: agentResult.model,
+            tokens: uResume
+              ? {
+                  input: uResume.prompt_tokens,
+                  output: uResume.completion_tokens,
+                  total: uResume.total_tokens,
+                }
+              : undefined,
           });
         } else if (detectBadWording && hasBadWording) {
           // Use custom bad wording response
@@ -947,6 +956,7 @@ IMPORTANT RULES:
                 );
               }
 
+              const uAgent = agentResult.usage;
               aiLogger.logComplexReply({
                 conversationId,
                 assistantId: channel.assistantId.toString(),
@@ -955,6 +965,13 @@ IMPORTANT RULES:
                 duration: complexDuration,
                 citations,
                 model: agentResult.model,
+                tokens: uAgent
+                  ? {
+                      input: uAgent.prompt_tokens,
+                      output: uAgent.completion_tokens,
+                      total: uAgent.total_tokens,
+                    }
+                  : undefined,
               });
             } catch (agentError: any) {
               console.error(
