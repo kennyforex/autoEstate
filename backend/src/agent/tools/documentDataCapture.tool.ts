@@ -4,8 +4,7 @@ import { BaseTool } from './base.js';
 import axios from 'axios';
 import { openRouterConfig } from '../../config/openrouter.js';
 import type { AgentContext, ToolResult } from '../types.js';
-
-const UPLOADS_ROOT = process.env.UPLOAD_PATH || path.resolve(process.cwd(), 'uploads');
+import { getUploadsRoot } from '../../utils/uploadsPath.js';
 
 /**
  * OpenRouter cannot fetch localhost URLs. When the agent passes our Playground/inbox
@@ -51,8 +50,9 @@ async function hydrateLocalUploadsUrlForOpenRouter(sourceUrl: string): Promise<
   if (!relative || relative.includes('..')) {
     return { ok: false, error: 'Invalid /uploads/ path (possible path traversal).' };
   }
-  const abs = path.resolve(UPLOADS_ROOT, relative);
-  const normalizedRoot = path.resolve(UPLOADS_ROOT);
+  const root = getUploadsRoot();
+  const abs = path.resolve(root, relative);
+  const normalizedRoot = path.resolve(root);
   if (!abs.startsWith(normalizedRoot + path.sep)) {
     return { ok: false, error: 'Resolved path escapes uploads directory.' };
   }

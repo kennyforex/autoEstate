@@ -7,6 +7,7 @@ import { agentEngine, buildPlaygroundContext } from '../agent/index.js';
 import { getSkillPermissionToolOptions } from '../agent/tools/index.js';
 import type { AuthRequest } from '../types/index.js';
 import type { ChatMessage, AgentEvent } from '../agent/types.js';
+import { getUploadsRoot } from '../utils/uploadsPath.js';
 
 export async function listAssistants(
   req: AuthRequest,
@@ -546,8 +547,7 @@ async function persistPlaygroundUpload(
   mimetype: string,
   origName: string,
 ): Promise<string> {
-  const uploadsRoot = process.env.UPLOAD_PATH || path.resolve(process.cwd(), 'uploads');
-  const dir = path.join(uploadsRoot, 'agent-chat');
+  const dir = path.join(getUploadsRoot(), 'agent-chat');
   await fs.mkdir(dir, { recursive: true });
   const ext =
     path.extname(origName) ||

@@ -1,5 +1,4 @@
 import express from "express";
-import path from "path";
 import cors from "cors";
 import http from "http";
 import { Server } from "socket.io";
@@ -9,6 +8,7 @@ import { connectDatabase } from "./config/database.js";
 import { initializeSocketHandlers } from "./socket/handlers.js";
 import { errorHandler } from "./middleware/error.middleware.js";
 import routes from "./routes/index.js";
+import { getUploadsRoot } from "./utils/uploadsPath.js";
 import { initPaymentReminderScheduler } from "./services/paymentReminder.scheduler.js";
 import { initSkillScheduleScheduler } from "./services/skillSchedule.scheduler.js";
 import { initScheduledJobScheduler } from "./services/scheduledJob.scheduler.js";
@@ -26,8 +26,7 @@ const app = express();
 const server = http.createServer(app);
 
 // Serve uploaded videos so DashScope can fetch them by URL (no auth for GET)
-// Resolve path from app root so it works regardless of process.cwd()
-const uploadsDir = process.env.UPLOAD_PATH || path.resolve(__dirname, "..", "uploads");
+const uploadsDir = getUploadsRoot();
 app.use(
   "/uploads",
   express.static(uploadsDir, {

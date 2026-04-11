@@ -1,5 +1,6 @@
 import path from "path";
 import dotenv from "dotenv";
+import { getUploadsRoot } from "../utils/uploadsPath.js";
 
 dotenv.config();
 
@@ -57,10 +58,8 @@ export const videoLimits = {
   // Base64 increases size by ~33%, so 20MB video becomes ~27MB payload
   maxAnalysisSize: 20 * 1024 * 1024,
 
-  // Storage directory – absolute when UPLOAD_PATH is set, otherwise relative to cwd
-  storageDirectory: process.env.UPLOAD_PATH
-    ? path.join(process.env.UPLOAD_PATH, "videos")
-    : "uploads/videos",
+  // Same root as express /uploads and logo uploads (UPLOAD_PATH or backend/uploads)
+  storageDirectory: path.join(getUploadsRoot(), "videos"),
 
   // Analysis timeout (10 minutes)
   analysisTimeout: 10 * 60 * 1000,

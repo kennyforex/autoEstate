@@ -4,9 +4,9 @@ import fs from "fs";
 import { randomUUID } from "crypto";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import type { AuthRequest } from "../types/index.js";
+import { getUploadsRoot } from "../utils/uploadsPath.js";
 
-const uploadsDir = process.env.UPLOAD_PATH || path.resolve(process.cwd(), "uploads");
-const logosDir = path.join(uploadsDir, "logos");
+const logosDir = path.join(getUploadsRoot(), "logos");
 
 const router = Router();
 

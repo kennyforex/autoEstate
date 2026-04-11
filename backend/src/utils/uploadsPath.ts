@@ -1,18 +1,28 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-const UPLOADS_ROOT = process.env.UPLOAD_PATH || path.resolve(process.cwd(), 'uploads');
+/**
+ * Default uploads directory next to `dist/` (same resolution as express.static in app.ts).
+ * When UPLOAD_PATH is unset, avoids cwd vs dist mismatch under PM2/Docker.
+ */
+function resolveUploadsRoot(): string {
+  if (process.env.UPLOAD_PATH) {
+    return path.resolve(process.env.UPLOAD_PATH);
+  }
+  return path.resolve(__dirname, '..', '..', 'uploads');
+}
 
 /**
  * Resolve a path relative to the uploads root. Rejects ".." and absolute paths.
  */
 export function resolveUploadsRelativePath(relative: string): { ok: true; abs: string } | { ok: false; error: string } {
+  const root = getUploadsRoot();
   const trimmed = relative.trim().replace(/^\/+/, '');
   if (!trimmed || trimmed.includes('..')) {
     return { ok: false, error: 'Invalid path (empty or contains "..")' };
   }
-  const abs = path.resolve(UPLOADS_ROOT, trimmed);
-  const normalizedRoot = path.resolve(UPLOADS_ROOT);
+  const abs = path.resolve(root, trimmed);
+  const normalizedRoot = path.resolve(root);
   if (!abs.startsWith(normalizedRoot + path.sep) && abs !== normalizedRoot) {
     return { ok: false, error: 'Path escapes uploads directory' };
   }
@@ -20,7 +30,7 @@ export function resolveUploadsRelativePath(relative: string): { ok: true; abs: s
 }
 
 export function getUploadsRoot(): string {
-  return UPLOADS_ROOT;
+  return resolveUploadsRoot();
 }
 
 export async function readUploadsFile(relative: string): Promise<{ ok: true; buffer: Buffer } | { ok: false; error: string }> {
