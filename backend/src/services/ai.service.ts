@@ -3,11 +3,18 @@ import axios from "axios";
 import { assistantService } from "./assistant.service.js";
 import { channelService } from "./channel.service.js";
 import { conversationService } from "./conversation.service.js";
-import { messageService } from "./message.service.js";
+import { messageService, type CreateMessageInput } from "./message.service.js";
 import { aiLogger } from "./aiLogger.service.js";
 import { Conversation, Channel, Contact, Message, Assistant } from "../models/index.js";
 import { AgentSession } from "../models/AgentSession.js";
 import { delay, recipientJidForEvolutionSend } from "../utils/helpers.js";
+import {
+  extractHttpsImageUrls,
+  scrubImageUrlsFromText,
+  fetchHttpsImageAsDataUrl,
+  fileNameForImageUrl,
+  FetchImageError,
+} from "../utils/whatsappOutboundImages.js";
 import { openRouterConfig } from "../config/openrouter.js";
 import { getEvolutionClient } from "../config/evolution.js";
 import { agentEngine } from "../agent/index.js";
@@ -142,6 +149,119 @@ class AIService {
           break;
       }
     };
+  }
+
+  /**
+   * Send AI reply on WhatsApp: optional text plus native image messages for HTTPS image URLs.
+   */
+  private async sendWhatsAppAIContent(params: {
+    conversationId: string;
+    channel: {
+      evolutionInstanceName: string;
+      _id: { toString(): string };
+    };
+    senderId: string;
+    aiResponseContent: string;
+    citations: CreateMessageInput["citations"];
+  }): Promise<void> {
+    const {
+      conversationId,
+      channel,
+      senderId,
+      aiResponseContent,
+      citations,
+    } = params;
+
+    const imageUrls = extractHttpsImageUrls(aiResponseContent);
+    const textBody = scrubImageUrlsFromText(aiResponseContent, imageUrls);
+
+    console.log(
+      `[AI:SEND] Outbound: ${imageUrls.length} image URL(s), scrubbed text length=${textBody.length}`,
+    );
+
+    if (imageUrls.length === 0) {
+      const evolutionMessageId = await messageService.sendViaWhatsApp(
+        channel.evolutionInstanceName,
+        senderId,
+        aiResponseContent,
+        "text",
+      );
+      const savedMessage = await messageService.create({
+        conversationId,
+        channelId: channel._id.toString(),
+        sender: "ai",
+        content: aiResponseContent,
+        contentType: "text",
+        evolutionMessageId: evolutionMessageId || undefined,
+        aiGenerated: true,
+        citations,
+      });
+      console.log(
+        `[AI:SEND] WhatsApp text sent, evolutionMessageId: ${evolutionMessageId || "none"}`,
+      );
+      console.log(`[AI:SAVE] AI message saved to DB: ${savedMessage._id}`);
+      return;
+    }
+
+    const evolutionTextId = await messageService.sendViaWhatsApp(
+      channel.evolutionInstanceName,
+      senderId,
+      textBody,
+      "text",
+    );
+    const savedText = await messageService.create({
+      conversationId,
+      channelId: channel._id.toString(),
+      sender: "ai",
+      content: textBody,
+      contentType: "text",
+      evolutionMessageId: evolutionTextId || undefined,
+      aiGenerated: true,
+      citations,
+    });
+    console.log(
+      `[AI:SEND] WhatsApp text sent (URLs stripped for separate images), evolutionMessageId: ${evolutionTextId || "none"}`,
+    );
+    console.log(`[AI:SAVE] AI text message saved to DB: ${savedText._id}`);
+
+    for (const url of imageUrls) {
+      try {
+        const { dataUrl, mime } = await fetchHttpsImageAsDataUrl(url);
+        const fileName = fileNameForImageUrl(url, mime);
+        const evolutionMessageId = await messageService.sendViaWhatsApp(
+          channel.evolutionInstanceName,
+          senderId,
+          "[Image]",
+          "image",
+          dataUrl,
+          fileName,
+        );
+        const savedImg = await messageService.create({
+          conversationId,
+          channelId: channel._id.toString(),
+          sender: "ai",
+          content: "[Image]",
+          contentType: "image",
+          mediaUrl: url,
+          evolutionMessageId: evolutionMessageId || undefined,
+          aiGenerated: true,
+        });
+        console.log(
+          `[AI:SEND] WhatsApp image sent, evolutionMessageId: ${evolutionMessageId || "none"}`,
+        );
+        console.log(`[AI:SAVE] AI image message saved to DB: ${savedImg._id}`);
+      } catch (e: unknown) {
+        const detail =
+          e instanceof FetchImageError
+            ? `${e.code}: ${e.message}`
+            : e instanceof Error
+              ? e.message
+              : String(e);
+        console.warn(
+          `[AI:SEND] Skipping image URL (${detail}): ${url.slice(0, 120)}`,
+        );
+      }
+    }
   }
 
   /**
@@ -1059,35 +1179,19 @@ IMPORTANT RULES:
           return;
         }
 
-        // Send AI response via WhatsApp
         console.log(
           `[AI:SEND] contact=${contact._id} phoneNumber=${JSON.stringify(sendTarget.phoneNumber)} whatsappId=${JSON.stringify(sendTarget.whatsappId)} -> ${senderId}`,
         );
         console.log(
           `[AI:SEND] Sending AI response via WhatsApp to ${senderId}`,
         );
-        const evolutionMessageId = await messageService.sendViaWhatsApp(
-          channel.evolutionInstanceName,
+        await this.sendWhatsAppAIContent({
+          conversationId,
+          channel,
           senderId,
           aiResponseContent,
-          "text",
-        );
-        console.log(
-          `[AI:SEND] WhatsApp message sent, evolutionMessageId: ${evolutionMessageId || "none"}`,
-        );
-
-        // Save AI message to database
-        const savedMessage = await messageService.create({
-          conversationId,
-          channelId: channel._id.toString(),
-          sender: "ai",
-          content: aiResponseContent,
-          contentType: "text",
-          evolutionMessageId: evolutionMessageId || undefined,
-          aiGenerated: true,
-          citations: citations,
+          citations,
         });
-        console.log(`[AI:SAVE] AI message saved to DB: ${savedMessage._id}`);
 
         // Update conversation
         await conversationService.setAIHandling(conversationId, false);
