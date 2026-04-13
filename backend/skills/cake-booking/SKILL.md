@@ -9,7 +9,7 @@ user-invocable: true
 metadata:
   display_name: Cake Booking
   version: 1.0.0
-  author: AutoEstate
+  author: Foodflow
   category: ordering
   language: zh-HK + English
   reminder_delay: 5

@@ -16,7 +16,7 @@ I've added comprehensive logging to both frontend and backend to help diagnose t
 - Added success/failure emoji indicators for easy identification
 
 ### Environment
-- Created `/Users/kenny/app/FFCS/frontend/.env` with:
+- Created `/path/to/foodflow/frontend/.env` with:
   ```
   VITE_API_URL=http://localhost:3001/api
   VITE_SOCKET_URL=http://localhost:3001
@@ -58,7 +58,7 @@ Look for:
 # Kill existing process
 lsof -ti :5173 | xargs kill -9
 # Restart
-cd /Users/kenny/app/FFCS/frontend && npm run dev
+cd /path/to/foodflow/frontend && npm run dev
 ```
 
 #### Issue 2: CORS Error

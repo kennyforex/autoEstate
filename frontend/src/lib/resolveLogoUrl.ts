@@ -1,5 +1,5 @@
 /** Dispatched after the company logo is saved so the shell (e.g. sidebar) can refresh. */
-export const COMPANY_LOGO_UPDATED_EVENT = "autoestate:company-logo-updated";
+export const COMPANY_LOGO_UPDATED_EVENT = "foodflow:company-logo-updated";
 
 /** Resolve logo URL so relative paths point at the backend origin (uploads). */
 export function resolveLogoUrl(logo: string | undefined): string | undefined {

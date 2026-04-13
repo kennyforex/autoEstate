@@ -67,7 +67,7 @@ export interface AssistantFile {
   name: string;
   size?: number;
   uploadedAt: string;
-  // Folder path for organization (FFCS only, not synced to Pinecone)
+  // Folder path for organization (Foodflow only, not synced to Pinecone)
   folder?: string;
   // Video-specific fields
   isVideo?: boolean;

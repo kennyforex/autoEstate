@@ -650,7 +650,7 @@
       "skillDeleteConfirm": "Delete this skill? This cannot be undone.",
       "skillEditorTabBasic": "Basic settings",
       "skillEditorTabFrontmatter": "Frontmatter (YAML)",
-      "skillFrontmatterHelp": "Edit the YAML block at the top of SKILL.md (do not type the --- lines; they are added automatically). Standard fields: name (kebab-case id), description, optional argument-hint / allowed-tools. Put AutoEstate-specific config under metadata: display_name, trigger_hints (list), reminder_delay, max_reminders, schedule_*, order_sheet_id, sheet_fields, required_tools, and steps (workflow). Saving writes SKILL.md and syncs parsed fields into the database when possible.",
+      "skillFrontmatterHelp": "Edit the YAML block at the top of SKILL.md (do not type the --- lines; they are added automatically). Standard fields: name (kebab-case id), description, optional argument-hint / allowed-tools. Put Foodflow-specific config under metadata: display_name, trigger_hints (list), reminder_delay, max_reminders, schedule_*, order_sheet_id, sheet_fields, required_tools, and steps (workflow). Saving writes SKILL.md and syncs parsed fields into the database when possible.",
       "skillFrontmatterLabel": "YAML (between --- in SKILL.md)",
       "skillEditorTabReference": "Reference",
       "skillEditorTabAssets": "Assets",

@@ -1,6 +1,6 @@
 # Quick Deployment Guide
 
-This is a simplified, step-by-step guide to deploy FFCS to your VPS.
+This is a simplified, step-by-step guide to deploy Foodflow to your VPS.
 
 ## Prerequisites
 - Ubuntu VPS (2GB RAM minimum)
@@ -44,7 +44,7 @@ mkdir -p /var/www/ffcs/logs
 ## Step 3: Upload Your Code
 On your **local machine**:
 ```bash
-cd /Users/kenny/app/FFCS
+cd /path/to/foodflow
 
 # Create archive (excludes unnecessary files)
 tar --exclude='node_modules' \
@@ -203,7 +203,7 @@ pm2 logs
 
 To update your app, on your **local machine**:
 ```bash
-cd /Users/kenny/app/FFCS
+cd /path/to/foodflow
 tar --exclude='node_modules' --exclude='.git' --exclude='backend/uploads' --exclude='backend/dist' --exclude='frontend/dist' -czf ffcs-update.tar.gz .
 scp ffcs-update.tar.gz root@YOUR_VPS_IP:/var/www/
 ```

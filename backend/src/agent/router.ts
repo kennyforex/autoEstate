@@ -1,4 +1,5 @@
 import axios from "axios";
+import { openRouterHeaders } from "../config/httpAttribution.js";
 import { openRouterConfig } from "../config/openrouter.js";
 import type { AgentContext, AgentSkillInfo, RouterDecision } from "./types.js";
 
@@ -214,8 +215,7 @@ async function classifyIntent(
         headers: {
           Authorization: `Bearer ${openRouterConfig.apiKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": "https://autoestate.ai",
-          "X-Title": "AutoEstate Router",
+          ...openRouterHeaders("Foodflow Router"),
         },
         timeout: 5000,
       },

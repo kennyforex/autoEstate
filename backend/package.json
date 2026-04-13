@@ -1,7 +1,7 @@
 {
-  "name": "autoestate-backend",
+  "name": "foodflow-backend",
   "version": "1.0.0",
-  "description": "AutoEstate - AI Customer Support Platform Backend",
+  "description": "Foodflow - AI customer support for food & beverage businesses (WhatsApp, skills, knowledge base)",
   "main": "dist/app.js",
   "scripts": {
     "dev": "tsx watch src/app.ts",

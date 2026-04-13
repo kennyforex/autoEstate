@@ -1,5 +1,5 @@
 /**
- * SKILL.md YAML frontmatter parsing (Claude-style + AutoEstate metadata).
+ * SKILL.md YAML frontmatter parsing (Claude-style + Foodflow metadata).
  */
 import YAML from 'yaml';
 import { getSkillPermissionToolOptions } from '../agent/tools/index.js';

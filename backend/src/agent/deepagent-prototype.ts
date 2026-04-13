@@ -395,7 +395,7 @@ You can manage Gmail, Calendar, and Drive on behalf of the user:
 
 async function runConversation() {
   console.log("─".repeat(60));
-  console.log("  Deep Agent Prototype — AutoEstate Car Service");
+  console.log("  Deep Agent Prototype — Foodflow Car Service");
   console.log("  Type your messages. Press Ctrl+C to exit.");
   console.log("─".repeat(60));
 

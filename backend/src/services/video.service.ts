@@ -6,6 +6,7 @@ import {
   videoLimits,
   type VideoProcessingStatus,
 } from "../config/video.config.js";
+import { openRouterHeaders } from "../config/httpAttribution.js";
 import { openRouterConfig } from "../config/openrouter.js";
 
 /**
@@ -176,8 +177,7 @@ class VideoService {
           headers: {
             Authorization: `Bearer ${openRouterConfig.apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://autoestate.ai",
-            "X-Title": "AutoEstate AI",
+            ...openRouterHeaders("Foodflow AI"),
           },
           timeout: openRouterConfig.videoTimeout,
           maxBodyLength: Infinity,

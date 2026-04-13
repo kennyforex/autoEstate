@@ -174,7 +174,7 @@ router.delete(
   assistantController.deleteFile,
 );
 
-// Update file folder (FFCS organization only)
+// Update file folder (Foodflow organization only)
 router.patch(
   "/:id/files/:fileId",
   validate([

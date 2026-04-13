@@ -135,9 +135,9 @@ export async function sendTestEmail(to: string): Promise<boolean> {
   await transport.sendMail({
     from: emailFrom,
     to,
-    subject: "AutoEstate – SMTP test",
-    text: "This is a test email from your AutoEstate SMTP settings. If you received this, your configuration is working.",
-    html: "<p>This is a test email from your AutoEstate SMTP settings. If you received this, your configuration is working.</p>",
+    subject: "Foodflow – SMTP test",
+    text: "This is a test email from your Foodflow SMTP settings. If you received this, your configuration is working.",
+    html: "<p>This is a test email from your Foodflow SMTP settings. If you received this, your configuration is working.</p>",
   });
   return true;
 }

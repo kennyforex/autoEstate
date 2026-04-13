@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# FFCS Frontend Deployment Script
+# Foodflow frontend deployment script
 # This script automates the frontend deployment process
 
 set -e  # Exit on error
 
-echo "🚀 Starting FFCS Frontend deployment..."
+echo "🚀 Starting Foodflow frontend deployment..."
 
 # Colors for output
 RED='\033[0;31m'

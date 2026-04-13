@@ -12,7 +12,7 @@ import { skillService } from '../services/skill.service.js';
 import { GoogleConnection } from '../models/GoogleConnection.js';
 import { Skill } from '../models/Skill.js';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/autoEstate';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/foodflow';
 
 async function main() {
   await mongoose.connect(MONGODB_URI);

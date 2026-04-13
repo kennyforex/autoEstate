@@ -876,6 +876,7 @@ function looksLikePlainTextFile(name: string): boolean {
  */
 async function analyzeMedia(mediaType: 'image' | 'audio', dataUrl: string): Promise<string> {
   const { openRouterConfig } = await import('../config/openrouter.js');
+  const { openRouterHeaders } = await import('../config/httpAttribution.js');
   const axios = (await import('axios')).default;
 
   if (!openRouterConfig.apiKey) {
@@ -914,8 +915,7 @@ IMPORTANT RULES:
       headers: {
         Authorization: `Bearer ${openRouterConfig.apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://autoestate.ai',
-        'X-Title': 'AutoEstate AI Agent',
+        ...openRouterHeaders('Foodflow AI Agent'),
       },
       timeout: 60_000,
     },

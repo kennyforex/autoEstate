@@ -16,7 +16,7 @@ import mongoose from 'mongoose';
 import { googleWorkspaceService } from '../services/googleWorkspace.service.js';
 import { GoogleConnection } from '../models/GoogleConnection.js';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/autoEstate';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/foodflow';
 
 const ROWS: string[][] = [
   [

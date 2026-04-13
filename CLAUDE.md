@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AutoEstate is a full-stack AI-powered customer support platform with WhatsApp integration. It features a custom ReAct agent engine with multi-skill, multi-goal support, allowing AI assistants to handle business workflows via structured skills.
+Foodflow is a full-stack AI-powered customer support platform aimed at **food and beverage providers** (restaurants, catering, suppliers, dark kitchens). It uses WhatsApp (Evolution API), a custom ReAct agent, and structured **skills** so assistants can run real workflows: orders, reservations, menu or allergen questions, delivery status, and supplier documents—while staying vertical-agnostic under the hood.
+
+Typical skill ideas: table booking, cake or catering orders (see `backend/skills/cake-booking/`), intake from photos/PDFs, Google Sheets for order logs, Drive for payment proofs.
 
 ## Development Commands
 
@@ -139,9 +141,9 @@ Skills are markdown files with YAML frontmatter (parsed with real YAML — see `
 
 **Common optional (portable)**
 
-- `argument-hint`, `allowed-tools` (list; non–AutoEstate names are ignored for DB `requiredTools`), `user-invocable`, `disable-model-invocation`, `model`, `context`, `agent`.
+- `argument-hint`, `allowed-tools` (list; non–Foodflow names are ignored for DB `requiredTools`), `user-invocable`, `disable-model-invocation`, `model`, `context`, `agent`.
 
-**AutoEstate-specific — use `metadata`**
+**Foodflow-specific — use `metadata`**
 
 - `display_name`: human title (stored as MongoDB `name` / Skill Library label).
 - `trigger_hints` (YAML list), `reminder_delay`, `max_reminders`, `schedule_enabled`, `schedule_cron`.

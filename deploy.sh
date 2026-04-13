@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# FFCS Deployment Script
+# Foodflow deployment script
 # This script automates the deployment process
 
 set -e  # Exit on error
 
-echo "🚀 Starting FFCS deployment..."
+echo "🚀 Starting Foodflow deployment..."
 
 # Colors for output
 RED='\033[0;31m'

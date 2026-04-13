@@ -738,7 +738,7 @@
       "skillDeleteConfirm": "確定刪除此技能？此操作無法復原。",
       "skillEditorTabBasic": "基本設定",
       "skillEditorTabFrontmatter": "Frontmatter（YAML）",
-      "skillFrontmatterHelp": "編輯 SKILL.md 頂端的 YAML（無需輸入 --- 行）。標準欄位：name（kebab-case 識別）、description，以及可選的 argument-hint、allowed-tools。AutoEstate 專用設定放在 metadata：display_name、trigger_hints（列表）、reminder_delay、max_reminders、schedule_*、order_sheet_id、sheet_fields、required_tools、steps 等。儲存會寫入 SKILL.md，並盡量將解析結果同步到資料庫。",
+      "skillFrontmatterHelp": "編輯 SKILL.md 頂端的 YAML（無需輸入 --- 行）。標準欄位：name（kebab-case 識別）、description，以及可選的 argument-hint、allowed-tools。Foodflow 專用設定放在 metadata：display_name、trigger_hints（列表）、reminder_delay、max_reminders、schedule_*、order_sheet_id、sheet_fields、required_tools、steps 等。儲存會寫入 SKILL.md，並盡量將解析結果同步到資料庫。",
       "skillFrontmatterLabel": "YAML（SKILL.md 中位於 --- 之間）",
       "skillEditorTabReference": "參考文件",
       "skillEditorTabAssets": "資源檔",

@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🔧 FFCS Avatar Upload Fix${NC}"
+echo -e "${BLUE}🔧 Foodflow avatar upload fix${NC}"
 echo ""
 
 # Check if running on VPS (check if in correct directory)

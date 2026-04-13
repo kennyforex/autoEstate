@@ -10,7 +10,7 @@ import mongoose from 'mongoose';
 import { googleWorkspaceService } from '../services/googleWorkspace.service.js';
 import { GoogleConnection } from '../models/GoogleConnection.js';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/autoEstate';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/foodflow';
 
 async function run() {
   await mongoose.connect(MONGODB_URI);
@@ -22,7 +22,7 @@ async function run() {
   }
 
   const userId = connection.userId.toString();
-  const label = `[autoEstate test ${Date.now()}]`;
+  const label = `[foodflow test ${Date.now()}]`;
 
   const start = new Date();
   start.setDate(start.getDate() + 7);
@@ -37,7 +37,7 @@ async function run() {
     summary: `${label} original title`,
     startTime: startIso,
     endTime: endIso,
-    description: 'autoEstate calendar test — create',
+    description: 'Foodflow calendar test — create',
     location: 'Test location A',
   });
   console.log('   id:', created.id, 'link:', created.htmlLink);
@@ -57,7 +57,7 @@ async function run() {
   console.log('\n3) update_event');
   const updated = await googleWorkspaceService.updateEvent(userId, created.id!, {
     summary: `${label} edited title`,
-    description: 'autoEstate calendar test — updated',
+    description: 'Foodflow calendar test — updated',
     location: 'Test location B',
   });
   console.log('   summary:', updated.summary);

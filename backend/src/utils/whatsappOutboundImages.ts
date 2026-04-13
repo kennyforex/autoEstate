@@ -4,6 +4,7 @@
  */
 
 import dns from "node:dns/promises";
+import { FOODFLOW_WHATSAPP_IMAGE_FETCH_USER_AGENT } from "../config/httpAttribution.js";
 
 const MAX_OUTBOUND_IMAGES = 5;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -268,7 +269,7 @@ export async function fetchHttpsImageAsDataUrl(urlString: string): Promise<Fetch
         signal: controller.signal,
         headers: {
           Accept: "image/*,*/*;q=0.8",
-          "User-Agent": "AutoEstate-WhatsApp-ImageFetcher/1.0",
+          "User-Agent": FOODFLOW_WHATSAPP_IMAGE_FETCH_USER_AGENT,
         },
       });
 

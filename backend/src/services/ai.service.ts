@@ -15,6 +15,7 @@ import {
   fileNameForImageUrl,
   FetchImageError,
 } from "../utils/whatsappOutboundImages.js";
+import { openRouterHeaders } from "../config/httpAttribution.js";
 import { openRouterConfig } from "../config/openrouter.js";
 import { getEvolutionClient } from "../config/evolution.js";
 import { agentEngine } from "../agent/index.js";
@@ -527,8 +528,7 @@ IMPORTANT RULES:
             headers: {
               Authorization: `Bearer ${openRouterConfig.apiKey}`,
               "Content-Type": "application/json",
-              "HTTP-Referer": "https://autoestate.ai",
-              "X-Title": "AutoEstate AI",
+              ...openRouterHeaders("Foodflow AI"),
             },
           },
         );
@@ -602,8 +602,7 @@ IMPORTANT RULES:
           headers: {
             Authorization: `Bearer ${openRouterConfig.apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://autoestate.ai",
-            "X-Title": "AutoEstate AI",
+            ...openRouterHeaders("Foodflow AI"),
           },
         },
       );
@@ -665,8 +664,7 @@ IMPORTANT RULES:
           headers: {
             Authorization: `Bearer ${openRouterConfig.apiKey}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://autoestate.ai",
-            "X-Title": "AutoEstate AI",
+            ...openRouterHeaders("Foodflow AI"),
           },
         },
       );

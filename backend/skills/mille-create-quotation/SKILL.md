@@ -10,7 +10,7 @@ user-invocable: true
 metadata:
   display_name: Mille Create Quotation
   version: 1.0.0
-  author: AutoEstate
+  author: Foodflow
   category: quotation
   language: zh-HK + English
   reminder_delay: 30

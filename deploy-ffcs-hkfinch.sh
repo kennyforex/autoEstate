@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-echo -e "${BLUE}🚀 Deploying FFCS for ffcs.hkfinch.com${NC}"
+echo -e "${BLUE}🚀 Deploying Foodflow for ffcs.hkfinch.com${NC}"
 echo ""
 
 # Check if running on VPS

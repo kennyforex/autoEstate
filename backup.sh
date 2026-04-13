@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# FFCS Backup Script
+# Foodflow backup script
 # Creates backups of database and uploads
 
 set -e
@@ -13,7 +13,7 @@ RETENTION_DAYS=7
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-echo "🔄 Starting FFCS backup..."
+echo "🔄 Starting Foodflow backup..."
 
 # Create backup directory
 mkdir -p $BACKUP_DIR

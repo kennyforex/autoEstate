@@ -1,5 +1,6 @@
 import { BaseTool } from './base.js';
 import axios from 'axios';
+import { openRouterHeaders } from '../../config/httpAttribution.js';
 import { openRouterConfig } from '../../config/openrouter.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
@@ -70,8 +71,7 @@ export class MediaAnalysisTool extends BaseTool {
           headers: {
             Authorization: `Bearer ${openRouterConfig.apiKey}`,
             'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://autoestate.ai',
-            'X-Title': 'AutoEstate AI Agent',
+            ...openRouterHeaders('Foodflow AI Agent'),
           },
           timeout: 60_000,
         },

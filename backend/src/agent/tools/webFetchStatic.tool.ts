@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio';
 import axios from 'axios';
 import { BaseTool } from './base.js';
 import { AGENT_FETCH_MAX_BYTES, WEB_FETCH_MAX_SELECTOR_KEYS } from '../../config/agentToolsSandbox.js';
+import { FOODFLOW_FETCH_USER_AGENT } from '../../config/httpAttribution.js';
 import { isUrlAllowedByAllowlist, parseWebFetchAllowlist } from '../../utils/webFetchAllowlist.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
@@ -58,7 +59,7 @@ export class WebFetchStaticTool extends BaseTool {
         signal,
         validateStatus: (s) => s >= 200 && s < 400,
         headers: {
-          'User-Agent': 'AutoEstateAgent/1.0',
+          'User-Agent': FOODFLOW_FETCH_USER_AGENT,
           Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
         },
       });

@@ -14,7 +14,7 @@ import mongoose from 'mongoose';
 import { googleWorkspaceService } from '../services/googleWorkspace.service.js';
 import { GoogleConnection } from '../models/GoogleConnection.js';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/autoEstate';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/foodflow';
 
 let passed = 0;
 let failed = 0;
@@ -130,8 +130,8 @@ async function run() {
   try {
     const result = await googleWorkspaceService.sendEmail(userId, {
       to: connection.email,
-      subject: `[autoEstate Test] Integration Test — ${new Date().toLocaleString()}`,
-      body: 'This is an automated test email from the autoEstate Google Workspace integration.\n\nIf you received this, the Gmail send API is working correctly.',
+      subject: `[Foodflow Test] Integration Test — ${new Date().toLocaleString()}`,
+      body: 'This is an automated test email from the Foodflow Google Workspace integration.\n\nIf you received this, the Gmail send API is working correctly.',
     });
     log('9. Gmail — sendEmail()', 'PASS', `Sent to self (id: ${result.id})`);
   } catch (err: any) {

@@ -930,7 +930,7 @@ class AssistantService {
   }
 
   /**
-   * Update file folder (AutoEstate only, not synced to Pinecone)
+   * Update file folder (Foodflow only, not synced to Pinecone)
    */
   async updateFileFolder(
     assistantId: string,

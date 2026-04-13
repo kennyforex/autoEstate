@@ -173,7 +173,7 @@ function testFabricationGuard() {
 // ═══════════════════════════════════════════════
 async function testConversationStateLifecycle() {
   console.log('\n── Test 5: ConversationState lifecycle ──');
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/autoEstate');
+  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/foodflow');
   const { conversationStateService } = await import('./services/conversationState.service.js');
   const { ConversationState } = await import('./models/ConversationState.js');
   const id = new mongoose.Types.ObjectId().toString();
@@ -484,7 +484,7 @@ async function testSuspendedGoalResume() {
 // ═══════════════════════════════════════════════
 async function testThreeDeepNesting() {
   console.log('\n── Test 9: Three-deep nesting (A→B→C→B→A) ──');
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/autoEstate');
+  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/foodflow');
   const { conversationStateService } = await import('./services/conversationState.service.js');
   const { ConversationState } = await import('./models/ConversationState.js');
   const id = new mongoose.Types.ObjectId().toString();
@@ -653,7 +653,7 @@ async function testRouterThreeDeepNesting() {
 // ═══════════════════════════════════════════════
 async function testEdgeCases() {
   console.log('\n── Test 11: Edge cases ──');
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/autoEstate');
+  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/foodflow');
   const { conversationStateService } = await import('./services/conversationState.service.js');
   const { ConversationState } = await import('./models/ConversationState.js');
 
@@ -739,7 +739,7 @@ async function testEdgeCases() {
 // ═══════════════════════════════════════════════
 async function main() {
   console.log('╔══════════════════════════════════════════╗');
-  console.log('║  AutoEstate Agent — Full Scenario Tests  ║');
+  console.log('║  Foodflow Agent — Full Scenario Tests  ║');
   console.log('╚══════════════════════════════════════════╝');
 
   testAllPrices();

@@ -100,7 +100,7 @@ export function extractFirstPhoneFromJidCandidates(
 
 /**
  * Same as {@link extractFirstPhoneFromJidCandidates}, but skips any candidate whose local part
- * (digits only) equals `excludeNormalizedDigits` (e.g. the AutoEstate channel `phoneNumber`).
+ * (digits only) equals `excludeNormalizedDigits` (e.g. the Foodflow channel `phoneNumber`).
  */
 export function extractFirstPhoneFromJidCandidatesExcluding(
   excludeNormalizedDigits: string | undefined,

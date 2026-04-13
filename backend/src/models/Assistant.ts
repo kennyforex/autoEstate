@@ -17,7 +17,7 @@ export interface IAssistantFile {
   name: string;
   size?: number;
   uploadedAt: Date;
-  // Folder path for organization (FFCS only, not synced to Pinecone)
+  // Folder path for organization (Foodflow only, not synced to Pinecone)
   folder?: string;
   // Video-specific fields
   isVideo?: boolean;
@@ -98,7 +98,7 @@ const assistantFileSchema = new Schema<IAssistantFile>(
       type: Date,
       default: Date.now,
     },
-    // Folder path for organization (FFCS only, not synced to Pinecone)
+    // Folder path for organization (Foodflow only, not synced to Pinecone)
     folder: {
       type: String,
     },

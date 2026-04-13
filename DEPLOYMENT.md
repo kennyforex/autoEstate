@@ -1,6 +1,6 @@
 # VPS Deployment Guide
 
-This guide will help you deploy the FFCS application to a VPS (Virtual Private Server).
+This guide will help you deploy the Foodflow application to a VPS (Virtual Private Server).
 
 ## Prerequisites
 
@@ -86,7 +86,7 @@ git clone <your-repo-url> .
 From your local machine:
 ```bash
 # Compress your project
-cd /Users/kenny/app/FFCS
+cd /path/to/foodflow
 tar -czf ffcs.tar.gz --exclude=node_modules --exclude=.git --exclude=backend/uploads --exclude=frontend/dist --exclude=backend/dist .
 
 # Upload to VPS
@@ -246,7 +246,7 @@ pm2 restart all
 ### Option B: Manual Upload
 ```bash
 # On local machine
-cd /Users/kenny/app/FFCS
+cd /path/to/foodflow
 tar -czf ffcs-update.tar.gz --exclude=node_modules --exclude=.git --exclude=backend/uploads --exclude=frontend/dist --exclude=backend/dist .
 scp ffcs-update.tar.gz root@your-vps-ip:/var/www/
 

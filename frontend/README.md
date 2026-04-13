@@ -1,4 +1,4 @@
-# FFCS Frontend
+# Foodflow frontend
 
 AI-powered customer support platform frontend built with React, TypeScript, and Tailwind CSS.
 

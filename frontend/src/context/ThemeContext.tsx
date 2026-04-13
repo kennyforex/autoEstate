@@ -7,7 +7,7 @@ import React, {
   useState,
 } from 'react';
 
-const STORAGE_KEY = 'autoestate-theme';
+const STORAGE_KEY = 'foodflow-theme';
 
 export type Theme = 'light' | 'dark';
 

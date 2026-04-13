@@ -305,7 +305,7 @@ function PixelHuman({
 
 /** Company sign — placed *below* the top window band (windows use tile rows 0–2) */
 function CompanySignboard({ name }: { name: string }) {
-  const display = String(name ?? "").trim() || "AutoEstate";
+  const display = String(name ?? "").trim() || "Foodflow";
   return (
     <div
       className="absolute z-[4] flex flex-col items-center [image-rendering:pixelated]"
@@ -535,7 +535,7 @@ export const VirtualOfficeScene: React.FC<VirtualOfficeSceneProps> = ({
   emptyHint,
 }) => {
   const companySignName =
-    String(departmentName ?? "").trim() || "AutoEstate";
+    String(departmentName ?? "").trim() || "Foodflow";
   const deptLine = String(departmentName ?? "").trim();
   const idleList = idleThoughts.length ? idleThoughts : ["…"];
   const [agents, setAgents] = useState<Agent[]>(() =>

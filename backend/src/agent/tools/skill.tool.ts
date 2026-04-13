@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { BaseTool } from './base.js';
+import { openRouterHeaders } from '../../config/httpAttribution.js';
 import { openRouterConfig } from '../../config/openrouter.js';
 import { skillStorage } from '../../services/skillStorage.service.js';
 import type { AgentContext, AgentSkillInfo, ToolResult, OpenAITool, SkillExecutionResult } from '../types.js';
@@ -808,8 +809,7 @@ export class SkillExecutionTool extends BaseTool {
         headers: {
           Authorization: `Bearer ${openRouterConfig.apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://autoestate.ai',
-          'X-Title': 'AutoEstate Skill Execution',
+          ...openRouterHeaders('Foodflow Skill Execution'),
         },
         timeout: 90_000,
         signal,

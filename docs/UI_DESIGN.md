@@ -1,15 +1,15 @@
-# FFCS - AI Customer Support Platform UI Design Documentation
+# Foodflow - AI customer support UI design notes
 
 ## Overview
 
-This document defines the complete UI design specifications for FFCS (Full-Featured Customer Support), an AI-powered customer support platform. The design system follows a consistent visual language across all pages, with the Inbox view serving as the primary design reference.
+This document defines UI design specifications for Foodflow, an AI-powered customer support platform. The design system follows a consistent visual language across all pages, with the Inbox view serving as the primary design reference.
 
 ---
 
 ## Application Structure
 
 ```
-FFCS Platform
+Foodflow Platform
 ├── Login Page (Public)
 └── App Shell (Authenticated)
     ├── Dashboard
@@ -447,7 +447,7 @@ _User Message:_
 _Assistant Message:_
 
 - Icon: Bot/Gear icon (24px)
-- Label: "FFCS" or assistant name
+- Label: "Foodflow" or assistant name
 - Content: Message text (with markdown support)
 - Loading state: Spinning indicator
 

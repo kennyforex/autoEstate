@@ -1,4 +1,4 @@
-# FFCS Backend
+# Foodflow backend
 
 AI-powered Customer Support Platform Backend built with Node.js, TypeScript, and MongoDB.
 

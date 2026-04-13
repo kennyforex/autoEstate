@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { openRouterHeaders } from '../config/httpAttribution.js';
 import { openRouterConfig } from '../config/openrouter.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { ToolRegistry } from './tools/registry.js';
@@ -743,8 +744,7 @@ export class AgentEngine {
             headers: {
               Authorization: `Bearer ${openRouterConfig.apiKey}`,
               'Content-Type': 'application/json',
-              'HTTP-Referer': 'https://autoestate.ai',
-              'X-Title': 'AutoEstate AI Agent',
+              ...openRouterHeaders('Foodflow AI Agent'),
             },
             timeout: this.config.requestTimeout,
             signal,

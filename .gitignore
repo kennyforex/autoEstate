@@ -12,6 +12,7 @@ dist-ssr/
 
 # Cursor / IDE
 .cursor/
+.claude/
 .vscode/
 .idea/
 *.swp
