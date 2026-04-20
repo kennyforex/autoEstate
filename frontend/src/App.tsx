@@ -7,6 +7,8 @@ import { Dashboard } from "./pages/Dashboard";
 import { Inbox } from "./pages/Inbox";
 import { AILogs } from "./pages/AILogs";
 import { SkillTasks } from "./pages/SkillTasks";
+import { Products } from "./pages/Products";
+import { ClientGroups } from "./pages/ClientGroups";
 import {
   AssistantList,
   AssistantPlayground,
@@ -74,6 +76,8 @@ function App() {
 
             {/* Contacts route */}
             <Route path="contacts" element={<Contacts />} />
+            <Route path="products" element={<Products />} />
+            <Route path="client-groups" element={<ClientGroups />} />
 
             <Route path="integration" element={<IntegrationPage />} />
 

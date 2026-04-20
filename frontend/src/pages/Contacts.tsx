@@ -5,8 +5,8 @@ import { formatDistanceToNow, format } from "date-fns";
 import { Users, Search, MessageSquare, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { PageHeader } from "../components/layout";
 import { Avatar, Input, Select, Button } from "../components/common";
-import { contactsApi, channelsApi } from "../lib/api";
-import type { ContactWithStats, Channel } from "../lib/types";
+import { clientGroupsApi, contactsApi, channelsApi } from "../lib/api";
+import type { ClientGroup, ContactWithStats, Channel } from "../lib/types";
 
 type SortColumn = "name" | "messageCount" | "lastChatDate" | "createdAt";
 
@@ -30,7 +30,9 @@ export const Contacts: React.FC = () => {
   const navigate = useNavigate();
   const [contacts, setContacts] = useState<ContactWithStats[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [savingContactId, setSavingContactId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<string>("");
   const [sortColumn, setSortColumn] = useState<SortColumn>("lastChatDate");
@@ -81,8 +83,18 @@ export const Contacts: React.FC = () => {
     }
   };
 
+  const fetchClientGroups = async () => {
+    try {
+      const result = await clientGroupsApi.list();
+      setClientGroups(result);
+    } catch (error) {
+      console.error("Failed to fetch client groups:", error);
+    }
+  };
+
   useEffect(() => {
     fetchChannels();
+    fetchClientGroups();
   }, []);
 
   // Reset to page 1 when filters change
@@ -153,6 +165,41 @@ export const Contacts: React.FC = () => {
     // Navigate to inbox filtered by this contact
     // For now, just navigate to inbox - can be enhanced later
     navigate("/inbox");
+  };
+
+  const getSelectedClientGroupValue = (contact: ContactWithStats) => {
+    if (typeof contact.clientGroupId === "string") return contact.clientGroupId;
+    if (contact.clientGroupId && typeof contact.clientGroupId === "object" && "_id" in contact.clientGroupId) {
+      return contact.clientGroupId._id;
+    }
+    return "";
+  };
+
+  const handleClientGroupChange = async (contactId: string, clientGroupId: string) => {
+    setSavingContactId(contactId);
+    try {
+      const selectedGroup = clientGroups.find((group) => group._id === clientGroupId);
+      const updated = await contactsApi.update(contactId, {
+        clientGroupId: clientGroupId || null,
+      });
+
+      setContacts((current) =>
+        current.map((contact) =>
+          contact._id === contactId
+            ? {
+                ...contact,
+                clientGroupId: updated.clientGroupId ?? selectedGroup?._id ?? undefined,
+                clientGroupName: updated.clientGroupName ?? selectedGroup?.name,
+                clientGroupSlug: updated.clientGroupSlug ?? selectedGroup?.slug,
+              }
+            : contact,
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to update client group:", error);
+    } finally {
+      setSavingContactId(null);
+    }
   };
 
   const SortableHeader: React.FC<{
@@ -313,6 +360,9 @@ export const Contacts: React.FC = () => {
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
                     {t("contacts.channel")}
                   </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Client Group
+                  </th>
                   <SortableHeader column="messageCount" label={t("contacts.messages")} />
                   <SortableHeader column="lastChatDate" label={t("contacts.lastChat")} />
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -357,6 +407,25 @@ export const Contacts: React.FC = () => {
                       ) : (
                         <span className="text-sm text-gray-400">-</span>
                       )}
+                    </td>
+                    <td className="px-4 py-4 text-sm text-gray-500">
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={getSelectedClientGroupValue(contact)}
+                          disabled={savingContactId === contact._id}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(value) => handleClientGroupChange(contact._id, value)}
+                          options={[
+                            { value: "", label: "Basic (fallback)" },
+                            ...clientGroups
+                              .filter((group) => group.isActive)
+                              .map((group) => ({
+                                value: group._id,
+                                label: group.isDefault ? `${group.name} (default)` : group.name,
+                              })),
+                          ]}
+                        />
+                      </div>
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-1.5 text-sm text-gray-600">

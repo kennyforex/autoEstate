@@ -10,6 +10,7 @@ export interface IContactDocument extends Document {
   avatar?: string;
   country?: string; // ISO 3166-1 alpha-2 country code (e.g., "US", "TW", "CN")
   channelId: mongoose.Types.ObjectId;
+  clientGroupId?: mongoose.Types.ObjectId;
   metadata?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -50,6 +51,11 @@ const contactSchema = new Schema<IContactDocument>(
       ref: "Channel",
       required: true,
     },
+    clientGroupId: {
+      type: Schema.Types.ObjectId,
+      ref: "ClientGroup",
+      required: false,
+    },
     metadata: {
       type: Schema.Types.Mixed,
     },
@@ -64,6 +70,7 @@ const contactSchema = new Schema<IContactDocument>(
 contactSchema.index({ phoneNumber: 1, channelId: 1 }, { unique: true, sparse: true });
 contactSchema.index({ whatsappId: 1, channelId: 1 }, { unique: true, sparse: true });
 contactSchema.index({ channelId: 1 });
+contactSchema.index({ clientGroupId: 1 });
 
 // Text index for full-text search on name, email, company, phoneNumber
 contactSchema.index(

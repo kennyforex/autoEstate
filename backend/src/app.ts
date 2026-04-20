@@ -13,6 +13,7 @@ import { initPaymentReminderScheduler } from "./services/paymentReminder.schedul
 import { initSkillScheduleScheduler } from "./services/skillSchedule.scheduler.js";
 import { initScheduledJobScheduler } from "./services/scheduledJob.scheduler.js";
 import { initScheduledJobPlaygroundIo } from "./services/scheduledJobPlayground.js";
+import { catalogService } from "./services/catalog.service.js";
 
 import type {
   ServerToClientEvents,
@@ -88,6 +89,7 @@ async function startServer() {
   try {
     // Connect to MongoDB
     await connectDatabase();
+    await catalogService.initializeDefaults();
 
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);

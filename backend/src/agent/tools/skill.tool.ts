@@ -621,6 +621,7 @@ export class SkillExecutionTool extends BaseTool {
           google_sheets: /(?:order (?:logged|recorded|saved|appended|submitted)|sheet (?:updated|appended)|row (?:added|appended|written)|已記錄|已登記|已寫入|訂單.*已記|記錄.*訂單|order.*recorded|recorded.*order|appended.*sheet)/i,
           google_gmail: /(?:email (?:sent|delivered|dispatched)|confirmation (?:email )?sent|已發送.*電郵|電郵.*已發|email.*已送|sent.*confirmation email)/i,
           google_calendar: /(?:calendar (?:event|entry|appointment).*(?:added|created|scheduled)|event (?:added|created) (?:to|on) (?:the )?calendar|已加入.*日曆|日曆.*已更新)/i,
+          get_product_menu: /(?:HKD|USD|\$)\s*\d+|(?:cake )?menu|餐單|價錢|價格|口味|flavo[u]?r|size/i,
         };
         let fabricationDetected = false;
         for (const toolName of skill.requiredTools) {
@@ -648,19 +649,19 @@ export class SkillExecutionTool extends BaseTool {
       // Guard: if skill says COMPLETE but has requiredTools that were never called, force retry
       if (
         isComplete &&
-        !toolCalledInLoop &&
         skill.requiredTools && skill.requiredTools.length > 0 &&
         iterations < maxIterations
       ) {
         const toolNames = skill.requiredTools.filter(t => t !== 'execute_skill' && t !== 'ask_clarification');
-        if (toolNames.length > 0) {
-          console.log(`[SkillTool] Sub-LLM marked SKILL_COMPLETE without calling required tool(s): ${toolNames.join(', ')} — forcing retry`);
+        const missingRequiredTools = toolNames.filter((toolName) => !calledToolNames.has(toolName));
+        if (missingRequiredTools.length > 0) {
+          console.log(`[SkillTool] Sub-LLM marked SKILL_COMPLETE without calling required tool(s): ${missingRequiredTools.join(', ')} — forcing retry`);
           messages.push({ role: 'assistant', content });
           messages.push({
             role: 'user',
             content:
               'SYSTEM: You marked the skill as complete, but you FORGOT to call the required tool(s): ' +
-              toolNames.join(', ') + '. ' +
+              missingRequiredTools.join(', ') + '. ' +
               'You MUST actually invoke the tool function call NOW before completing. ' +
               'Do NOT just write text about it — make the actual function call.',
           });

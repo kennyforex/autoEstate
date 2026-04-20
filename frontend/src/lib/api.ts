@@ -14,6 +14,8 @@ import type {
   AIPerformanceMetrics,
   InboxCounts,
   Tag,
+  ClientGroup,
+  Product,
   LoginCredentials,
   RegisterData,
   AuthResponse,
@@ -825,6 +827,14 @@ export const contactsApi = {
     return data;
   },
 
+  update: async (
+    contactId: string,
+    updates: Omit<Partial<ContactWithStats>, "clientGroupId"> & { clientGroupId?: string | null },
+  ): Promise<ContactWithStats> => {
+    const { data } = await api.patch(`/contacts/${contactId}`, updates);
+    return data;
+  },
+
   refreshProfilePicture: async (
     contactId: string,
   ): Promise<{
@@ -846,6 +856,55 @@ export const contactsApi = {
       params: { refresh: refresh ? "true" : undefined },
     });
     return data;
+  },
+};
+
+export const clientGroupsApi = {
+  list: async (): Promise<ClientGroup[]> => {
+    const { data } = await api.get("/client-groups");
+    return data.clientGroups || data;
+  },
+
+  create: async (clientGroup: Partial<ClientGroup>): Promise<ClientGroup> => {
+    const { data } = await api.post("/client-groups", clientGroup);
+    return data.clientGroup || data;
+  },
+
+  update: async (id: string, updates: Partial<ClientGroup>): Promise<ClientGroup> => {
+    const { data } = await api.put(`/client-groups/${id}`, updates);
+    return data.clientGroup || data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/client-groups/${id}`);
+  },
+};
+
+export const productsApi = {
+  list: async (includeInactive = true): Promise<Product[]> => {
+    const { data } = await api.get("/products", {
+      params: includeInactive ? { includeInactive: "true" } : undefined,
+    });
+    return data.products || data;
+  },
+
+  get: async (id: string): Promise<Product> => {
+    const { data } = await api.get(`/products/${id}`);
+    return data.product || data;
+  },
+
+  create: async (product: Partial<Product>): Promise<Product> => {
+    const { data } = await api.post("/products", product);
+    return data.product || data;
+  },
+
+  update: async (id: string, updates: Partial<Product>): Promise<Product> => {
+    const { data } = await api.put(`/products/${id}`, updates);
+    return data.product || data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/products/${id}`);
   },
 };
 

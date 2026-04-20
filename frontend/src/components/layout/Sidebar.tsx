@@ -12,6 +12,7 @@ import {
   Plug2,
   Clock,
   ListTodo,
+  Package,
 } from "lucide-react";
 import { Avatar } from "../common/Avatar";
 import { useAuth } from "../../context/AuthContext";
@@ -60,6 +61,16 @@ const getNavItems = (): NavItem[] => [
     path: "/contacts",
     icon: <Users className="w-6 h-6" />,
     labelKey: "sidebar.contacts",
+  },
+  {
+    path: "/products",
+    icon: <Package className="w-6 h-6" />,
+    labelKey: "sidebar.products",
+  },
+  {
+    path: "/client-groups",
+    icon: <Users className="w-6 h-6" />,
+    labelKey: "sidebar.clientGroups",
   },
   {
     path: "/ai-logs",

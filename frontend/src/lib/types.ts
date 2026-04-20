@@ -207,6 +207,9 @@ export interface Contact {
   avatar?: string;
   country?: string; // ISO 3166-1 alpha-2 country code (e.g., "US", "TW", "CN")
   channelId: string;
+  clientGroupId?: string | ClientGroup;
+  clientGroupName?: string;
+  clientGroupSlug?: string;
   metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -218,6 +221,56 @@ export interface ContactWithStats extends Contact {
   lastChatDate?: string;
   channelName?: string;
   totalUnread?: number;
+}
+
+export interface ClientGroup {
+  _id: string;
+  name: string;
+  slug: string;
+  isDefault: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ProductOptionSelectionType = "single" | "multiple";
+export type ProductOptionPricingMode = "absolute" | "delta";
+export type ProductPriceByGroup = Record<string, number>;
+
+export interface ProductOptionValue {
+  id: string;
+  label: string;
+  description?: string;
+  isDefault: boolean;
+  isActive: boolean;
+  displayOrder: number;
+  priceByGroup: ProductPriceByGroup;
+}
+
+export interface ProductOptionGroup {
+  id: string;
+  name: string;
+  selectionType: ProductOptionSelectionType;
+  pricingMode: ProductOptionPricingMode;
+  required: boolean;
+  displayOrder: number;
+  values: ProductOptionValue[];
+}
+
+export interface Product {
+  _id: string;
+  name: string;
+  slug: string;
+  category?: string;
+  description?: string;
+  currency: string;
+  isActive: boolean;
+  displayOrder: number;
+  basePriceByGroup: ProductPriceByGroup;
+  optionGroups: ProductOptionGroup[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 // Conversation types

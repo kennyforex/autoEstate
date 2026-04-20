@@ -32,6 +32,7 @@ async function main() {
       $set: {
         requiredTools: [
           'document_data_capture',
+          'get_product_menu',
           'google_drive',
           'google_sheets',
           'google_calendar',
@@ -42,7 +43,7 @@ async function main() {
   );
   console.log('Installed skill:', skill.slug, skill.name, '\nstoragePath:', skill.storagePath);
   console.log(
-    'requiredTools: document_data_capture, google_drive, google_sheets, google_calendar, google_gmail',
+    'requiredTools: document_data_capture, get_product_menu, google_drive, google_sheets, google_calendar, google_gmail',
   );
   await mongoose.disconnect();
 }

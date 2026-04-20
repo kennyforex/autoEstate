@@ -19,6 +19,7 @@ export { WebFetchStaticTool } from './webFetchStatic.tool.js';
 export { WebBrowserTool } from './webBrowser.tool.js';
 export { SkillExecutionTool } from './skill.tool.js';
 export { WebSearchTool } from './webSearch.tool.js';
+export { GetProductMenuTool } from './getProductMenu.tool.js';
 
 import { ToolRegistry } from './registry.js';
 import { KnowledgeBaseTool } from './knowledgeBase.tool.js';
@@ -39,6 +40,7 @@ import { WebFetchStaticTool } from './webFetchStatic.tool.js';
 import { WebBrowserTool } from './webBrowser.tool.js';
 import { SkillExecutionTool } from './skill.tool.js';
 import { WebSearchTool } from './webSearch.tool.js';
+import { GetProductMenuTool } from './getProductMenu.tool.js';
 
 export function createDefaultRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
@@ -59,6 +61,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new WebFetchStaticTool());
   registry.register(new WebBrowserTool());
   registry.register(new WebSearchTool());
+  registry.register(new GetProductMenuTool());
 
   const skillTool = new SkillExecutionTool();
   skillTool.setParentRegistry(registry);

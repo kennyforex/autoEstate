@@ -1,9 +1,12 @@
 import { Router, Request, Response } from "express";
-import type { PipelineStage } from "mongoose";
-import { Contact, Channel } from "../models/index.js";
+import { isValidObjectId, type PipelineStage } from "mongoose";
+import { Contact, Channel, ClientGroup } from "../models/index.js";
+import { authMiddleware, requireRole } from "../middleware/auth.middleware.js";
 import { profilePictureService } from "../services/profilePicture.service.js";
 
 const router = Router();
+
+router.use(authMiddleware);
 
 /**
  * Get all contacts with message stats
@@ -77,10 +80,24 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
           as: "channel",
         },
       },
+      {
+        $lookup: {
+          from: "clientgroups",
+          localField: "clientGroupId",
+          foreignField: "_id",
+          as: "clientGroup",
+        },
+      },
       // Unwind channel (single value)
       {
         $unwind: {
           path: "$channel",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $unwind: {
+          path: "$clientGroup",
           preserveNullAndEmptyArrays: true,
         },
       },
@@ -90,6 +107,8 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
           conversationCount: { $size: "$conversations" },
           lastChatDate: { $max: "$conversations.lastMessageAt" },
           channelName: "$channel.name",
+          clientGroupName: "$clientGroup.name",
+          clientGroupSlug: "$clientGroup.slug",
           totalUnread: { $sum: "$conversations.unreadCount" },
         },
       },
@@ -125,7 +144,10 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
           avatar: 1,
           country: 1,
           channelId: 1,
+          clientGroupId: 1,
           channelName: 1,
+          clientGroupName: 1,
+          clientGroupSlug: 1,
           messageCount: 1,
           conversationCount: 1,
           lastChatDate: 1,
@@ -296,7 +318,7 @@ router.get("/:contactId", async (req: Request, res: Response): Promise<void> => 
   const { contactId } = req.params;
 
   try {
-    const contact = await Contact.findById(contactId).populate("channelId");
+    const contact = await Contact.findById(contactId).populate("channelId").populate("clientGroupId");
     if (!contact) {
       res.status(404).json({ error: "Contact not found" });
       return;
@@ -312,16 +334,65 @@ router.get("/:contactId", async (req: Request, res: Response): Promise<void> => 
 /**
  * Update contact details
  */
-router.patch("/:contactId", async (req: Request, res: Response): Promise<void> => {
+router.patch("/:contactId", requireRole("admin", "agent"), async (req: Request, res: Response): Promise<void> => {
   const { contactId } = req.params;
-  const updates = req.body;
+  const updates = { ...req.body };
 
   try {
-    const contact = await Contact.findByIdAndUpdate(
-      contactId,
-      { $set: updates },
-      { new: true }
-    );
+    const updateOps: Record<string, unknown> = {};
+    const allowedFields = new Set([
+      "name",
+      "email",
+      "company",
+      "country",
+      "phoneNumber",
+      "avatar",
+      "metadata",
+    ]);
+
+    if (updates.clientGroupId !== undefined) {
+      if (!updates.clientGroupId) {
+        updateOps.$unset = { clientGroupId: 1 };
+      } else {
+        if (!isValidObjectId(String(updates.clientGroupId))) {
+          res.status(400).json({ error: "clientGroupId must be a valid Mongo id" });
+          return;
+        }
+        const clientGroup = await ClientGroup.findById(updates.clientGroupId);
+        if (!clientGroup || !clientGroup.isActive) {
+          res.status(400).json({ error: "clientGroupId must reference an active client group" });
+          return;
+        }
+        updateOps.$set = { ...(updateOps.$set as Record<string, unknown> | undefined), clientGroupId: clientGroup._id };
+      }
+      delete updates.clientGroupId;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const safeUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([key]) => allowedFields.has(key)),
+      );
+      if (Object.keys(safeUpdates).length > 0) {
+        updateOps.$set = {
+          ...(updateOps.$set as Record<string, unknown> | undefined),
+          ...safeUpdates,
+        };
+      }
+    }
+
+    if (Object.keys(updateOps).length === 0) {
+      const contact = await Contact.findById(contactId).populate("clientGroupId");
+      if (!contact) {
+        res.status(404).json({ error: "Contact not found" });
+        return;
+      }
+      res.json(contact);
+      return;
+    }
+
+    const contact = await Contact.findByIdAndUpdate(contactId, updateOps, {
+      new: true,
+    }).populate("clientGroupId");
     
     if (!contact) {
       res.status(404).json({ error: "Contact not found" });

@@ -16,6 +16,7 @@ export {
   type IBusinessProfile,
 } from "./Channel.js";
 export { Contact, type IContactDocument } from "./Contact.js";
+export { ClientGroup, type IClientGroupDocument } from "./ClientGroup.js";
 export {
   Conversation,
   type IConversationDocument,
@@ -28,6 +29,15 @@ export {
   type ICitationReference,
 } from "./Message.js";
 export { Tag, type ITagDocument } from "./Tag.js";
+export {
+  Product,
+  type IProductDocument,
+  type IProductOptionGroup,
+  type IProductOptionValue,
+  type IProductPriceMap,
+  type ProductOptionPricingMode,
+  type ProductOptionSelectionType,
+} from "./Product.js";
 export { Company, type ICompanyDocument } from "./Company.js";
 export { AILog, type IAILogDocument, type ITokens } from "./AILog.js";
 export { Skill, type ISkillDocument } from "./Skill.js";

@@ -362,6 +362,8 @@
     "scheduledTasks": "定时任务",
     "channels": "频道",
     "contacts": "联系人",
+    "products": "产品",
+    "clientGroups": "客户分组",
     "aiLogs": "AI 日志",
     "skillTasks": "过往任务",
     "integration": "集成",

@@ -14,9 +14,11 @@
     "migrate:staff": "tsx src/scripts/migrate-assistant-staff.ts",
     "cleanup:videos": "tsx src/scripts/cleanup-orphaned-videos.ts",
     "fix:logo": "tsx src/scripts/fix-logo-url.ts",
+    "test:catalog-pricing": "tsx src/scripts/test-catalog-pricing.ts",
     "test:document-capture": "tsx src/scripts/test-document-data-capture.ts",
     "test:all-tools": "tsx src/scripts/test-all-tools.ts",
     "install:payment-collection-skill": "tsx src/scripts/install-payment-collection-skill.ts",
+    "sync:cake-booking-skill": "tsx src/scripts/sync-cake-booking-skill.ts",
     "install:hello-cron-test-skill": "tsx src/scripts/install-hello-cron-test-skill.ts",
     "test:lpc-documents": "tsx src/scripts/test-lpc-megafintech-documents.ts",
     "verify:assistant-skills": "tsx src/scripts/verify-assistant-skills.ts"
