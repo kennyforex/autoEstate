@@ -8,6 +8,7 @@ import {
   MessageCircle,
   Settings,
   ScrollText,
+  User,
   Users,
   Plug2,
   Clock,
@@ -59,7 +60,7 @@ const getNavItems = (): NavItem[] => [
   },
   {
     path: "/contacts",
-    icon: <Users className="w-6 h-6" />,
+    icon: <User className="w-6 h-6" />,
     labelKey: "sidebar.contacts",
   },
   {

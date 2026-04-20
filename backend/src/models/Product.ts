@@ -7,6 +7,22 @@ export interface IProductPriceMap {
   [groupSlug: string]: number | undefined;
 }
 
+export interface IProductVariant {
+  /** Stable id for this variant combination (unique within product). */
+  id: string;
+  /** Selected option value ids, in option group order. */
+  optionValueIds: string[];
+  /** Human-friendly label, e.g. "Large / Blue". */
+  label: string;
+  /** Variant is orderable / shown in table. */
+  isActive: boolean;
+  displayOrder: number;
+  /** Price per client group for this exact variant combination. */
+  priceByGroup: IProductPriceMap;
+  /** Optional stock signal for operators (not used by quoting yet). */
+  onHand?: number;
+}
+
 export interface IProductOptionValue {
   id: string;
   label: string;
@@ -36,11 +52,34 @@ export interface IProductDocument extends Document {
   currency: string;
   isActive: boolean;
   displayOrder: number;
+  /** Public or same-origin image URLs (e.g. /uploads/...) */
+  images: string[];
+  /** Which image URL is the primary / cover; must match an entry in `images` when set. */
+  primaryImageUrl?: string;
+  /** Variant combinations for table-first editing. */
+  variants: IProductVariant[];
   basePriceByGroup: IProductPriceMap;
   optionGroups: IProductOptionGroup[];
   createdAt: Date;
   updatedAt: Date;
 }
+
+const productVariantSchema = new Schema<IProductVariant>(
+  {
+    id: { type: String, required: true, trim: true },
+    optionValueIds: { type: [String], default: [] },
+    label: { type: String, required: true, trim: true },
+    isActive: { type: Boolean, default: true },
+    displayOrder: { type: Number, default: 0 },
+    priceByGroup: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    onHand: { type: Number },
+  },
+  { _id: false },
+);
 
 const productOptionValueSchema = new Schema<IProductOptionValue>(
   {
@@ -120,6 +159,18 @@ const productSchema = new Schema<IProductDocument>(
     displayOrder: {
       type: Number,
       default: 0,
+    },
+    images: {
+      type: [String],
+      default: [],
+    },
+    primaryImageUrl: {
+      type: String,
+      trim: true,
+    },
+    variants: {
+      type: [productVariantSchema],
+      default: [],
     },
     basePriceByGroup: {
       type: Map,

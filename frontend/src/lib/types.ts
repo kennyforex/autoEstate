@@ -258,6 +258,20 @@ export interface ProductOptionGroup {
   values: ProductOptionValue[];
 }
 
+export interface ProductVariant {
+  id: string;
+  /** Selected option value ids, in option group order. */
+  optionValueIds: string[];
+  /** Human label, e.g. "Large / Blue" */
+  label: string;
+  isActive: boolean;
+  displayOrder: number;
+  /** Price per client group for this exact variant */
+  priceByGroup: ProductPriceByGroup;
+  /** Optional stock hint */
+  onHand?: number;
+}
+
 export interface Product {
   _id: string;
   name: string;
@@ -267,6 +281,12 @@ export interface Product {
   currency: string;
   isActive: boolean;
   displayOrder: number;
+  /** Image URLs (/uploads/... or absolute) */
+  images?: string[];
+  /** Cover / default image; must be one of `images`. When omitted, first image is used. */
+  primaryImageUrl?: string;
+  /** Variant combinations for table-first editing */
+  variants?: ProductVariant[];
   basePriceByGroup: ProductPriceByGroup;
   optionGroups: ProductOptionGroup[];
   createdAt: string;

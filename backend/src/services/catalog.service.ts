@@ -287,6 +287,12 @@ class CatalogService {
   ) {
     const basePriceByGroup = priceMapToRecord(product.basePriceByGroup);
 
+    const images = Array.isArray(product.images) ? product.images : [];
+    const storedPrimary =
+      typeof product.primaryImageUrl === "string" ? product.primaryImageUrl.trim() : "";
+    const primaryImageUrl =
+      storedPrimary && images.includes(storedPrimary) ? storedPrimary : images[0];
+
     return {
       id: product._id.toString(),
       name: product.name,
@@ -296,6 +302,24 @@ class CatalogService {
       currency: product.currency,
       isActive: product.isActive,
       displayOrder: product.displayOrder,
+      images,
+      primaryImageUrl,
+      variants: Array.isArray(product.variants)
+        ? product.variants.map((variant) => ({
+            id: variant.id,
+            optionValueIds: Array.isArray(variant.optionValueIds) ? variant.optionValueIds : [],
+            label: variant.label,
+            isActive: variant.isActive,
+            displayOrder: variant.displayOrder,
+            onHand: variant.onHand,
+            priceByGroup: priceMapToRecord(variant.priceByGroup),
+            effectivePrice: resolvePriceByClientGroup(
+              priceMapToRecord(variant.priceByGroup),
+              clientGroupSlug,
+              defaultGroupSlug,
+            ),
+          }))
+        : [],
       basePriceByGroup,
       effectiveBasePrice: resolvePriceByClientGroup(
         basePriceByGroup,
