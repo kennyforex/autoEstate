@@ -316,6 +316,22 @@ export const Products: React.FC = () => {
     return def?.slug || "";
   }, [clientGroups]);
 
+  const [activeVariantPriceGroupSlug, setActiveVariantPriceGroupSlug] = useState("");
+
+  useEffect(() => {
+    const nextFallback = defaultClientGroupSlug || clientGroups[0]?.slug || "";
+    if (!nextFallback) {
+      setActiveVariantPriceGroupSlug("");
+      return;
+    }
+
+    setActiveVariantPriceGroupSlug((current) => {
+      if (!current) return nextFallback;
+      const stillExists = clientGroups.some((g) => g.slug === current);
+      return stillExists ? current : nextFallback;
+    });
+  }, [clientGroups, defaultClientGroupSlug]);
+
   const formatNumber = (value: number | undefined | null) => {
     if (typeof value !== "number" || !Number.isFinite(value)) return "";
     return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
@@ -1264,6 +1280,31 @@ export const Products: React.FC = () => {
                   ))}
                 </div>
 
+                {clientGroups.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {clientGroups.map((group) => {
+                      const isActive = group.slug === activeVariantPriceGroupSlug;
+                      return (
+                        <button
+                          key={group._id}
+                          type="button"
+                          className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                            isActive
+                              ? "border-primary-600 bg-primary-50 text-primary-700"
+                              : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                          }`}
+                          onClick={() => {
+                            setFocusedNumberCell(null);
+                            setActiveVariantPriceGroupSlug(group.slug);
+                          }}
+                        >
+                          {group.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
                 <div className="mt-2 overflow-x-auto rounded-xl border border-gray-200 bg-white">
                   <table className="min-w-[720px] w-full text-sm">
                     <thead className="bg-gray-50">
@@ -1292,10 +1333,12 @@ export const Products: React.FC = () => {
                               </td>
                               <td className="px-4 py-3">
                                 {(() => {
-                                  const key = `v:${variantIndex}:price`;
+                                  const priceGroupSlug =
+                                    activeVariantPriceGroupSlug || defaultClientGroupSlug;
+                                  const key = `v:${variantIndex}:price:${priceGroupSlug}`;
                                   const stored = numberCellText[key];
                                   const isFocused = focusedNumberCell === key;
-                                  const rawValue = variant.priceByGroup?.[defaultClientGroupSlug];
+                                  const rawValue = variant.priceByGroup?.[priceGroupSlug];
                                   const display = isFocused
                                     ? stored ?? (rawValue != null ? String(rawValue) : "")
                                     : formatNumber(rawValue);
@@ -1327,9 +1370,9 @@ export const Products: React.FC = () => {
                                               priceByGroup: (() => {
                                                 const nextPriceMap = { ...(v.priceByGroup || {}) };
                                                 if (next == null) {
-                                                  delete nextPriceMap[defaultClientGroupSlug];
+                                                  delete nextPriceMap[priceGroupSlug];
                                                 } else {
-                                                  nextPriceMap[defaultClientGroupSlug] = next;
+                                                  nextPriceMap[priceGroupSlug] = next;
                                                 }
                                                 return nextPriceMap;
                                               })(),
