@@ -14,6 +14,7 @@ import {
   Key,
   Webhook,
   Mail,
+  Truck,
 } from "lucide-react";
 
 export const SettingsLayout: React.FC = () => {
@@ -57,6 +58,11 @@ export const SettingsLayout: React.FC = () => {
           path: "/settings/roles",
           label: t("settings.workspace.rolesPermissions"),
           icon: <Lock className="w-4 h-4" />,
+        },
+        {
+          path: "/settings/shipping",
+          label: t("settings.workspace.shipping"),
+          icon: <Truck className="w-4 h-4" />,
         },
       ],
     },

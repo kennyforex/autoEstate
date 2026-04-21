@@ -36,7 +36,8 @@
       "title": "工作区",
       "general": "常规设置",
       "teamMembers": "团队成员",
-      "rolesPermissions": "角色与权限"
+      "rolesPermissions": "角色与权限",
+      "shipping": "配送"
     },
     "aiConfiguration": {
       "title": "AI 配置",
@@ -49,6 +50,41 @@
       "smtp": "SMTP",
       "apiKeys": "API 密钥",
       "webhooks": "Webhooks"
+    },
+    "shippingPage": {
+      "title": "配送方式",
+      "subtitle": "配置配送选项、中英文名称及默认运费，供订单表单使用。",
+      "newMethod": "新建方式",
+      "colLabelZh": "中文名称",
+      "colLabelEn": "英文名称",
+      "colFee": "运费",
+      "colStatus": "状态",
+      "colActions": "操作",
+      "loading": "加载中…",
+      "empty": "暂无配送方式，请先添加。",
+      "sortShort": "排序",
+      "active": "启用",
+      "inactive": "停用",
+      "edit": "编辑",
+      "delete": "删除",
+      "formCreateTitle": "添加配送方式",
+      "formEditTitle": "编辑配送方式",
+      "formHint": "选择该方式时会自动填入运费；订单上仍可手动修改运费。",
+      "labelZh": "中文名称",
+      "labelZhPlaceholder": "例如：门店自取",
+      "labelEn": "英文名称",
+      "labelEnPlaceholder": "例如：Store pickup",
+      "fee": "运费",
+      "sortOrder": "排序",
+      "isActive": "启用（在订单中显示）",
+      "save": "保存",
+      "clear": "清空",
+      "editingHint": "正在编辑：{{name}}",
+      "loadError": "加载配送方式失败。",
+      "saveError": "保存失败。",
+      "deleteError": "删除失败。",
+      "deleteConfirm": "确定删除配送方式「{{name}}」？",
+      "labelZhRequired": "请填写中文名称。"
     },
     "smtp": {
       "title": "SMTP",
@@ -371,6 +407,39 @@
     "settings": "设置",
     "logout": "登出"
   },
+  "clientGroupsPage": {
+    "title": "客户分组",
+    "subtitle": "管理定价分组。未指定分组的联系人将使用「基础」分组。",
+    "newGroup": "新建分组",
+    "loadError": "加载客户分组失败。",
+    "saveError": "保存客户分组失败。",
+    "deleteError": "删除客户分组失败。",
+    "deleteConfirm": "确定删除客户分组「{{name}}」吗？",
+    "loading": "正在加载客户分组…",
+    "empty": "暂无客户分组。",
+    "columns": {
+      "group": "分组",
+      "slug": "标识",
+      "status": "状态",
+      "actions": "操作"
+    },
+    "tableRowHint": "排序：{{sortOrder}}{{defaultNote}}",
+    "defaultNote": " · 默认",
+    "statusActive": "启用",
+    "statusInactive": "停用",
+    "edit": "编辑",
+    "delete": "删除",
+    "formTitleEdit": "编辑客户分组",
+    "formTitleCreate": "新建客户分组",
+    "formSubtitle": "「基础」分组始终作为所有联系人的默认回退选项。",
+    "groupName": "分组名称",
+    "groupNamePlaceholder": "VIP",
+    "sortOrder": "排序",
+    "active": "启用",
+    "makeDefault": "设为默认分组",
+    "saveGroup": "保存分组",
+    "clear": "清空"
+  },
   "ordersPage": {
     "title": "订单",
     "subtitle": "在系统内创建与管理订单（替代 Google Sheets）。",
@@ -385,7 +454,13 @@
     "saveError": "保存订单失败。",
     "filters": "筛选",
     "searchPlaceholder": "搜索订单…",
+    "filterStatus": "状态",
     "allStatuses": "所有状态",
+    "dateType": "日期类型",
+    "dateTypeOrder": "下单日期",
+    "dateTypeShipping": "配送日期",
+    "from": "从",
+    "to": "到",
     "createdFrom": "创建从",
     "createdTo": "创建到",
     "deliveryFrom": "配送从",
@@ -423,8 +498,8 @@
       "total": "总计"
     },
     "fulfillment": {
-      "fulfilled": "已履约",
-      "unfulfilled": "未履约"
+      "fulfilled": "已完成",
+      "unfulfilled": "未完成"
     },
     "sections": {
       "items": "商品",
@@ -436,6 +511,8 @@
     "item": {
       "productSelectPlaceholder": "选择产品（可选）",
       "productName": "商品名称",
+      "variant": "规格",
+      "required": "必填",
       "qty": "数量",
       "unitPrice": "单价",
       "notes": "备注",
@@ -453,14 +530,32 @@
     "activityHintNew": "请先保存订单，才能把备注写入订单动态。",
     "activityEmpty": "暂无动态。",
     "orderInfo": {
+      "clientGroup": "客户分组",
       "clientName": "客户姓名",
       "phone": "电话号码",
       "email": "邮箱",
       "shippingAddress": "收货地址",
       "shippingMethod": "配送方式",
+      "shippingMethodNone": "请选择…",
+      "shippingMethodCustom": "自定义（手动填写）",
+      "shippingMethodCustomDetail": "配送方式名称",
       "deliveryDate": "配送日期"
     },
-    "tagsEmpty": "暂无标签。"
+    "tagsEmpty": "暂无订单标签。",
+    "tagManager": {
+      "create": "新建标签",
+      "edit": "编辑标签",
+      "newTitle": "新建订单标签",
+      "editTitle": "编辑订单标签",
+      "label": "标签名称",
+      "color": "颜色",
+      "save": "保存标签",
+      "delete": "删除标签",
+      "deleteBlocked": "该标签仍被现有订单使用，无法删除。",
+      "labelRequired": "请输入标签名称。",
+      "empty": "暂无订单标签。",
+      "autoSelected": "新建的标签会自动选中到当前订单。"
+    }
   },
   "productsPage": {
     "title": "产品",

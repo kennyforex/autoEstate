@@ -1,5 +1,6 @@
 import { isValidObjectId } from "mongoose";
-import { Order, Contact, Tag, type IOrderDocument } from "../models/index.js";
+import { Order, Contact, OrderTag, type IOrderDocument } from "../models/index.js";
+import { shippingService } from "./shipping.service.js";
 
 export interface OrderListParams {
   search?: string;
@@ -86,6 +87,176 @@ function computeTotals(args: {
   const taxTotal = clampMoney(args.taxTotal);
   const total = clampMoney(subtotal - discountTotal + shippingFee + taxTotal);
   return { subtotal, discountTotal, shippingFee, taxTotal, total };
+}
+
+function normalizeText(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.trim();
+  return s ? s : undefined;
+}
+
+function formatMoney(amount: number, currency?: string): string {
+  const c = typeof currency === "string" && currency.trim() ? currency.trim().toUpperCase() : "";
+  const n = clampMoney(amount);
+  return c ? `${c} ${n.toFixed(2)}` : n.toFixed(2);
+}
+
+function formatDateLike(v: unknown): string | undefined {
+  if (!v) return undefined;
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return undefined;
+    return v.toISOString().slice(0, 10);
+  }
+  if (typeof v === "string") {
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return normalizeText(v);
+    return d.toISOString().slice(0, 10);
+  }
+  return undefined;
+}
+
+function toIdStrings(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  return ids.map((id) => String(id)).filter(Boolean);
+}
+
+function makeOrderUpdateSummary(args: {
+  before: IOrderDocument;
+  after: IOrderDocument;
+  beforeTagIds: string[];
+  afterTagIds: string[];
+}): string | null {
+  const parts: string[] = [];
+
+  const addField = (label: string, beforeVal: unknown, afterVal: unknown) => {
+    const b = normalizeText(beforeVal);
+    const a = normalizeText(afterVal);
+    if (b === a) return;
+    parts.push(`${label} ${b ?? "—"} -> ${a ?? "—"}`);
+  };
+
+  const addEnumField = (label: string, beforeVal: unknown, afterVal: unknown) => {
+    const b = (normalizeText(beforeVal) ?? String(beforeVal ?? "").trim()) || undefined;
+    const a = (normalizeText(afterVal) ?? String(afterVal ?? "").trim()) || undefined;
+    if (b === a) return;
+    parts.push(`${label} ${b ?? "—"} -> ${a ?? "—"}`);
+  };
+
+  const addMoneyField = (label: string, beforeVal: unknown, afterVal: unknown, currency?: string) => {
+    const b = clampMoney(beforeVal);
+    const a = clampMoney(afterVal);
+    if (b === a) return;
+    parts.push(`${label} ${formatMoney(b, currency)} -> ${formatMoney(a, currency)}`);
+  };
+
+  const addDateField = (label: string, beforeVal: unknown, afterVal: unknown) => {
+    const b = formatDateLike(beforeVal);
+    const a = formatDateLike(afterVal);
+    if (b === a) return;
+    parts.push(`${label} ${b ?? "—"} -> ${a ?? "—"}`);
+  };
+
+  // Customer / contact
+  addField("client name:", args.before.clientName, args.after.clientName);
+  addField("phone:", args.before.phoneNumber, args.after.phoneNumber);
+  addField("email:", args.before.email, args.after.email);
+  addEnumField("contact id:", args.before.contactId ? String(args.before.contactId) : undefined, args.after.contactId ? String(args.after.contactId) : undefined);
+
+  // Shipping
+  addField("shipping address:", args.before.shippingAddress, args.after.shippingAddress);
+  addField("shipping method:", args.before.shippingMethod, args.after.shippingMethod);
+  addDateField("delivery date:", args.before.deliveryDate, args.after.deliveryDate);
+
+  // Status
+  addEnumField("status:", args.before.status, args.after.status);
+  addEnumField("payment:", args.before.paymentStatus, args.after.paymentStatus);
+  addEnumField("fulfillment:", args.before.fulfillmentStatus, args.after.fulfillmentStatus);
+
+  // Money
+  const currency = args.after.currency || args.before.currency;
+  addEnumField("currency:", args.before.currency, args.after.currency);
+  addMoneyField("discount:", args.before.discountTotal, args.after.discountTotal, currency);
+  addMoneyField("shipping fee:", args.before.shippingFee, args.after.shippingFee, currency);
+  addMoneyField("tax:", args.before.taxTotal, args.after.taxTotal, currency);
+  addMoneyField("subtotal:", args.before.subtotal, args.after.subtotal, currency);
+  addMoneyField("total:", args.before.total, args.after.total, currency);
+
+  // Tags
+  {
+    const beforeSet = new Set(args.beforeTagIds);
+    const afterSet = new Set(args.afterTagIds);
+    const added = args.afterTagIds.filter((id) => !beforeSet.has(id));
+    const removed = args.beforeTagIds.filter((id) => !afterSet.has(id));
+    if (added.length > 0) parts.push(`tags added: ${added.join(", ")}`);
+    if (removed.length > 0) parts.push(`tags removed: ${removed.join(", ")}`);
+  }
+
+  // Items (best-effort matching)
+  const itemKey = (it: IOrderDocument["items"][number] | undefined): string => {
+    if (!it) return "";
+    const productId = it.snapshot?.productId ? String(it.snapshot.productId) : "";
+    const productName = normalizeText(it.snapshot?.productName) ?? "";
+    const variantLabel = normalizeText(it.snapshot?.variantLabel) ?? "";
+    const optionSummary = normalizeText(it.snapshot?.optionSummary) ?? "";
+    const sku = normalizeText(it.snapshot?.sku) ?? "";
+    const core = [productId, productName, variantLabel, optionSummary, sku].filter(Boolean).join("|");
+    return core || JSON.stringify({ productName, variantLabel, optionSummary, sku });
+  };
+
+  const beforeItems = Array.isArray(args.before.items) ? args.before.items : [];
+  const afterItems = Array.isArray(args.after.items) ? args.after.items : [];
+
+  const beforeCounts = new Map<string, number>();
+  const afterCounts = new Map<string, number>();
+  for (const it of beforeItems) beforeCounts.set(itemKey(it), (beforeCounts.get(itemKey(it)) ?? 0) + 1);
+  for (const it of afterItems) afterCounts.set(itemKey(it), (afterCounts.get(itemKey(it)) ?? 0) + 1);
+
+  const addedKeys: string[] = [];
+  const removedKeys: string[] = [];
+  for (const [k, count] of afterCounts.entries()) {
+    const beforeCount = beforeCounts.get(k) ?? 0;
+    if (count > beforeCount) addedKeys.push(k);
+  }
+  for (const [k, count] of beforeCounts.entries()) {
+    const afterCount = afterCounts.get(k) ?? 0;
+    if (count > afterCount) removedKeys.push(k);
+  }
+
+  const displayNameForKey = (k: string): string => {
+    const maybeName = k.split("|").find((p) => p && !/^[0-9a-f]{24}$/i.test(p));
+    return maybeName || "item";
+  };
+
+  if (addedKeys.length > 0) parts.push(`items added: ${addedKeys.map(displayNameForKey).join(", ")}`);
+  if (removedKeys.length > 0) parts.push(`items removed: ${removedKeys.map(displayNameForKey).join(", ")}`);
+
+  // Per-row modifications (index-based; avoids misleading pairing in duplicates)
+  const compareLen = Math.min(beforeItems.length, afterItems.length);
+  for (let i = 0; i < compareLen; i += 1) {
+    const b = beforeItems[i];
+    const a = afterItems[i];
+    const name = normalizeText(a?.snapshot?.productName) ?? normalizeText(b?.snapshot?.productName) ?? `item #${i + 1}`;
+
+    if (itemKey(b) !== itemKey(a)) {
+      parts.push(`item ${name}: changed`);
+      continue;
+    }
+
+    const bQty = Number(b?.quantity ?? 0);
+    const aQty = Number(a?.quantity ?? 0);
+    if (bQty !== aQty) parts.push(`item ${name} qty ${bQty} -> ${aQty}`);
+
+    const bPrice = clampMoney(b?.unitPrice);
+    const aPrice = clampMoney(a?.unitPrice);
+    if (bPrice !== aPrice) parts.push(`item ${name} unit price ${formatMoney(bPrice, currency)} -> ${formatMoney(aPrice, currency)}`);
+
+    const bNotes = normalizeText(b?.notes);
+    const aNotes = normalizeText(a?.notes);
+    if (bNotes !== aNotes) parts.push(`item ${name} notes ${bNotes ?? "—"} -> ${aNotes ?? "—"}`);
+  }
+
+  if (parts.length === 0) return null;
+  return `Order updated: ${parts.join("; ")}`;
 }
 
 async function generateUniqueOrderNumber(): Promise<string> {
@@ -187,6 +358,24 @@ class OrderService {
       contact = await Contact.findById(input.contactId).lean();
     }
 
+    // Default shipping behavior for agent-created orders:
+    // - If shippingMethod matches a configured method and shippingFee is omitted, auto-fill configured fee.
+    // - Always normalize matched methods to the configured label.
+    // - Preserve explicit custom overrides when shippingFee is provided.
+    if (input.source === "skill" && input.shippingMethod) {
+      const resolved = await shippingService.resolveShipping({
+        shippingMethod: input.shippingMethod,
+        shippingFee: input.shippingFee,
+        includeInactive: false,
+      });
+      if (resolved.kind === "configured") {
+        input.shippingMethod = resolved.normalizedLabel;
+        if (input.shippingFee === undefined) {
+          input.shippingFee = resolved.normalizedFee;
+        }
+      }
+    }
+
     const items = (input.items || []).map((item) => ({
       snapshot: {
         productId:
@@ -216,8 +405,9 @@ class OrderService {
       ? input.tagIds.filter((id) => isValidObjectId(id))
       : [];
 
-    // Ensure tags exist (ignore missing)
-    const existingTags = tagIds.length ? await Tag.find({ _id: { $in: tagIds } }).select("_id") : [];
+    const existingTags = tagIds.length
+      ? await OrderTag.find({ _id: { $in: tagIds } }).select("_id")
+      : [];
     const existingTagIds = existingTags.map((t) => t._id);
 
     const activity = [
@@ -252,9 +442,16 @@ class OrderService {
     return doc;
   }
 
-  async update(id: string, input: UpdateOrderInput): Promise<IOrderDocument | null> {
+  async update(
+    id: string,
+    input: UpdateOrderInput,
+    args?: { updatedByUserId?: string },
+  ): Promise<IOrderDocument | null> {
     const order = await this.getById(id);
     if (!order) return null;
+
+    const before = order.toObject({ depopulate: true }) as unknown as IOrderDocument;
+    const beforeTagIds = toIdStrings(order.tagIds);
 
     if (input.contactId && isValidObjectId(input.contactId)) {
       order.contactId = input.contactId as unknown as never;
@@ -312,15 +509,24 @@ class OrderService {
 
     if (Array.isArray(input.tagIds)) {
       const tagIds = input.tagIds.filter((tid) => isValidObjectId(tid));
-      const existingTags = tagIds.length ? await Tag.find({ _id: { $in: tagIds } }).select("_id") : [];
+      const existingTags = tagIds.length
+        ? await OrderTag.find({ _id: { $in: tagIds } }).select("_id")
+        : [];
       order.tagIds = existingTags.map((t) => t._id) as unknown as never;
     }
 
-    order.activity.push({
-      kind: "system",
-      message: "Order updated",
-      createdAt: new Date(),
-    });
+    const after = order.toObject({ depopulate: true }) as unknown as IOrderDocument;
+    const afterTagIds = toIdStrings(order.tagIds);
+
+    const message = makeOrderUpdateSummary({ before, after, beforeTagIds, afterTagIds });
+    if (message) {
+      order.activity.push({
+        kind: "system",
+        message,
+        createdAt: new Date(),
+        createdByUserId: args?.updatedByUserId,
+      });
+    }
 
     await order.save();
     return order;

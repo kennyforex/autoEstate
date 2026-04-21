@@ -7,6 +7,26 @@ export interface Tag {
   updatedAt: string;
 }
 
+/** Tags used only on orders (separate from conversation/chat `Tag`). */
+export interface OrderTag {
+  _id: string;
+  label: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ShippingMethod {
+  _id: string;
+  labelZh: string;
+  labelEn: string;
+  fee: number;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // User status: pending (invited, not yet set password), active, inactive
 export type UserStatus = "pending" | "active" | "inactive";
 

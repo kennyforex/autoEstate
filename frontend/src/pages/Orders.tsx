@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Search, Filter, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { PageHeader } from "../components/layout";
 import { Button, Input, Select, Badge } from "../components/common";
 import { ordersApi } from "../lib/api";
@@ -13,6 +13,12 @@ const PAGE_SIZE = 25;
 function formatMoney(currency: string, value: number) {
   const n = typeof value === "number" && Number.isFinite(value) ? value : 0;
   return `${currency} ${n.toFixed(2)}`;
+}
+
+function getOrderItemTitle(order: Order["items"][number]) {
+  return [order.snapshot.productName, order.snapshot.variantLabel || order.snapshot.optionSummary]
+    .filter(Boolean)
+    .join(" / ");
 }
 
 export const Orders: React.FC = () => {
@@ -27,10 +33,9 @@ export const Orders: React.FC = () => {
   const [filters, setFilters] = useState({
     search: "",
     status: "",
-    createdFrom: "",
-    createdTo: "",
-    deliveryFrom: "",
-    deliveryTo: "",
+    dateType: "created" as "created" | "delivery",
+    dateFrom: "",
+    dateTo: "",
   });
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -57,13 +62,20 @@ export const Orders: React.FC = () => {
     setLoading(true);
     try {
       const offset = page * PAGE_SIZE;
+      const dateParams =
+        filters.dateType === "delivery"
+          ? {
+              deliveryFrom: filters.dateFrom || undefined,
+              deliveryTo: filters.dateTo || undefined,
+            }
+          : {
+              createdFrom: filters.dateFrom || undefined,
+              createdTo: filters.dateTo || undefined,
+            };
       const result = await ordersApi.list({
         search: filters.search.trim() || undefined,
         status: filters.status || undefined,
-        createdFrom: filters.createdFrom || undefined,
-        createdTo: filters.createdTo || undefined,
-        deliveryFrom: filters.deliveryFrom || undefined,
-        deliveryTo: filters.deliveryTo || undefined,
+        ...dateParams,
         limit: PAGE_SIZE,
         offset,
         sortBy: "createdAt",
@@ -82,7 +94,7 @@ export const Orders: React.FC = () => {
 
   useEffect(() => {
     setPage(0);
-  }, [filters.search, filters.status, filters.createdFrom, filters.createdTo, filters.deliveryFrom, filters.deliveryTo]);
+  }, [filters.search, filters.status, filters.dateType, filters.dateFrom, filters.dateTo]);
 
   const summary = useMemo(() => {
     if (total === 0) return t("ordersPage.summary.none");
@@ -105,71 +117,60 @@ export const Orders: React.FC = () => {
         />
 
         <div className="mt-6">
-          <div className="flex flex-wrap items-end gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-400" />
-              <span className="text-sm font-medium text-gray-600">
-                {t("ordersPage.filters")}
-              </span>
-            </div>
-
-            <div className="w-64">
-              <Input
-                type="search"
-                placeholder={t("ordersPage.searchPlaceholder")}
-                value={filters.search}
-                onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
-                leftIcon={<Search className="w-4 h-4" />}
-              />
-            </div>
-
-            <div className="w-44">
-              <Select
-                value={filters.status}
-                onChange={(value) => setFilters((p) => ({ ...p, status: value }))}
-                options={[
-                  { value: "", label: t("ordersPage.allStatuses") },
-                  { value: "open", label: t("ordersPage.status.open") },
-                  { value: "completed", label: t("ordersPage.status.completed") },
-                  { value: "cancelled", label: t("ordersPage.status.cancelled") },
-                ]}
-              />
-            </div>
-
-            <div className="flex items-end gap-3">
-              <div className="w-44">
+          <div className="mb-4 space-y-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="w-full sm:max-w-md">
                 <Input
-                  type="date"
-                  label={t("ordersPage.createdFrom")}
-                  value={filters.createdFrom}
-                  onChange={(e) => setFilters((p) => ({ ...p, createdFrom: e.target.value }))}
-                />
-              </div>
-              <div className="w-44">
-                <Input
-                  type="date"
-                  label={t("ordersPage.createdTo")}
-                  value={filters.createdTo}
-                  onChange={(e) => setFilters((p) => ({ ...p, createdTo: e.target.value }))}
+                  type="search"
+                  placeholder={t("ordersPage.searchPlaceholder")}
+                  value={filters.search}
+                  onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))}
+                  leftIcon={<Search className="w-4 h-4" />}
                 />
               </div>
             </div>
 
-            <div className="flex items-end gap-3">
-              <div className="w-44">
-                <Input
-                  type="date"
-                  label={t("ordersPage.deliveryFrom")}
-                  value={filters.deliveryFrom}
-                  onChange={(e) => setFilters((p) => ({ ...p, deliveryFrom: e.target.value }))}
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <Select
+                  label={t("ordersPage.filterStatus")}
+                  value={filters.status}
+                  onChange={(value) => setFilters((p) => ({ ...p, status: value }))}
+                  options={[
+                    { value: "", label: t("ordersPage.allStatuses") },
+                    { value: "open", label: t("ordersPage.status.open") },
+                    { value: "completed", label: t("ordersPage.status.completed") },
+                    { value: "cancelled", label: t("ordersPage.status.cancelled") },
+                  ]}
                 />
-              </div>
-              <div className="w-44">
+
+                <Select
+                  label={t("ordersPage.dateType")}
+                  value={filters.dateType}
+                  onChange={(value) =>
+                    setFilters((p) => ({
+                      ...p,
+                      dateType: value as "created" | "delivery",
+                    }))
+                  }
+                  options={[
+                    { value: "created", label: t("ordersPage.dateTypeOrder") },
+                    { value: "delivery", label: t("ordersPage.dateTypeShipping") },
+                  ]}
+                />
+
                 <Input
                   type="date"
-                  label={t("ordersPage.deliveryTo")}
-                  value={filters.deliveryTo}
-                  onChange={(e) => setFilters((p) => ({ ...p, deliveryTo: e.target.value }))}
+                  label={t("ordersPage.from")}
+                  value={filters.dateFrom}
+                  onChange={(e) => setFilters((p) => ({ ...p, dateFrom: e.target.value }))}
+                />
+
+                <Input
+                  type="date"
+                  label={t("ordersPage.to")}
+                  value={filters.dateTo}
+                  onChange={(e) => setFilters((p) => ({ ...p, dateTo: e.target.value }))}
                 />
               </div>
             </div>
@@ -206,8 +207,32 @@ export const Orders: React.FC = () => {
                         className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
                         onClick={() => navigate(`/orders/${order._id}`)}
                       >
-                        <td className="p-3 font-medium text-gray-900">
-                          {order.orderNumber}
+                        <td className="p-3 align-top text-gray-900">
+                          <div className="space-y-2">
+                            <div className="font-medium">{order.orderNumber}</div>
+                            {order.items.length > 0 ? (
+                              <div className="space-y-2">
+                                {order.items.map((item, index) => (
+                                  <div
+                                    key={`${order._id}-${index}`}
+                                    className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-700"
+                                  >
+                                    <div className="font-medium text-gray-900">
+                                      {getOrderItemTitle(item) || "—"}
+                                    </div>
+                                    <div className="mt-1">
+                                      {t("ordersPage.item.qty")}: {item.quantity}
+                                    </div>
+                                    {item.notes ? (
+                                      <div className="mt-1 text-gray-600">
+                                        {t("ordersPage.item.notes")}: {item.notes}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="p-3 text-gray-600">
                           {order.createdAt ? format(new Date(order.createdAt), "PP p") : "—"}

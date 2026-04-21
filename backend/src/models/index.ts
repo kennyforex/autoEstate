@@ -29,6 +29,8 @@ export {
   type ICitationReference,
 } from "./Message.js";
 export { Tag, type ITagDocument } from "./Tag.js";
+export { OrderTag, type IOrderTagDocument } from "./OrderTag.js";
+export { ShippingMethod, type IShippingMethodDocument } from "./ShippingMethod.js";
 export {
   Product,
   type IProductDocument,

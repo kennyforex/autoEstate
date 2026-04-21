@@ -1,5 +1,6 @@
 import { BaseTool } from "./base.js";
 import { orderService } from "../../services/order.service.js";
+import { shippingService } from "../../services/shipping.service.js";
 import type { AgentContext, ToolResult } from "../types.js";
 
 export class CreateOrderTool extends BaseTool {
@@ -73,6 +74,26 @@ export class CreateOrderTool extends BaseTool {
           ? args.contactId.trim()
           : context.contact?.id;
 
+      const resolvedShipping = await shippingService.resolveShipping({
+        shippingMethod: args.shippingMethod,
+        shippingFee: args.shippingFee,
+        includeInactive: false,
+      });
+
+      const normalizedShippingMethod =
+        resolvedShipping.kind === "configured"
+          ? resolvedShipping.normalizedLabel
+          : typeof args.shippingMethod === "string"
+            ? args.shippingMethod
+            : undefined;
+
+      const normalizedShippingFee =
+        typeof args.shippingFee === "number"
+          ? args.shippingFee
+          : resolvedShipping.kind === "configured"
+            ? resolvedShipping.normalizedFee
+            : undefined;
+
       const order = await orderService.create({
         source: "skill",
         contactId,
@@ -82,8 +103,7 @@ export class CreateOrderTool extends BaseTool {
         email: typeof args.email === "string" ? args.email : undefined,
         shippingAddress:
           typeof args.shippingAddress === "string" ? args.shippingAddress : undefined,
-        shippingMethod:
-          typeof args.shippingMethod === "string" ? args.shippingMethod : undefined,
+        shippingMethod: normalizedShippingMethod,
         deliveryDate:
           typeof args.deliveryDate === "string" ? args.deliveryDate : undefined,
         status:
@@ -103,7 +123,7 @@ export class CreateOrderTool extends BaseTool {
           ? (args.items as any[]).filter(Boolean)
           : [],
         discountTotal: typeof args.discountTotal === "number" ? args.discountTotal : undefined,
-        shippingFee: typeof args.shippingFee === "number" ? args.shippingFee : undefined,
+        shippingFee: normalizedShippingFee,
         taxTotal: typeof args.taxTotal === "number" ? args.taxTotal : undefined,
         tagIds: Array.isArray(args.tagIds)
           ? args.tagIds.filter((t): t is string => typeof t === "string")

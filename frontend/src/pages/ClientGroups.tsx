@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { PageHeader } from "../components/layout";
 import { Button, Input } from "../components/common";
 import { clientGroupsApi } from "../lib/api";
@@ -20,6 +21,7 @@ const emptyDraft: ClientGroupDraft = {
 };
 
 export const ClientGroups: React.FC = () => {
+  const { t } = useTranslation();
   const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
   const [draft, setDraft] = useState<ClientGroupDraft>(emptyDraft);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,7 +51,7 @@ export const ClientGroups: React.FC = () => {
       }
     } catch (err) {
       console.error("Failed to load client groups:", err);
-      setError("Failed to load client groups.");
+      setError(t("clientGroupsPage.loadError"));
     } finally {
       setIsLoading(false);
     }
@@ -88,14 +90,16 @@ export const ClientGroups: React.FC = () => {
       resetDraft();
     } catch (err: any) {
       console.error("Failed to save client group:", err);
-      setError(err?.response?.data?.error || "Failed to save client group.");
+      setError(err?.response?.data?.error || t("clientGroupsPage.saveError"));
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = async (group: ClientGroup) => {
-    const confirmed = window.confirm(`Delete client group "${group.name}"?`);
+    const confirmed = window.confirm(
+      t("clientGroupsPage.deleteConfirm", { name: group.name }),
+    );
     if (!confirmed) return;
 
     setError(null);
@@ -107,7 +111,7 @@ export const ClientGroups: React.FC = () => {
       }
     } catch (err: any) {
       console.error("Failed to delete client group:", err);
-      setError(err?.response?.data?.error || "Failed to delete client group.");
+      setError(err?.response?.data?.error || t("clientGroupsPage.deleteError"));
     }
   };
 
@@ -115,11 +119,11 @@ export const ClientGroups: React.FC = () => {
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-6xl mx-auto">
         <PageHeader
-          title="Client Groups"
-          subtitle="Manage pricing groups. Contacts without an assignment fall back to Basic."
+          title={t("clientGroupsPage.title")}
+          subtitle={t("clientGroupsPage.subtitle")}
           actions={
             <Button variant="outline" onClick={resetDraft}>
-              New Group
+              {t("clientGroupsPage.newGroup")}
             </Button>
           }
         />
@@ -136,16 +140,16 @@ export const ClientGroups: React.FC = () => {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Group
+                    {t("clientGroupsPage.columns.group")}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Slug
+                    {t("clientGroupsPage.columns.slug")}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Status
+                    {t("clientGroupsPage.columns.status")}
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Actions
+                    {t("clientGroupsPage.columns.actions")}
                   </th>
                 </tr>
               </thead>
@@ -153,13 +157,13 @@ export const ClientGroups: React.FC = () => {
                 {isLoading ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-500">
-                      Loading client groups...
+                      {t("clientGroupsPage.loading")}
                     </td>
                   </tr>
                 ) : clientGroups.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-500">
-                      No client groups yet.
+                      {t("clientGroupsPage.empty")}
                     </td>
                   </tr>
                 ) : (
@@ -168,8 +172,12 @@ export const ClientGroups: React.FC = () => {
                       <td className="px-4 py-4">
                         <div className="text-sm font-medium text-gray-900">{group.name}</div>
                         <div className="text-xs text-gray-500">
-                          Order: {group.sortOrder}
-                          {group.isDefault ? " • Default" : ""}
+                          {t("clientGroupsPage.tableRowHint", {
+                            sortOrder: group.sortOrder,
+                            defaultNote: group.isDefault
+                              ? t("clientGroupsPage.defaultNote")
+                              : "",
+                          })}
                         </div>
                       </td>
                       <td className="px-4 py-4 text-sm text-gray-600">{group.slug}</td>
@@ -181,13 +189,15 @@ export const ClientGroups: React.FC = () => {
                               : "bg-gray-100 text-gray-500"
                           }`}
                         >
-                          {group.isActive ? "Active" : "Inactive"}
+                          {group.isActive
+                            ? t("clientGroupsPage.statusActive")
+                            : t("clientGroupsPage.statusInactive")}
                         </span>
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex gap-2">
                           <Button size="sm" variant="ghost" onClick={() => startEdit(group)}>
-                            Edit
+                            {t("clientGroupsPage.edit")}
                           </Button>
                           {!group.isDefault && (
                             <Button
@@ -196,7 +206,7 @@ export const ClientGroups: React.FC = () => {
                               className="text-red-600 hover:bg-red-50"
                               onClick={() => handleDelete(group)}
                             >
-                              Delete
+                              {t("clientGroupsPage.delete")}
                             </Button>
                           )}
                         </div>
@@ -211,22 +221,24 @@ export const ClientGroups: React.FC = () => {
           <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                {draft._id ? "Edit Client Group" : "Create Client Group"}
+                {draft._id
+                  ? t("clientGroupsPage.formTitleEdit")
+                  : t("clientGroupsPage.formTitleCreate")}
               </h2>
               <p className="mt-1 text-sm text-gray-500">
-                `Basic` stays available as the default fallback for all contacts.
+                {t("clientGroupsPage.formSubtitle")}
               </p>
             </div>
 
             <Input
-              label="Group name"
+              label={t("clientGroupsPage.groupName")}
               value={draft.name}
               onChange={(e) => setDraft((current) => ({ ...current, name: e.target.value }))}
-              placeholder="VIP"
+              placeholder={t("clientGroupsPage.groupNamePlaceholder")}
             />
 
             <Input
-              label="Sort order"
+              label={t("clientGroupsPage.sortOrder")}
               type="number"
               value={draft.sortOrder}
               onChange={(e) =>
@@ -246,7 +258,7 @@ export const ClientGroups: React.FC = () => {
                 }
                 disabled={selectedGroup?.isDefault}
               />
-              Active
+              {t("clientGroupsPage.active")}
             </label>
 
             <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -257,15 +269,15 @@ export const ClientGroups: React.FC = () => {
                   setDraft((current) => ({ ...current, isDefault: e.target.checked }))
                 }
               />
-              Make this the default group
+              {t("clientGroupsPage.makeDefault")}
             </label>
 
             <div className="flex gap-3">
               <Button isLoading={isSaving} onClick={handleSave} disabled={!draft.name.trim()}>
-                Save Group
+                {t("clientGroupsPage.saveGroup")}
               </Button>
               <Button variant="ghost" onClick={resetDraft}>
-                Clear
+                {t("clientGroupsPage.clear")}
               </Button>
             </div>
           </div>

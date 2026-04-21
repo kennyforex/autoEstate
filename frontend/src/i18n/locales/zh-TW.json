@@ -36,7 +36,8 @@
       "title": "工作區",
       "general": "一般設定",
       "teamMembers": "團隊成員",
-      "rolesPermissions": "角色與權限"
+      "rolesPermissions": "角色與權限",
+      "shipping": "配送"
     },
     "aiConfiguration": {
       "title": "AI 設定",
@@ -49,6 +50,41 @@
       "smtp": "SMTP",
       "apiKeys": "API 金鑰",
       "webhooks": "Webhooks"
+    },
+    "shippingPage": {
+      "title": "配送方式",
+      "subtitle": "設定配送選項、中英文名稱與預設運費，供訂單表單使用。",
+      "newMethod": "新增方式",
+      "colLabelZh": "中文名稱",
+      "colLabelEn": "英文名稱",
+      "colFee": "運費",
+      "colStatus": "狀態",
+      "colActions": "操作",
+      "loading": "載入中…",
+      "empty": "尚無配送方式，請先新增。",
+      "sortShort": "排序",
+      "active": "啟用",
+      "inactive": "停用",
+      "edit": "編輯",
+      "delete": "刪除",
+      "formCreateTitle": "新增配送方式",
+      "formEditTitle": "編輯配送方式",
+      "formHint": "選擇此方式時會自動帶入運費；訂單上仍可手動修改運費。",
+      "labelZh": "中文名稱",
+      "labelZhPlaceholder": "例如：門市自取",
+      "labelEn": "英文名稱",
+      "labelEnPlaceholder": "例如：Store pickup",
+      "fee": "運費",
+      "sortOrder": "排序",
+      "isActive": "啟用（在訂單中顯示）",
+      "save": "儲存",
+      "clear": "清空",
+      "editingHint": "正在編輯：{{name}}",
+      "loadError": "載入配送方式失敗。",
+      "saveError": "儲存失敗。",
+      "deleteError": "刪除失敗。",
+      "deleteConfirm": "確定刪除配送方式「{{name}}」？",
+      "labelZhRequired": "請填寫中文名稱。"
     },
     "smtp": {
       "title": "SMTP",
@@ -371,6 +407,39 @@
     "settings": "設定",
     "logout": "登出"
   },
+  "clientGroupsPage": {
+    "title": "客戶群組",
+    "subtitle": "管理定價群組。未指定群組的聯絡人將使用「基本」群組。",
+    "newGroup": "新增群組",
+    "loadError": "載入客戶群組失敗。",
+    "saveError": "儲存客戶群組失敗。",
+    "deleteError": "刪除客戶群組失敗。",
+    "deleteConfirm": "確定要刪除客戶群組「{{name}}」嗎？",
+    "loading": "正在載入客戶群組…",
+    "empty": "尚無客戶群組。",
+    "columns": {
+      "group": "群組",
+      "slug": "代號",
+      "status": "狀態",
+      "actions": "操作"
+    },
+    "tableRowHint": "排序：{{sortOrder}}{{defaultNote}}",
+    "defaultNote": " · 預設",
+    "statusActive": "啟用",
+    "statusInactive": "停用",
+    "edit": "編輯",
+    "delete": "刪除",
+    "formTitleEdit": "編輯客戶群組",
+    "formTitleCreate": "新增客戶群組",
+    "formSubtitle": "「基本」群組始終作為所有聯絡人的預設後援選項。",
+    "groupName": "群組名稱",
+    "groupNamePlaceholder": "VIP",
+    "sortOrder": "排序",
+    "active": "啟用",
+    "makeDefault": "設為預設群組",
+    "saveGroup": "儲存群組",
+    "clear": "清除"
+  },
   "ordersPage": {
     "title": "訂單",
     "subtitle": "在系統內建立與管理訂單（取代 Google Sheets）。",
@@ -385,7 +454,13 @@
     "saveError": "儲存訂單失敗。",
     "filters": "篩選",
     "searchPlaceholder": "搜尋訂單…",
+    "filterStatus": "狀態",
     "allStatuses": "所有狀態",
+    "dateType": "日期類型",
+    "dateTypeOrder": "下單日期",
+    "dateTypeShipping": "配送日期",
+    "from": "從",
+    "to": "到",
     "createdFrom": "建立從",
     "createdTo": "建立到",
     "deliveryFrom": "配送從",
@@ -423,8 +498,8 @@
       "total": "總計"
     },
     "fulfillment": {
-      "fulfilled": "已履約",
-      "unfulfilled": "未履約"
+      "fulfilled": "已完成",
+      "unfulfilled": "未完成"
     },
     "sections": {
       "items": "品項",
@@ -436,6 +511,8 @@
     "item": {
       "productSelectPlaceholder": "選擇產品（選填）",
       "productName": "品項名稱",
+      "variant": "規格",
+      "required": "必填",
       "qty": "數量",
       "unitPrice": "單價",
       "notes": "備註",
@@ -453,14 +530,32 @@
     "activityHintNew": "請先儲存訂單，才能把備註寫入訂單動態。",
     "activityEmpty": "尚無動態。",
     "orderInfo": {
+      "clientGroup": "客戶群組",
       "clientName": "客戶姓名",
       "phone": "電話號碼",
       "email": "Email",
       "shippingAddress": "收貨地址",
       "shippingMethod": "配送方式",
+      "shippingMethodNone": "請選擇…",
+      "shippingMethodCustom": "自訂（手動填寫）",
+      "shippingMethodCustomDetail": "配送方式名稱",
       "deliveryDate": "配送日期"
     },
-    "tagsEmpty": "尚無標籤。"
+    "tagsEmpty": "尚無訂單標籤。",
+    "tagManager": {
+      "create": "新增標籤",
+      "edit": "編輯標籤",
+      "newTitle": "新增訂單標籤",
+      "editTitle": "編輯訂單標籤",
+      "label": "標籤名稱",
+      "color": "顏色",
+      "save": "儲存標籤",
+      "delete": "刪除標籤",
+      "deleteBlocked": "此標籤仍被現有訂單使用，無法刪除。",
+      "labelRequired": "請輸入標籤名稱。",
+      "empty": "尚無訂單標籤。",
+      "autoSelected": "新增的標籤會自動選取到目前訂單。"
+    }
   },
   "productsPage": {
     "title": "產品",

@@ -14,6 +14,8 @@ import type {
   AIPerformanceMetrics,
   InboxCounts,
   Tag,
+  OrderTag,
+  ShippingMethod,
   ClientGroup,
   Product,
   LoginCredentials,
@@ -226,6 +228,48 @@ export const tagsApi = {
 
   delete: async (id: string): Promise<void> => {
     await api.delete(`/tags/${id}`);
+  },
+};
+
+export const orderTagsApi = {
+  list: async (): Promise<OrderTag[]> => {
+    const { data } = await api.get("/order-tags");
+    return data.tags || data;
+  },
+
+  create: async (tag: Partial<OrderTag>): Promise<OrderTag> => {
+    const { data } = await api.post("/order-tags", tag);
+    return data.tag || data;
+  },
+
+  update: async (id: string, updates: Partial<OrderTag>): Promise<OrderTag> => {
+    const { data } = await api.put(`/order-tags/${id}`, updates);
+    return data.tag || data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/order-tags/${id}`);
+  },
+};
+
+export const shippingMethodsApi = {
+  list: async (): Promise<ShippingMethod[]> => {
+    const { data } = await api.get("/shipping-methods");
+    return data.shippingMethods || data;
+  },
+
+  create: async (method: Partial<ShippingMethod>): Promise<ShippingMethod> => {
+    const { data } = await api.post("/shipping-methods", method);
+    return data.shippingMethod || data;
+  },
+
+  update: async (id: string, updates: Partial<ShippingMethod>): Promise<ShippingMethod> => {
+    const { data } = await api.put(`/shipping-methods/${id}`, updates);
+    return data.shippingMethod || data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/shipping-methods/${id}`);
   },
 };
 

@@ -28,6 +28,7 @@ import {
   RolesSettings,
   GeneralSettings,
   SMTPSettings,
+  ShippingSettings,
 } from "./pages/Settings";
 import { IntegrationPage } from "./pages/Integration/IntegrationPage";
 
@@ -104,6 +105,7 @@ function App() {
               <Route path="general" element={<GeneralSettings />} />
               <Route path="team" element={<TeamSettings />} />
               <Route path="roles" element={<RolesSettings />} />
+              <Route path="shipping" element={<ShippingSettings />} />
               <Route
                 path="ai-behavior"
                 element={<PlaceholderPage title="AI Behavior" />}

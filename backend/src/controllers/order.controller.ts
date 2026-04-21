@@ -88,7 +88,9 @@ export async function updateOrder(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const order = await orderService.update(req.params.id, req.body);
+    const order = await orderService.update(req.params.id, req.body, {
+      updatedByUserId: req.user?.userId,
+    });
     if (!order) {
       res.status(404).json({ error: "Order not found" });
       return;

@@ -122,7 +122,7 @@ const orderSchema = new Schema<IOrderDocument>(
     taxTotal: { type: Number, default: 0 },
     total: { type: Number, default: 0 },
 
-    tagIds: { type: [Schema.Types.ObjectId], ref: "Tag", default: [] },
+    tagIds: { type: [Schema.Types.ObjectId], ref: "OrderTag", default: [] },
     activity: { type: [orderActivityEntrySchema], default: [] },
   },
   { timestamps: true },
