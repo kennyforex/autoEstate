@@ -459,9 +459,12 @@
     "optionsEmptyHint": "尚無選項群組。需要尺寸、口味或加購項時，請點「新增群組」。",
     "variant": "變體",
     "price": "價格",
+    "priceForGroup": "價格（{{group}}）",
     "onHand": "現有庫存",
     "available": "可售",
-    "variantsEmptyHint": "先新增選項值（如 尺寸、顏色），系統會自動產生變體列。"
+    "variantsEmptyHint": "先新增選項值（如 尺寸、顏色），系統會自動產生變體列。",
+    "editingPricesFor": "正在編輯「{{group}}」的價格",
+    "zeroPriceWarning": "價格不應為 0"
   },
   "inbox": {
     "errorLoading": "載入收件匣時發生錯誤",
@@ -548,6 +551,12 @@
     "contact": "聯絡人",
     "contactInfo": "聯絡資訊",
     "channel": "頻道",
+    "clientGroup": "客戶群組",
+    "clientGroupFallback": "基本（預設）",
+    "clientGroupDefaultSuffix": "（預設）",
+    "saving": "儲存中…",
+    "clientGroupSaved": "客戶群組已儲存",
+    "clientGroupSaveFailed": "儲存客戶群組失敗",
     "messages": "訊息",
     "lastChat": "最後對話",
     "status": "狀態",

@@ -19,6 +19,47 @@ type ProductDraft = Omit<Product, "_id" | "createdAt" | "updatedAt" | "slug"> & 
   _id?: string;
 };
 
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const normalized = hex.replace("#", "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return null;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return { r, g, b };
+}
+
+function rgba(hex: string, alpha: number) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return `rgba(59, 130, 246, ${clamp(alpha, 0, 1)})`; // fallback ~blue-500
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clamp(alpha, 0, 1)})`;
+}
+
+function hashString(input: string) {
+  // Simple, deterministic non-crypto hash for stable UI accents.
+  let h = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    h = (h * 31 + input.charCodeAt(i)) >>> 0;
+  }
+  return h;
+}
+
+const CLIENT_GROUP_ACCENTS = [
+  "#2563EB", // blue-600
+  "#7C3AED", // violet-600
+  "#DB2777", // pink-600
+  "#DC2626", // red-600
+  "#EA580C", // orange-600
+  "#16A34A", // green-600
+  "#059669", // emerald-600
+  "#0891B2", // cyan-600
+  "#4F46E5", // indigo-600
+  "#0F766E", // teal-700
+];
+
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -314,6 +355,14 @@ export const Products: React.FC = () => {
   const defaultClientGroupSlug = useMemo(() => {
     const def = clientGroups.find((g) => g.isDefault) || clientGroups[0];
     return def?.slug || "";
+  }, [clientGroups]);
+
+  const clientGroupAccentBySlug = useMemo(() => {
+    const entries = clientGroups.map((g) => {
+      const idx = hashString(g.slug || g._id || g.name || "") % CLIENT_GROUP_ACCENTS.length;
+      return [g.slug, CLIENT_GROUP_ACCENTS[idx]] as const;
+    });
+    return Object.fromEntries(entries) as Record<string, string>;
   }, [clientGroups]);
 
   const [activeVariantPriceGroupSlug, setActiveVariantPriceGroupSlug] = useState("");
@@ -1284,20 +1333,33 @@ export const Products: React.FC = () => {
                   <div className="flex flex-wrap items-center gap-2">
                     {clientGroups.map((group) => {
                       const isActive = group.slug === activeVariantPriceGroupSlug;
+                      const accent = clientGroupAccentBySlug[group.slug] || CLIENT_GROUP_ACCENTS[0];
                       return (
                         <button
                           key={group._id}
                           type="button"
-                          className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                            isActive
-                              ? "border-primary-600 bg-primary-50 text-primary-700"
-                              : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                          className={`rounded-full border px-3 py-1 text-xs font-medium transition flex items-center gap-2 ${
+                            isActive ? "" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
                           }`}
+                          style={
+                            isActive
+                              ? {
+                                  borderColor: accent,
+                                  backgroundColor: rgba(accent, 0.12),
+                                  color: accent,
+                                }
+                              : undefined
+                          }
                           onClick={() => {
                             setFocusedNumberCell(null);
                             setActiveVariantPriceGroupSlug(group.slug);
                           }}
                         >
+                          <span
+                            className="inline-block h-2 w-2 rounded-full"
+                            style={{ backgroundColor: accent }}
+                            aria-hidden="true"
+                          />
                           {group.name}
                         </button>
                       );
@@ -1310,7 +1372,14 @@ export const Products: React.FC = () => {
                     <thead className="bg-gray-50">
                       <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
                         <th className="px-4 py-3">{t("productsPage.variant")}</th>
-                        <th className="px-4 py-3 w-[160px]">{t("productsPage.price")}</th>
+                        <th className="px-4 py-3 w-[200px]">
+                          {(() => {
+                            const priceGroupSlug = activeVariantPriceGroupSlug || defaultClientGroupSlug;
+                            const group = clientGroups.find((g) => g.slug === priceGroupSlug);
+                            if (!group) return t("productsPage.price");
+                            return t("productsPage.priceForGroup", { group: group.name });
+                          })()}
+                        </th>
                         <th className="px-4 py-3 w-[140px]">{t("productsPage.onHand")}</th>
                         <th className="px-4 py-3 w-[140px]">{t("productsPage.available")}</th>
                       </tr>
@@ -1342,51 +1411,74 @@ export const Products: React.FC = () => {
                                   const display = isFocused
                                     ? stored ?? (rawValue != null ? String(rawValue) : "")
                                     : formatNumber(rawValue);
+                                  const accent =
+                                    clientGroupAccentBySlug[priceGroupSlug] || CLIENT_GROUP_ACCENTS[0];
+                                  const showZeroWarning = rawValue === 0;
                                   return (
-                                <Input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={display}
-                                  onFocus={(e) => {
-                                    setFocusedNumberCell(key);
-                                    setNumberCellText((m) => ({
-                                      ...m,
-                                      [key]: rawValue != null ? String(rawValue) : "",
-                                    }));
-                                    e.target.select();
-                                  }}
-                                  onChange={(e) =>
-                                    setNumberCellText((m) => ({ ...m, [key]: e.target.value }))
-                                  }
-                                  onBlur={() => {
-                                    setFocusedNumberCell((cur) => (cur === key ? null : cur));
-                                    const next = parseNumberOrNull(numberCellText[key] ?? "");
-                                    updateDraft((current) => ({
-                                      ...current,
-                                      variants: (current.variants || []).map((v, i) =>
-                                        i === variantIndex
-                                          ? {
-                                              ...v,
-                                              priceByGroup: (() => {
-                                                const nextPriceMap = { ...(v.priceByGroup || {}) };
-                                                if (next == null) {
-                                                  delete nextPriceMap[priceGroupSlug];
-                                                } else {
-                                                  nextPriceMap[priceGroupSlug] = next;
-                                                }
-                                                return nextPriceMap;
-                                              })(),
-                                            }
-                                          : v,
-                                      ),
-                                    }));
-                                    setNumberCellText((m) => {
-                                      const nextMap = { ...m };
-                                      delete nextMap[key];
-                                      return nextMap;
-                                    });
-                                  }}
-                                />
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={display}
+                                    onFocus={(e) => {
+                                      setFocusedNumberCell(key);
+                                      setNumberCellText((m) => ({
+                                        ...m,
+                                        [key]: rawValue != null ? String(rawValue) : "",
+                                      }));
+                                      e.target.select();
+                                    }}
+                                    onChange={(e) =>
+                                      setNumberCellText((m) => ({ ...m, [key]: e.target.value }))
+                                    }
+                                    onBlur={() => {
+                                      setFocusedNumberCell((cur) => (cur === key ? null : cur));
+                                      const next = parseNumberOrNull(numberCellText[key] ?? "");
+                                      updateDraft((current) => ({
+                                        ...current,
+                                        variants: (current.variants || []).map((v, i) =>
+                                          i === variantIndex
+                                            ? {
+                                                ...v,
+                                                priceByGroup: (() => {
+                                                  const nextPriceMap = { ...(v.priceByGroup || {}) };
+                                                  if (next == null) {
+                                                    delete nextPriceMap[priceGroupSlug];
+                                                  } else {
+                                                    nextPriceMap[priceGroupSlug] = next;
+                                                  }
+                                                  return nextPriceMap;
+                                                })(),
+                                              }
+                                            : v,
+                                        ),
+                                      }));
+                                      setNumberCellText((m) => {
+                                        const nextMap = { ...m };
+                                        delete nextMap[key];
+                                        return nextMap;
+                                      });
+                                    }}
+                                  />
+                                  {showZeroWarning ? (
+                                    <span
+                                      className="inline-flex h-6 w-6 items-center justify-center rounded-full border text-xs font-extrabold"
+                                      style={{
+                                        borderColor: rgba("#DC2626", 0.55),
+                                        backgroundColor: rgba("#DC2626", 0.08),
+                                        color: "#DC2626",
+                                      }}
+                                      title={t("productsPage.zeroPriceWarning")}
+                                      aria-label={t("productsPage.zeroPriceWarning")}
+                                    >
+                                      !
+                                    </span>
+                                  ) : null}
+                                  <span
+                                    className="sr-only"
+                                    aria-live="polite"
+                                  >{`Active price group accent: ${accent}`}</span>
+                                </div>
                                   );
                                 })()}
                               </td>
@@ -1459,6 +1551,24 @@ export const Products: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
+                {(() => {
+                  const priceGroupSlug = activeVariantPriceGroupSlug || defaultClientGroupSlug;
+                  const group = clientGroups.find((g) => g.slug === priceGroupSlug);
+                  if (!group) return null;
+                  const accent = clientGroupAccentBySlug[priceGroupSlug] || CLIENT_GROUP_ACCENTS[0];
+                  return (
+                    <div className="flex items-center gap-2 text-xs text-gray-600">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: accent }}
+                        aria-hidden="true"
+                      />
+                      <span className="font-medium text-gray-700">
+                        {t("productsPage.editingPricesFor", { group: group.name })}
+                      </span>
+                    </div>
+                  );
+                })()}
               </section>
             </div>
           )}

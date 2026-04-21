@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { formatDistanceToNow, format } from "date-fns";
 import { Users, Search, MessageSquare, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { PageHeader } from "../components/layout";
-import { Avatar, Input, Select, Button } from "../components/common";
+import { Avatar, Input, Select, Button, ToastContainer, useToasts } from "../components/common";
 import { clientGroupsApi, contactsApi, channelsApi } from "../lib/api";
 import type { ClientGroup, ContactWithStats, Channel } from "../lib/types";
 
@@ -28,6 +28,7 @@ const countryCodeToFlag = (countryCode: string | undefined): string => {
 export const Contacts: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { toasts, dismissToast, showSuccess, showError } = useToasts();
   const [contacts, setContacts] = useState<ContactWithStats[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
@@ -161,7 +162,7 @@ export const Contacts: React.FC = () => {
     return daysSinceLastChat <= 7;
   };
 
-  const handleRowClick = (_contact: ContactWithStats) => {
+  const handleRowClick = () => {
     // Navigate to inbox filtered by this contact
     // For now, just navigate to inbox - can be enhanced later
     navigate("/inbox");
@@ -195,8 +196,10 @@ export const Contacts: React.FC = () => {
             : contact,
         ),
       );
+      showSuccess(t("contacts.clientGroupSaved"));
     } catch (error) {
       console.error("Failed to update client group:", error);
+      showError(t("contacts.clientGroupSaveFailed"));
     } finally {
       setSavingContactId(null);
     }
@@ -301,6 +304,7 @@ export const Contacts: React.FC = () => {
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <div className="max-w-6xl mx-auto">
         <PageHeader
           title={t("contacts.title")}
@@ -361,7 +365,7 @@ export const Contacts: React.FC = () => {
                     {t("contacts.channel")}
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Client Group
+                    {t("contacts.clientGroup")}
                   </th>
                   <SortableHeader column="messageCount" label={t("contacts.messages")} />
                   <SortableHeader column="lastChatDate" label={t("contacts.lastChat")} />
@@ -375,7 +379,7 @@ export const Contacts: React.FC = () => {
                   <tr
                     key={contact._id}
                     className="hover:bg-gray-50 cursor-pointer"
-                    onClick={() => handleRowClick(contact)}
+                    onClick={() => handleRowClick()}
                   >
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
@@ -416,15 +420,22 @@ export const Contacts: React.FC = () => {
                           onClick={(e) => e.stopPropagation()}
                           onChange={(value) => handleClientGroupChange(contact._id, value)}
                           options={[
-                            { value: "", label: "Basic (fallback)" },
+                            { value: "", label: t("contacts.clientGroupFallback") },
                             ...clientGroups
                               .filter((group) => group.isActive)
                               .map((group) => ({
                                 value: group._id,
-                                label: group.isDefault ? `${group.name} (default)` : group.name,
+                                label: group.isDefault
+                                  ? `${group.name} ${t("contacts.clientGroupDefaultSuffix")}`
+                                  : group.name,
                               })),
                           ]}
                         />
+                        {savingContactId === contact._id && (
+                          <div className="mt-1 text-xs text-gray-400">
+                            {t("contacts.saving")}
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-4">

@@ -414,9 +414,12 @@
     "optionsEmptyHint": "No option groups yet. Use “Add group” when this product has sizes, flavours, or add-ons.",
     "variant": "Variant",
     "price": "Price",
+    "priceForGroup": "Price ({{group}})",
     "onHand": "On hand",
     "available": "Available",
-    "variantsEmptyHint": "Add option values (e.g. Size and Color) to generate variant rows."
+    "variantsEmptyHint": "Add option values (e.g. Size and Color) to generate variant rows.",
+    "editingPricesFor": "Editing prices for {{group}}",
+    "zeroPriceWarning": "Price should not be 0"
   },
   "inbox": {
     "errorLoading": "Error loading inbox",
@@ -503,6 +506,12 @@
     "contact": "Contact",
     "contactInfo": "Contact Info",
     "channel": "Channel",
+    "clientGroup": "Client group",
+    "clientGroupFallback": "Basic (fallback)",
+    "clientGroupDefaultSuffix": "(default)",
+    "saving": "Saving…",
+    "clientGroupSaved": "Client group saved",
+    "clientGroupSaveFailed": "Failed to save client group",
     "messages": "Messages",
     "lastChat": "Last Chat",
     "status": "Status",

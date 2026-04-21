@@ -459,9 +459,12 @@
     "optionsEmptyHint": "尚无选项分组。需要尺寸、口味或加购项时，请点击「添加分组」。",
     "variant": "变体",
     "price": "价格",
+    "priceForGroup": "价格（{{group}}）",
     "onHand": "现有库存",
     "available": "可售",
-    "variantsEmptyHint": "先添加选项值（如 尺寸、颜色），系统会自动生成变体行。"
+    "variantsEmptyHint": "先添加选项值（如 尺寸、颜色），系统会自动生成变体行。",
+    "editingPricesFor": "正在编辑「{{group}}」的价格",
+    "zeroPriceWarning": "价格不应为 0"
   },
   "inbox": {
     "errorLoading": "加载收件箱时发生错误",
@@ -548,6 +551,12 @@
     "contact": "联系人",
     "contactInfo": "联系信息",
     "channel": "频道",
+    "clientGroup": "客户分组",
+    "clientGroupFallback": "基础（默认）",
+    "clientGroupDefaultSuffix": "（默认）",
+    "saving": "保存中…",
+    "clientGroupSaved": "客户分组已保存",
+    "clientGroupSaveFailed": "保存客户分组失败",
     "messages": "消息",
     "lastChat": "最后对话",
     "status": "状态",
