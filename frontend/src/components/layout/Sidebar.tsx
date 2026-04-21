@@ -14,6 +14,7 @@ import {
   Clock,
   ListTodo,
   Package,
+  ShoppingCart,
 } from "lucide-react";
 import { Avatar } from "../common/Avatar";
 import { useAuth } from "../../context/AuthContext";
@@ -67,6 +68,11 @@ const getNavItems = (): NavItem[] => [
     path: "/products",
     icon: <Package className="w-6 h-6" />,
     labelKey: "sidebar.products",
+  },
+  {
+    path: "/orders",
+    icon: <ShoppingCart className="w-6 h-6" />,
+    labelKey: "sidebar.orders",
   },
   {
     path: "/client-groups",

@@ -38,6 +38,17 @@ export {
   type ProductOptionPricingMode,
   type ProductOptionSelectionType,
 } from "./Product.js";
+export {
+  Order,
+  type IOrderDocument,
+  type IOrderActivityEntry,
+  type IOrderItem,
+  type IOrderItemSnapshot,
+  type OrderFulfillmentStatus,
+  type OrderPaymentStatus,
+  type OrderSource,
+  type OrderStatus,
+} from "./Order.js";
 export { Company, type ICompanyDocument } from "./Company.js";
 export { AILog, type IAILogDocument, type ITokens } from "./AILog.js";
 export { Skill, type ISkillDocument } from "./Skill.js";

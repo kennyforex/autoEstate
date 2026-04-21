@@ -318,12 +318,104 @@
     "channels": "Channels",
     "contacts": "Contacts",
     "products": "Products",
+    "orders": "Orders",
     "clientGroups": "Client groups",
     "aiLogs": "AI Logs",
     "skillTasks": "Past tasks",
     "integration": "Integration",
     "settings": "Settings",
     "logout": "Logout"
+  },
+  "ordersPage": {
+    "title": "Orders",
+    "subtitle": "Create and manage internal orders (replaces Google Sheets).",
+    "newOrder": "Add New Order",
+    "newOrderTitle": "New Order",
+    "orderTitleFallback": "Order",
+    "formSubtitle": "Track items, payment, fulfillment, delivery, and tags.",
+    "backToList": "Back to list",
+    "save": "Save",
+    "saving": "Saving…",
+    "loadError": "Failed to load order.",
+    "saveError": "Failed to save order.",
+    "filters": "Filters",
+    "searchPlaceholder": "Search orders…",
+    "allStatuses": "All statuses",
+    "createdFrom": "Created from",
+    "createdTo": "Created to",
+    "deliveryFrom": "Delivery from",
+    "deliveryTo": "Delivery to",
+    "loading": "Loading orders…",
+    "empty": "No orders found.",
+    "prev": "Prev",
+    "next": "Next",
+    "pageOf": "Page {{page}} of {{totalPages}}",
+    "summary": {
+      "none": "No orders yet.",
+      "range": "Showing {{start}}–{{end}} of {{total}} orders"
+    },
+    "columns": {
+      "order": "Order",
+      "createdAt": "Date created",
+      "customer": "Customer",
+      "payment": "Payment",
+      "fulfillment": "Fulfillment",
+      "total": "Total"
+    },
+    "status": {
+      "open": "Open",
+      "completed": "Completed",
+      "cancelled": "Cancelled"
+    },
+    "payment": {
+      "paid": "Paid",
+      "unpaid": "Unpaid",
+      "discount": "Discount",
+      "shipping": "Shipping",
+      "tax": "Tax",
+      "currency": "Currency",
+      "subtotal": "Subtotal",
+      "total": "Total"
+    },
+    "fulfillment": {
+      "fulfilled": "Fulfilled",
+      "unfulfilled": "Unfulfilled"
+    },
+    "sections": {
+      "items": "Items",
+      "paymentInfo": "Payment info",
+      "activity": "Order activity",
+      "orderInfo": "Order info",
+      "tags": "Tags"
+    },
+    "item": {
+      "productSelectPlaceholder": "Select product (optional)",
+      "productName": "Product name",
+      "qty": "Qty",
+      "unitPrice": "Unit price",
+      "notes": "Notes",
+      "add": "Add item",
+      "remove": "Remove"
+    },
+    "activity": {
+      "system": "System",
+      "note": "Note",
+      "addLabel": "Add a note",
+      "add": "Add",
+      "pendingNotes": "Notes to add on save",
+      "pendingNotesHint": "These notes will be saved to order activity after the order is created."
+    },
+    "activityHintNew": "Save the order first to attach notes to the activity log.",
+    "activityEmpty": "No activity yet.",
+    "orderInfo": {
+      "clientName": "Client name",
+      "phone": "Phone number",
+      "email": "Email",
+      "shippingAddress": "Shipping address",
+      "shippingMethod": "Shipping method",
+      "deliveryDate": "Delivery date"
+    },
+    "tagsEmpty": "No tags yet."
   },
   "productsPage": {
     "title": "Products",

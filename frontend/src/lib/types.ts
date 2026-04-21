@@ -258,6 +258,70 @@ export interface ProductOptionGroup {
   values: ProductOptionValue[];
 }
 
+// Orders
+export type OrderStatus = "open" | "completed" | "cancelled";
+export type OrderPaymentStatus = "unpaid" | "paid";
+export type OrderFulfillmentStatus = "unfulfilled" | "fulfilled";
+export type OrderSource = "manual" | "skill";
+
+export interface OrderItemSnapshot {
+  productId?: string;
+  productName: string;
+  variantLabel?: string;
+  optionSummary?: string;
+  sku?: string;
+  imageUrl?: string;
+}
+
+export interface OrderItem {
+  snapshot: OrderItemSnapshot;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  notes?: string;
+}
+
+export interface OrderActivityEntry {
+  kind: "system" | "note";
+  message: string;
+  createdAt: string;
+  createdByUserId?: string;
+}
+
+export interface Order {
+  _id: string;
+  orderNumber: string;
+  source: OrderSource;
+  contactId?: string;
+  clientName?: string;
+  phoneNumber?: string;
+  email?: string;
+  shippingAddress?: string;
+  shippingMethod?: string;
+  deliveryDate?: string;
+  status: OrderStatus;
+  paymentStatus: OrderPaymentStatus;
+  fulfillmentStatus: OrderFulfillmentStatus;
+  currency: string;
+  items: OrderItem[];
+  subtotal: number;
+  discountTotal: number;
+  shippingFee: number;
+  taxTotal: number;
+  total: number;
+  tagIds: string[];
+  activity: OrderActivityEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrderListResponse {
+  orders: Order[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface ProductVariant {
   id: string;
   /** Selected option value ids, in option group order. */

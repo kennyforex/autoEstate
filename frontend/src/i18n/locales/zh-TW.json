@@ -363,12 +363,104 @@
     "channels": "頻道",
     "contacts": "聯絡人",
     "products": "產品",
+    "orders": "訂單",
     "clientGroups": "客戶群組",
     "aiLogs": "AI 日誌",
     "skillTasks": "過往任務",
     "integration": "整合",
     "settings": "設定",
     "logout": "登出"
+  },
+  "ordersPage": {
+    "title": "訂單",
+    "subtitle": "在系統內建立與管理訂單（取代 Google Sheets）。",
+    "newOrder": "新增訂單",
+    "newOrderTitle": "新訂單",
+    "orderTitleFallback": "訂單",
+    "formSubtitle": "管理品項、付款、履約、配送與標籤。",
+    "backToList": "返回列表",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "loadError": "載入訂單失敗。",
+    "saveError": "儲存訂單失敗。",
+    "filters": "篩選",
+    "searchPlaceholder": "搜尋訂單…",
+    "allStatuses": "所有狀態",
+    "createdFrom": "建立從",
+    "createdTo": "建立到",
+    "deliveryFrom": "配送從",
+    "deliveryTo": "配送到",
+    "loading": "載入訂單中…",
+    "empty": "沒有找到訂單。",
+    "prev": "上一頁",
+    "next": "下一頁",
+    "pageOf": "第 {{page}} / {{totalPages}} 頁",
+    "summary": {
+      "none": "目前尚無訂單。",
+      "range": "顯示 {{start}}–{{end}} / 共 {{total}} 筆"
+    },
+    "columns": {
+      "order": "訂單",
+      "createdAt": "建立時間",
+      "customer": "客戶",
+      "payment": "付款",
+      "fulfillment": "履約",
+      "total": "總計"
+    },
+    "status": {
+      "open": "進行中",
+      "completed": "已完成",
+      "cancelled": "已取消"
+    },
+    "payment": {
+      "paid": "已付款",
+      "unpaid": "未付款",
+      "discount": "折扣",
+      "shipping": "運費",
+      "tax": "稅",
+      "currency": "貨幣",
+      "subtotal": "小計",
+      "total": "總計"
+    },
+    "fulfillment": {
+      "fulfilled": "已履約",
+      "unfulfilled": "未履約"
+    },
+    "sections": {
+      "items": "品項",
+      "paymentInfo": "付款資訊",
+      "activity": "訂單動態",
+      "orderInfo": "訂單資訊",
+      "tags": "標籤"
+    },
+    "item": {
+      "productSelectPlaceholder": "選擇產品（選填）",
+      "productName": "品項名稱",
+      "qty": "數量",
+      "unitPrice": "單價",
+      "notes": "備註",
+      "add": "新增品項",
+      "remove": "移除"
+    },
+    "activity": {
+      "system": "系統",
+      "note": "備註",
+      "addLabel": "新增備註",
+      "add": "新增",
+      "pendingNotes": "儲存時將寫入的備註",
+      "pendingNotesHint": "訂單建立後會把這些備註寫入訂單動態。"
+    },
+    "activityHintNew": "請先儲存訂單，才能把備註寫入訂單動態。",
+    "activityEmpty": "尚無動態。",
+    "orderInfo": {
+      "clientName": "客戶姓名",
+      "phone": "電話號碼",
+      "email": "Email",
+      "shippingAddress": "收貨地址",
+      "shippingMethod": "配送方式",
+      "deliveryDate": "配送日期"
+    },
+    "tagsEmpty": "尚無標籤。"
   },
   "productsPage": {
     "title": "產品",

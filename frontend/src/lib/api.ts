@@ -24,6 +24,8 @@ import type {
   ScheduledJob,
   ScheduledJobRun,
   ScheduledJobsStats,
+  Order,
+  OrderListResponse,
 } from "./types";
 
 const API_BASE_URL =
@@ -224,6 +226,117 @@ export const tagsApi = {
 
   delete: async (id: string): Promise<void> => {
     await api.delete(`/tags/${id}`);
+  },
+};
+
+// Orders API
+export const ordersApi = {
+  list: async (params: {
+    search?: string;
+    status?: string;
+    paymentStatus?: string;
+    fulfillmentStatus?: string;
+    tagId?: string;
+    createdFrom?: string;
+    createdTo?: string;
+    deliveryFrom?: string;
+    deliveryTo?: string;
+    limit: number;
+    offset: number;
+    sortBy?: string;
+    sortOrder?: "asc" | "desc";
+  }): Promise<OrderListResponse> => {
+    const { data } = await api.get("/orders", { params });
+    return data;
+  },
+
+  get: async (id: string): Promise<Order> => {
+    const { data } = await api.get(`/orders/${id}`);
+    return data.order || data;
+  },
+
+  create: async (
+    payload: Pick<
+      Order,
+      | "clientName"
+      | "phoneNumber"
+      | "email"
+      | "shippingAddress"
+      | "shippingMethod"
+      | "deliveryDate"
+      | "status"
+      | "paymentStatus"
+      | "fulfillmentStatus"
+      | "currency"
+      | "discountTotal"
+      | "shippingFee"
+      | "taxTotal"
+      | "tagIds"
+    > & {
+      contactId?: string;
+      items: Array<{
+        snapshot: {
+          productId?: string;
+          productName: string;
+          variantLabel?: string;
+          optionSummary?: string;
+          sku?: string;
+          imageUrl?: string;
+        };
+        quantity: number;
+        unitPrice: number;
+        notes?: string;
+      }>;
+    },
+  ): Promise<Order> => {
+    const { data } = await api.post("/orders", payload);
+    return data.order || data;
+  },
+
+  update: async (
+    id: string,
+    payload: Partial<
+      Pick<
+        Order,
+        | "clientName"
+        | "phoneNumber"
+        | "email"
+        | "shippingAddress"
+        | "shippingMethod"
+        | "deliveryDate"
+        | "status"
+        | "paymentStatus"
+        | "fulfillmentStatus"
+        | "currency"
+        | "discountTotal"
+        | "shippingFee"
+        | "taxTotal"
+        | "tagIds"
+      >
+    > & {
+      contactId?: string | null;
+      items?: Array<{
+        snapshot: {
+          productId?: string;
+          productName: string;
+          variantLabel?: string;
+          optionSummary?: string;
+          sku?: string;
+          imageUrl?: string;
+        };
+        quantity: number;
+        unitPrice: number;
+        notes?: string;
+      }>;
+    },
+  ): Promise<Order> => {
+    const { data } = await api.put(`/orders/${id}`, payload);
+    return data.order || data;
+  },
+
+  addActivity: async (id: string, message: string): Promise<Order> => {
+    const { data } = await api.post(`/orders/${id}/activity`, { message });
+    return data.order || data;
   },
 };
 

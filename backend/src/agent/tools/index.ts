@@ -20,6 +20,8 @@ export { WebBrowserTool } from './webBrowser.tool.js';
 export { SkillExecutionTool } from './skill.tool.js';
 export { WebSearchTool } from './webSearch.tool.js';
 export { GetProductMenuTool } from './getProductMenu.tool.js';
+export { CreateOrderTool } from './createOrder.tool.js';
+export { SearchOrdersTool } from './searchOrders.tool.js';
 
 import { ToolRegistry } from './registry.js';
 import { KnowledgeBaseTool } from './knowledgeBase.tool.js';
@@ -41,6 +43,8 @@ import { WebBrowserTool } from './webBrowser.tool.js';
 import { SkillExecutionTool } from './skill.tool.js';
 import { WebSearchTool } from './webSearch.tool.js';
 import { GetProductMenuTool } from './getProductMenu.tool.js';
+import { CreateOrderTool } from './createOrder.tool.js';
+import { SearchOrdersTool } from './searchOrders.tool.js';
 
 export function createDefaultRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
@@ -62,6 +66,8 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new WebBrowserTool());
   registry.register(new WebSearchTool());
   registry.register(new GetProductMenuTool());
+  registry.register(new CreateOrderTool());
+  registry.register(new SearchOrdersTool());
 
   const skillTool = new SkillExecutionTool();
   skillTool.setParentRegistry(registry);

@@ -9,6 +9,8 @@ import { AILogs } from "./pages/AILogs";
 import { SkillTasks } from "./pages/SkillTasks";
 import { Products } from "./pages/Products";
 import { ClientGroups } from "./pages/ClientGroups";
+import { Orders } from "./pages/Orders";
+import { OrderForm } from "./pages/OrderForm";
 import {
   AssistantList,
   AssistantPlayground,
@@ -77,6 +79,9 @@ function App() {
             {/* Contacts route */}
             <Route path="contacts" element={<Contacts />} />
             <Route path="products" element={<Products />} />
+            <Route path="orders" element={<Orders />} />
+            <Route path="orders/new" element={<OrderForm />} />
+            <Route path="orders/:id" element={<OrderForm />} />
             <Route path="client-groups" element={<ClientGroups />} />
 
             <Route path="integration" element={<IntegrationPage />} />
