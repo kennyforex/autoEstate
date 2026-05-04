@@ -413,3 +413,21 @@ export async function getAIDiagnostic(
     next(error);
   }
 }
+
+export async function deleteConversation(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { id } = req.params;
+    const deleted = await conversationService.deleteById(id);
+    if (!deleted) {
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+}

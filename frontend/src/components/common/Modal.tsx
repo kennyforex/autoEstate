@@ -65,27 +65,28 @@ export const Modal: React.FC<ModalProps> = ({
   return createPortal(
     <div
       className={cn(
-        'fixed inset-0',
+        'fixed inset-0 pointer-events-none',
         isFull ? 'flex flex-col p-3' : 'flex items-center justify-center',
         portalClassName ?? 'z-50',
       )}
     >
-      {/* Overlay */}
+      {/* Overlay: must participate in hit-testing independently from the dialog */}
       <div
-        className="absolute inset-0 bg-black/50"
+        className="pointer-events-auto absolute inset-0 z-0 bg-black/50"
         onClick={() => onClose?.()}
         aria-hidden
       />
 
       {/* Modal */}
       <div
-        className={`
-          relative z-10 bg-white rounded-lg shadow-modal w-full flex flex-col
-          ${isFull ? 'min-h-0 flex-1 overflow-hidden' : `mx-4 max-h-[90vh] ${sizeClasses[size as keyof typeof sizeClasses]}`}
-          ${className}
-        `}
+        className={cn(
+          'pointer-events-auto relative z-10 flex w-full flex-col rounded-lg bg-white shadow-modal',
+          isFull ? 'min-h-0 flex-1 overflow-hidden' : `mx-4 max-h-[90vh] ${sizeClasses[size as keyof typeof sizeClasses]}`,
+          className,
+        )}
         role="dialog"
         aria-modal="true"
+        onMouseDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
         {(title || showClose) && (
@@ -131,7 +132,7 @@ export const Modal: React.FC<ModalProps> = ({
 interface ConfirmModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   title: string;
   message: string;
   confirmText?: string;
@@ -160,10 +161,11 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       portalClassName="z-[100]"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={isLoading}>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={isLoading}>
             {cancelText}
           </Button>
           <Button
+            type="button"
             variant={variant === 'danger' ? 'danger' : 'primary'}
             onClick={onConfirm}
             isLoading={isLoading}

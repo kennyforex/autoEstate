@@ -44,6 +44,13 @@ router.get(
   conversationController.getConversation,
 );
 
+// Permanently delete conversation and all messages / agent-related data
+router.delete(
+  "/:id",
+  validate([param("id").isMongoId().withMessage("Invalid conversation ID")]),
+  conversationController.deleteConversation,
+);
+
 // Update conversation
 router.put(
   "/:id",

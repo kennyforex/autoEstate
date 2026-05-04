@@ -679,7 +679,12 @@
     "addTag": "Add tag",
     "createNewTag": "Create new tag",
     "tagLabel": "Tag name",
-    "selectColor": "Select color"
+    "selectColor": "Select color",
+    "removeConversation": "Remove conversation",
+    "removeConversationConfirmTitle": "Remove this conversation?",
+    "removeConversationConfirmMessage": "This permanently deletes the thread, all messages, tags, assignment, and AI skill state for this chat. The next WhatsApp message from this contact will start a new conversation. This cannot be undone.",
+    "removeConversationConfirm": "Remove",
+    "removeConversationFailed": "Could not remove the conversation. Please try again."
   },
   "contacts": {
     "title": "Contacts",

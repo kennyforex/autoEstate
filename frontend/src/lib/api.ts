@@ -857,6 +857,10 @@ export const conversationsApi = {
     await api.post(`/conversations/${id}/read`);
   },
 
+  remove: async (id: string): Promise<void> => {
+    await api.delete(`/conversations/${id}`);
+  },
+
   getAIDiagnostic: async (id: string): Promise<any> => {
     const { data } = await api.get(`/conversations/${id}/ai-diagnostic`);
     return data.diagnostic || data;

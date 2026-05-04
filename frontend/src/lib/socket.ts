@@ -7,6 +7,7 @@ interface ServerToClientEvents {
   'message:new': (message: Message) => void;
   'message:update': (message: Partial<Message> & { _id: string }) => void;
   'conversation:update': (conversation: Partial<Conversation> & { _id: string }) => void;
+  'conversation:deleted': (payload: { _id: string }) => void;
   'channel:status': (data: { channelId: string; status: string }) => void;
   'ai:typing': (data: { conversationId: string; isTyping: boolean }) => void;
   'ai:status': (data: {

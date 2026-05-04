@@ -724,7 +724,12 @@
     "addTag": "添加标签",
     "createNewTag": "创建新标签",
     "tagLabel": "标签名称",
-    "selectColor": "选择颜色"
+    "selectColor": "选择颜色",
+    "removeConversation": "删除会话",
+    "removeConversationConfirmTitle": "确定删除此会话？",
+    "removeConversationConfirmMessage": "将永久删除该会话线程、全部消息、标签、分配与 AI 技能状态。该联系人下一条 WhatsApp 消息会开启新会话。此操作无法撤销。",
+    "removeConversationConfirm": "删除",
+    "removeConversationFailed": "无法删除会话，请重试。"
   },
   "contacts": {
     "title": "联系人",

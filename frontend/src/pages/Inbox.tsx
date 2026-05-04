@@ -259,6 +259,17 @@ export const Inbox: React.FC = () => {
     }
   }, [selectedChannelId]);
 
+  const handleConversationRemoved = useCallback(
+    (id: string) => {
+      setConversations((prev) => prev.filter((c) => c._id !== id));
+      setSelectedConversation((prev) =>
+        prev && prev._id === id ? null : prev,
+      );
+      void fetchCounts();
+    },
+    [fetchCounts],
+  );
+
   const fetchChannels = useCallback(async () => {
     try {
       const data = await channelsApi.list();
@@ -398,12 +409,22 @@ export const Inbox: React.FC = () => {
       }
     };
 
+    const handleConversationDeleted = ({ _id }: { _id: string }) => {
+      setConversations((prev) => prev.filter((c) => c._id !== _id));
+      setSelectedConversation((prev) =>
+        prev && prev._id === _id ? null : prev,
+      );
+      void fetchCounts();
+    };
+
     socket.on("message:new", handleNewMessage);
     socket.on("conversation:update", handleConversationUpdate);
+    socket.on("conversation:deleted", handleConversationDeleted);
 
     return () => {
       socket.off("message:new", handleNewMessage);
       socket.off("conversation:update", handleConversationUpdate);
+      socket.off("conversation:deleted", handleConversationDeleted);
     };
   }, [selectedConversation?._id, fetchConversations, activeFilter, fetchCounts]);
 
@@ -551,6 +572,7 @@ export const Inbox: React.FC = () => {
               onAvatarClick={() => setShowDetails(true)}
               onUpdate={handleConversationUpdate}
               onCountsChange={fetchCounts}
+              onConversationRemoved={handleConversationRemoved}
             />
 
             {/* Details Panel */}

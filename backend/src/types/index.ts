@@ -166,6 +166,7 @@ export interface ServerToClientEvents {
   "conversation:update": (
     conversation: Partial<IConversation> & { _id: string },
   ) => void;
+  "conversation:deleted": (payload: { _id: string }) => void;
   "channel:status": (data: { channelId: string; status: string; phoneNumber?: string }) => void;
   "ai:typing": (data: { conversationId: string; isTyping: boolean }) => void;
   "ai:status": (data: {

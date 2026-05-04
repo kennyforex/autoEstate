@@ -4,8 +4,11 @@ import {
   Tag,
   type IConversationDocument,
 } from "../models/index.js";
-import { Message } from "../models/index.js";
+import { Message, AILog, AgentSession } from "../models/index.js";
 import { Contact } from "../models/index.js";
+import { ConversationState } from "../models/ConversationState.js";
+import { ScheduledReminder } from "../models/ScheduledReminder.js";
+import { reminderService } from "./reminder.service.js";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -525,6 +528,40 @@ class ConversationService {
     }
 
     return conversation;
+  }
+
+  /**
+   * Permanently remove a conversation and all dependent records (messages,
+   * skill state, reminders, agent sessions, AI logs). Next inbound message
+   * for the same contact/channel creates a new conversation document.
+   */
+  async deleteById(id: string): Promise<boolean> {
+    const conversation = await Conversation.findById(id);
+    if (!conversation) {
+      return false;
+    }
+
+    const convObjId = conversation._id;
+
+    await reminderService.cancelForConversation(id);
+
+    await Promise.all([
+      Message.deleteMany({ conversationId: convObjId }),
+      ConversationState.deleteMany({ conversationId: convObjId }),
+      ScheduledReminder.deleteMany({ conversationId: convObjId }),
+      AgentSession.deleteMany({ conversationId: convObjId }),
+      AILog.deleteMany({ conversationId: convObjId }),
+    ]);
+
+    await Conversation.findByIdAndDelete(id);
+
+    if (this.io) {
+      (
+        this.io as unknown as { emit: (event: string, data: unknown) => void }
+      ).emit("conversation:deleted", { _id: id });
+    }
+
+    return true;
   }
 }
 

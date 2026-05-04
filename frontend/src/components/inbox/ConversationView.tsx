@@ -19,8 +19,9 @@ import {
   Tag,
   Plus,
   Check,
+  Trash2,
 } from "lucide-react";
-import { Avatar, Button } from "../common";
+import { Avatar, Button, ConfirmModal } from "../common";
 import type {
   Conversation,
   Message,
@@ -38,6 +39,8 @@ interface ConversationViewProps {
   onAvatarClick?: () => void;
   onUpdate?: (conversation: Conversation) => void;
   onCountsChange?: () => void;
+  /** Called after this conversation is permanently removed (local list should drop it). */
+  onConversationRemoved?: (conversationId: string) => void;
 }
 
 const formatDateSeparator = (date: Date): string => {
@@ -226,6 +229,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   onAvatarClick,
   onUpdate,
   onCountsChange,
+  onConversationRemoved,
 }) => {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>(
@@ -263,6 +267,9 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   } | null>(null);
   const [popupImageUrl, setPopupImageUrl] = useState<string | null>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showRemoveConversationConfirm, setShowRemoveConversationConfirm] =
+    useState(false);
+  const [isRemovingConversation, setIsRemovingConversation] = useState(false);
   const [showTagMenu, setShowTagMenu] = useState(false);
   const [availableTags, setAvailableTags] = useState<TagType[]>([]);
   const [isCreatingTag, setIsCreatingTag] = useState(false);
@@ -602,6 +609,25 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
     }
   };
 
+  const handleRemoveConversationClick = () => {
+    setShowMoreMenu(false);
+    setShowRemoveConversationConfirm(true);
+  };
+
+  const handleConfirmRemoveConversation = async () => {
+    setIsRemovingConversation(true);
+    try {
+      await conversationsApi.remove(conversation._id);
+      setShowRemoveConversationConfirm(false);
+      onConversationRemoved?.(conversation._id);
+    } catch (error) {
+      console.error("Failed to remove conversation:", error);
+      alert(t("inbox.removeConversationFailed"));
+    } finally {
+      setIsRemovingConversation(false);
+    }
+  };
+
   // Determine file type category from mime type
   const getFileType = (mimeType: string): "image" | "video" | "document" => {
     if (mimeType.startsWith("image/")) return "image";
@@ -853,8 +879,13 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                       placeholder="Tag name..."
                       className="w-full text-sm px-3 py-2 rounded-lg border border-border bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none mb-2"
                       onKeyDown={(e) => {
-                        if (e.key === "Enter")
-                          editingTagId ? handleEditTag() : handleCreateTag();
+                        if (e.key === "Enter") {
+                          if (editingTagId) {
+                            void handleEditTag();
+                          } else {
+                            void handleCreateTag();
+                          }
+                        }
                         if (e.key === "Escape") resetTagForm();
                       }}
                     />
@@ -1003,11 +1034,34 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
                     <span>Reopen</span>
                   </button>
                 )}
+                <div className="border-t border-border my-1" />
+                <button
+                  type="button"
+                  onClick={handleRemoveConversationClick}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{t("inbox.removeConversation")}</span>
+                </button>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={showRemoveConversationConfirm}
+        onClose={() =>
+          !isRemovingConversation && setShowRemoveConversationConfirm(false)
+        }
+        onConfirm={handleConfirmRemoveConversation}
+        title={t("inbox.removeConversationConfirmTitle")}
+        message={t("inbox.removeConversationConfirmMessage")}
+        confirmText={t("inbox.removeConversationConfirm")}
+        cancelText={t("common.cancel")}
+        variant="danger"
+        isLoading={isRemovingConversation}
+      />
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
