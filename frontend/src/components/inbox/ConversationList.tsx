@@ -171,7 +171,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                           {/* Warning indicators - SLA Risk, Negative Sentiment, or High Priority */}
                           {(conversation.aiSignals?.slaRisk || 
                             conversation.aiSignals?.sentiment === 'negative' ||
-                            (conversation.aiSignals?.priority && conversation.aiSignals.priority >= 7)) && (
+                            ((conversation.aiSignals?.priority ?? 0) >= 7)) && (
                             <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                           )}
                           {/* Unread count indicator removed per user request */}
