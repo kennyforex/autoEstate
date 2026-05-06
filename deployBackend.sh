@@ -78,6 +78,21 @@ else
     exit 1
 fi
 
+# Build backend so PM2 serves the latest compiled TypeScript from dist/app.js
+print_status "Installing backend dependencies..."
+cd backend
+npm install --production || {
+    print_error "Backend npm install failed"
+    exit 1
+}
+
+print_status "Compiling backend TypeScript..."
+npm run build || {
+    print_error "Backend build failed"
+    exit 1
+}
+cd ..
+
 # Restart PM2 for backend only
 print_status "Restarting backend application..."
 $PM2_CMD restart ffcs-backend || {
