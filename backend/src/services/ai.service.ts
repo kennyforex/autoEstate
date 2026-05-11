@@ -17,6 +17,7 @@ import {
 } from "../utils/whatsappOutboundImages.js";
 import { openRouterHeaders } from "../config/httpAttribution.js";
 import { openRouterConfig } from "../config/openrouter.js";
+import { aiChatProvider, createChatCompletion } from "../config/aiChatProvider.js";
 import { getEvolutionClient } from "../config/evolution.js";
 import { agentEngine } from "../agent/index.js";
 import { buildAgentContext } from "../agent/context.js";
@@ -558,6 +559,7 @@ IMPORTANT RULES:
         result,
         duration,
         model,
+        modelSource: "O",
       });
 
       return result;
@@ -581,33 +583,24 @@ IMPORTANT RULES:
     conversationId?: string,
   ): Promise<"SIMPLE" | "COMPLEX"> {
     const startTime = Date.now();
-    const model = openRouterConfig.models.fast;
+    const model = aiChatProvider.model("fast");
 
     try {
-      const response = await axios.post(
-        `${openRouterConfig.baseUrl}/chat/completions`,
-        {
-          model,
-          messages: [
-            {
-              role: "system",
-              content:
-                "Classify the user message as 'SIMPLE' or 'COMPLEX'. \n'SIMPLE' includes: greetings (hi, hello), thank yous, stickers, emojis, or trivial confirmations. \n'COMPLEX' includes: questions, requests for information, complaints, or anything requiring a detailed answer. \nReply with ONLY the word 'SIMPLE' or 'COMPLEX'.",
-            },
-            { role: "user", content },
-          ],
-          max_tokens: 10,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${openRouterConfig.apiKey}`,
-            "Content-Type": "application/json",
-            ...openRouterHeaders("Foodflow AI"),
+      const response = await createChatCompletion({
+        useCase: "fast",
+        title: "Foodflow AI",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Classify the user message as 'SIMPLE' or 'COMPLEX'. \n'SIMPLE' includes: greetings (hi, hello), thank yous, stickers, emojis, or trivial confirmations. \n'COMPLEX' includes: questions, requests for information, complaints, or anything requiring a detailed answer. \nReply with ONLY the word 'SIMPLE' or 'COMPLEX'.",
           },
-        },
-      );
+          { role: "user", content },
+        ],
+        maxTokens: 10,
+      });
 
-      const classification = response.data.choices[0].message.content
+      const classification = response.choices[0].message.content
         ?.trim()
         .toUpperCase();
       const result = classification === "SIMPLE" ? "SIMPLE" : "COMPLEX";
@@ -619,6 +612,7 @@ IMPORTANT RULES:
         result,
         duration,
         model,
+        modelSource: aiChatProvider.sourceSymbol(),
       });
 
       return result;
@@ -644,35 +638,26 @@ IMPORTANT RULES:
     systemPrompt?: string,
   ): Promise<string> {
     const startTime = Date.now();
-    const model = openRouterConfig.models.fast;
+    const model = aiChatProvider.model("fast");
 
     const resolvedSystemPrompt =
       systemPrompt ||
       "You are a helpful customer support assistant. Provide a very brief, polite response to the user's simple message (greeting, thanks, etc.). Respond in the same language as the user. Reply in plain text only; do not use Markdown (no **, ###, ```, or bullet formatting).";
 
     try {
-      const response = await axios.post(
-        `${openRouterConfig.baseUrl}/chat/completions`,
-        {
-          model,
-          messages: [
-            { role: "system", content: resolvedSystemPrompt },
-            { role: "user", content },
-          ],
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${openRouterConfig.apiKey}`,
-            "Content-Type": "application/json",
-            ...openRouterHeaders("Foodflow AI"),
-          },
-        },
-      );
+      const response = await createChatCompletion({
+        useCase: "fast",
+        title: "Foodflow AI",
+        messages: [
+          { role: "system", content: resolvedSystemPrompt },
+          { role: "user", content },
+        ],
+      });
 
       const result =
-        response.data.choices[0].message.content || "You're welcome!";
+        response.choices[0].message.content || "You're welcome!";
       const duration = Date.now() - startTime;
-      const usage = response.data.usage;
+      const usage = response.usage;
 
       aiLogger.logSimpleReply({
         conversationId,
@@ -680,6 +665,7 @@ IMPORTANT RULES:
         output: result,
         duration,
         model,
+        modelSource: aiChatProvider.sourceSymbol(),
         tokens: usage
           ? {
               input: usage.prompt_tokens,
@@ -993,6 +979,7 @@ IMPORTANT RULES:
             duration: Date.now() - clarificationStartTime,
             citations,
             model: agentResult.model,
+            modelSource: aiChatProvider.sourceSymbol(),
             tokens: uResume
               ? {
                   input: uResume.prompt_tokens,
@@ -1083,6 +1070,7 @@ IMPORTANT RULES:
                 duration: complexDuration,
                 citations,
                 model: agentResult.model,
+                modelSource: aiChatProvider.sourceSymbol(),
                 tokens: uAgent
                   ? {
                       input: uAgent.prompt_tokens,

@@ -234,6 +234,7 @@ export interface AgentContext {
   conversationId: string;
   assistantId: string;
   channelId: string;
+  source?: 'inbox' | 'playground';
   userId?: string;
   contact: AgentContactInfo;
   assistant: AgentAssistantInfo;

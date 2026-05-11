@@ -13,7 +13,7 @@ export class SearchOrdersTool extends BaseTool {
     properties: {
       search: { type: "string", description: "Search text (order number / customer fields)." },
       status: { type: "string", enum: ["open", "completed", "cancelled"] },
-      paymentStatus: { type: "string", enum: ["unpaid", "paid"] },
+      paymentStatus: { type: "string", enum: ["unpaid", "verifying", "paid"] },
       fulfillmentStatus: { type: "string", enum: ["unfulfilled", "fulfilled"] },
       tagId: { type: "string", description: "Optional tag id to filter." },
       createdFrom: { type: "string", description: "ISO-8601 start for createdAt." },

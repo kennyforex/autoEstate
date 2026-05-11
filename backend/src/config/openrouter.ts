@@ -25,7 +25,7 @@ export const openRouterConfig = {
     video: process.env.OPENROUTER_VIDEO_MODEL || "z-ai/glm-4.6v",
     audio: process.env.OPENROUTER_AUDIO_MODEL || "google/gemini-2.0-flash-001",
     // Fast text (classification, simple reply)
-    fast: "google/gemini-2.0-flash-001",
+    fast: process.env.OPENROUTER_FAST_MODEL || "google/gemini-2.0-flash-001",
     // Reasoning model for the ReAct agent engine (configured via env, independent of Pinecone's chat model)
     agent: process.env.OPENROUTER_AGENT_MODEL || "deepseek/deepseek-v3.2",
     // Image/PDF structured extraction — same default as vision; override with OPENROUTER_DOCUMENT_CAPTURE_MODEL

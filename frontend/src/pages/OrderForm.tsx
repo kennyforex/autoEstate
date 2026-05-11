@@ -5,6 +5,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "../components/layout";
 import { Button, Input, Modal, Select, Textarea, Badge } from "../components/common";
 import { clientGroupsApi, orderTagsApi, ordersApi, productsApi, shippingMethodsApi } from "../lib/api";
+import { buildOrderPayload } from "../utils/orderFormPayload";
 import type {
   ClientGroup,
   Order,
@@ -12,7 +13,6 @@ import type {
   OrderFulfillmentStatus,
   OrderItem,
   OrderPaymentStatus,
-  OrderStatus,
   OrderTag,
   Product,
   ShippingMethod,
@@ -20,7 +20,21 @@ import type {
 
 function pickApiError(e: unknown): string {
   if (typeof e === "object" && e !== null && "response" in e) {
-    const data = (e as { response?: { data?: { error?: string } } }).response?.data;
+    const data = (e as {
+      response?: {
+        data?: {
+          error?: string;
+          details?: Array<{ field?: string; message?: string }>;
+        };
+      };
+    }).response?.data;
+    if (Array.isArray(data?.details) && data.details.length > 0) {
+      const detailText = data.details
+        .map((detail) => [detail.field, detail.message].filter(Boolean).join(": "))
+        .filter(Boolean)
+        .join("; ");
+      if (detailText) return `${data.error || "Validation failed"}: ${detailText}`;
+    }
     if (data && typeof data.error === "string" && data.error) return data.error;
   }
   return e instanceof Error ? e.message : String(e);
@@ -36,14 +50,22 @@ function shippingDisplayLabel(m: ShippingMethod, lang: string): string {
 function findShippingMethodId(
   methods: ShippingMethod[],
   saved: string | undefined,
+  savedId?: string,
 ): string {
+  if (savedId && methods.some((m) => m._id === savedId)) return savedId;
   if (!saved?.trim()) return "";
   const s = saved.trim();
   for (const m of methods) {
-    if (m.labelZh === s) return m._id;
-    if (m.labelEn && m.labelEn === s) return m._id;
+    if (m.labelZh?.trim() === s) return m._id;
+    if (m.labelEn?.trim() === s) return m._id;
   }
   return "";
+}
+
+function paymentBadgeVariant(status: OrderPaymentStatus | undefined): "success" | "warning" | "default" {
+  if (status === "paid") return "success";
+  if (status === "verifying") return "warning";
+  return "default";
 }
 
 function clampMoney(n: number) {
@@ -94,6 +116,21 @@ function computeTotals(args: {
   );
   const total = clampMoney(subtotal - args.discountTotal + args.shippingFee + args.taxTotal);
   return { subtotal, total };
+}
+
+function formatHongKongDateInputValue(value: string | undefined): string {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Hong_Kong",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 function Section({
@@ -234,7 +271,7 @@ export const OrderForm: React.FC = () => {
             isManualUnitPrice: false,
           })),
         );
-        const mid = findShippingMethodId(shipMethods, order.shippingMethod);
+        const mid = findShippingMethodId(shipMethods, order.shippingMethod, order.shippingMethodId);
         if (mid) setShippingSelectValue(mid);
         else if (order.shippingMethod?.trim()) setShippingSelectValue(SHIPPING_CUSTOM);
         else setShippingSelectValue("");
@@ -271,9 +308,9 @@ export const OrderForm: React.FC = () => {
   }, [clientGroups]);
 
   const methodsForSelect = useMemo(() => {
-    const selectedId = findShippingMethodId(shippingMethods, draft.shippingMethod);
+    const selectedId = findShippingMethodId(shippingMethods, draft.shippingMethod, draft.shippingMethodId);
     return shippingMethods.filter((m) => m.isActive || m._id === selectedId);
-  }, [shippingMethods, draft.shippingMethod]);
+  }, [shippingMethods, draft.shippingMethod, draft.shippingMethodId]);
 
   const shippingOptions = useMemo(
     () => [
@@ -291,14 +328,15 @@ export const OrderForm: React.FC = () => {
     (value: string) => {
       setShippingSelectValue(value);
       if (value === "") {
-        setDraft((cur) => ({ ...cur, shippingMethod: "", shippingFee: 0 }));
+        setDraft((cur) => ({ ...cur, shippingMethodId: "", shippingMethod: "", shippingFee: 0 }));
       } else if (value === SHIPPING_CUSTOM) {
-        setDraft((cur) => ({ ...cur, shippingMethod: cur.shippingMethod || "" }));
+        setDraft((cur) => ({ ...cur, shippingMethodId: "", shippingMethod: cur.shippingMethod || "" }));
       } else {
         const m = shippingMethods.find((x) => x._id === value);
         if (m) {
           setDraft((cur) => ({
             ...cur,
+            shippingMethodId: m._id,
             shippingMethod: shippingDisplayLabel(m, i18n.language),
             shippingFee: m.fee,
           }));
@@ -314,6 +352,7 @@ export const OrderForm: React.FC = () => {
     if (m) {
       setDraft((cur) => ({
         ...cur,
+        shippingMethodId: m._id,
         shippingMethod: shippingDisplayLabel(m, i18n.language),
       }));
     }
@@ -590,28 +629,7 @@ export const OrderForm: React.FC = () => {
     setSaving(true);
     setError(null);
     try {
-      const payload: Parameters<typeof ordersApi.create>[0] = {
-        clientName: draft.clientName || "",
-        phoneNumber: draft.phoneNumber || "",
-        email: draft.email || "",
-        shippingAddress: draft.shippingAddress || "",
-        shippingMethod: draft.shippingMethod || "",
-        deliveryDate: draft.deliveryDate,
-        status: (draft.status || "open") as OrderStatus,
-        paymentStatus: (draft.paymentStatus || "unpaid") as OrderPaymentStatus,
-        fulfillmentStatus: (draft.fulfillmentStatus || "unfulfilled") as OrderFulfillmentStatus,
-        currency: String(draft.currency || "HKD"),
-        items: items.map((it) => ({
-          snapshot: it.snapshot,
-          quantity: it.quantity,
-          unitPrice: it.unitPrice,
-          notes: it.notes || undefined,
-        })),
-        discountTotal: Number(draft.discountTotal || 0),
-        shippingFee: Number(draft.shippingFee || 0),
-        taxTotal: Number(draft.taxTotal || 0),
-        tagIds: (draft.tagIds || []) as string[],
-      };
+      const payload = buildOrderPayload({ draft, items, mode: isNew ? "create" : "update" });
 
       let order: Order;
       if (isNew) {
@@ -626,7 +644,7 @@ export const OrderForm: React.FC = () => {
       }
       setDraft(order);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t("ordersPage.saveError"));
+      setError(pickApiError(e) || t("ordersPage.saveError"));
     } finally {
       setSaving(false);
     }
@@ -705,7 +723,7 @@ export const OrderForm: React.FC = () => {
                             updateItem(idx, {
                               snapshot: {
                                 ...item.snapshot,
-                                productId: value || undefined,
+                                productId: value,
                                 productName: p?.name || item.snapshot.productName || "",
                                 imageUrl: p?.primaryImageUrl || p?.images?.[0] || item.snapshot.imageUrl,
                                 variantLabel: resolved.variantLabel,
@@ -954,10 +972,8 @@ export const OrderForm: React.FC = () => {
               headerContentAlign="left"
               headerContent={
                 !isNew && draft.paymentStatus ? (
-                  <Badge variant={draft.paymentStatus === "paid" ? "success" : "default"}>
-                    {draft.paymentStatus === "paid"
-                      ? t("ordersPage.payment.paid")
-                      : t("ordersPage.payment.unpaid")}
+                  <Badge variant={paymentBadgeVariant(draft.paymentStatus)}>
+                    {t(`ordersPage.payment.${draft.paymentStatus}`)}
                   </Badge>
                 ) : null
               }
@@ -974,6 +990,7 @@ export const OrderForm: React.FC = () => {
                     }
                     options={[
                       { value: "unpaid", label: t("ordersPage.payment.unpaid") },
+                      { value: "verifying", label: t("ordersPage.payment.verifying") },
                       { value: "paid", label: t("ordersPage.payment.paid") },
                     ]}
                   />
@@ -1041,6 +1058,49 @@ export const OrderForm: React.FC = () => {
                   </span>
                 </div>
               </div>
+
+              {draft.paymentProof?.receiptUrl ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">
+                        {t("ordersPage.payment.receiptProof")}
+                      </div>
+                      {draft.paymentProof.checkedAt ? (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {t("ordersPage.payment.receiptCheckedAt")}:{" "}
+                          {new Date(draft.paymentProof.checkedAt).toLocaleString()}
+                        </div>
+                      ) : null}
+                    </div>
+                    <a
+                      href={draft.paymentProof.receiptUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                    >
+                      {t("ordersPage.payment.openReceipt")}
+                    </a>
+                  </div>
+                  {/\.(png|jpe?g|webp|gif)(?:$|\?)/i.test(draft.paymentProof.receiptUrl) ? (
+                    <img
+                      src={draft.paymentProof.receiptUrl}
+                      alt={t("ordersPage.payment.receiptProof")}
+                      className="max-h-64 rounded-lg border border-gray-200 bg-white object-contain"
+                    />
+                  ) : null}
+                  {draft.paymentProof.reviewNotes ? (
+                    <div className="text-sm text-gray-700">
+                      {t("ordersPage.payment.reviewNotes")}: {draft.paymentProof.reviewNotes}
+                    </div>
+                  ) : null}
+                  {draft.paymentProof.extracted ? (
+                    <pre className="max-h-56 overflow-auto rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-700">
+                      {JSON.stringify(draft.paymentProof.extracted, null, 2)}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
             </Section>
 
             <Section
@@ -1173,13 +1233,11 @@ export const OrderForm: React.FC = () => {
               <Input
                 type="date"
                 label={t("ordersPage.orderInfo.deliveryDate")}
-                value={(draft.deliveryDate || "").slice(0, 10)}
+                value={formatHongKongDateInputValue(draft.deliveryDate)}
                 onChange={(e) =>
                   setDraft((cur) => ({
                     ...cur,
-                    deliveryDate: e.target.value
-                      ? new Date(e.target.value).toISOString()
-                      : undefined,
+                    deliveryDate: e.target.value,
                   }))
                 }
               />

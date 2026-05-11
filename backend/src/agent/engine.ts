@@ -1,6 +1,4 @@
-import axios from 'axios';
-import { openRouterHeaders } from '../config/httpAttribution.js';
-import { openRouterConfig } from '../config/openrouter.js';
+import { aiChatProvider, createChatCompletion } from '../config/aiChatProvider.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type {
@@ -19,9 +17,11 @@ import type {
   SkillGoal,
   GoalStack,
   AgentCitationBundle,
+  RouterDecision,
 } from './types.js';
 import { disposePlaywrightSession } from './playwrightSession.js';
 import { routeIntent } from './router.js';
+import { aiLogger } from '../services/aiLogger.service.js';
 
 
 const DEFAULT_CONFIG: AgentEngineConfig = {
@@ -35,6 +35,28 @@ const DEFAULT_CONFIG: AgentEngineConfig = {
   llmMaxRetries: 3,
   toolExecution: 'parallel',
 };
+
+const MANAGER_DELEGATION_TOOL_NAMES = new Set(['execute_skill', 'ask_clarification']);
+
+export function selectManagerToolsForContext(
+  registry: ToolRegistry,
+  context: AgentContext,
+  routerDecision: RouterDecision,
+): OpenAITool[] {
+  const hasSkillRouting =
+    routerDecision.action === 'force_skill' ||
+    routerDecision.action === 'suggest_skill' ||
+    Boolean(routerDecision.action === 'llm_decide' && routerDecision.hint);
+
+  if (context.skills.length === 0 && !hasSkillRouting) {
+    return registry.toOpenAIFormat();
+  }
+
+  return registry
+    .list()
+    .filter((tool) => MANAGER_DELEGATION_TOOL_NAMES.has(tool.name))
+    .map((tool) => tool.toOpenAITool());
+}
 
 export class AgentEngine {
   private registry: ToolRegistry;
@@ -52,7 +74,7 @@ export class AgentEngine {
     signal?: AbortSignal,
   ): Promise<AgentResult> {
     const steps: AgentStep[] = [];
-    const model = openRouterConfig.models.agent;
+    const model = aiChatProvider.model('agent');
 
     console.log(`[Agent] Context has ${context.skills.length} skill(s): ${context.skills.map(s => s.slug).join(', ') || 'none'}`);
     context.lastUserTurnContent = userMessage;
@@ -74,7 +96,7 @@ export class AgentEngine {
     context.routerHint =
       routerDecision.action === 'llm_decide' && routerDecision.hint ? routerDecision.hint : undefined;
 
-    const tools = this.registry.toOpenAIFormat();
+    const tools = selectManagerToolsForContext(this.registry, context, routerDecision);
     const startTime = Date.now();
     const totalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
@@ -374,6 +396,7 @@ export class AgentEngine {
       entry: ValidatedCall;
       result?: ToolResult;
       error?: string;
+      duration?: number;
     }
     let execResults: ExecutionResult[];
 
@@ -390,8 +413,9 @@ export class AgentEngine {
             maxIterations: this.config.maxIterations,
           });
           console.log(`[Agent] Tool call: ${entry.toolName}(${JSON.stringify(entry.args).substring(0, 200)})`);
+          const toolStartTime = Date.now();
           const result = await entry.tool.execute(entry.args, context, signal);
-          return { entry, result };
+          return { entry, result, duration: Date.now() - toolStartTime };
         }),
       );
 
@@ -414,11 +438,12 @@ export class AgentEngine {
           maxIterations: this.config.maxIterations,
         });
         console.log(`[Agent] Tool call: ${entry.toolName}(${JSON.stringify(entry.args).substring(0, 200)})`);
+        const toolStartTime = Date.now();
         try {
           const result = await entry.tool.execute(entry.args, context, signal);
-          execResults.push({ entry, result });
+          execResults.push({ entry, result, duration: Date.now() - toolStartTime });
         } catch (error: any) {
-          execResults.push({ entry, error: error.message });
+          execResults.push({ entry, error: error.message, duration: Date.now() - toolStartTime });
         }
       }
     }
@@ -429,6 +454,23 @@ export class AgentEngine {
 
       if (error || !result) {
         const errorMsg = `Error: Tool "${entry.toolName}" failed: ${error || 'unknown error'}. Try a different approach.`;
+        aiLogger.logToolCall({
+          conversationId: context.conversationId,
+          channelId: context.channelId,
+          assistantId: context.assistantId,
+          toolName: entry.toolName,
+          args: entry.args,
+          error: error || 'unknown error',
+          success: false,
+          duration: exec.duration,
+          iteration,
+          maxIterations: this.config.maxIterations,
+          toolCallId: entry.toolCall.id,
+          source: context.source === 'playground' ? 'playground' : 'inbox',
+          metadata: {
+            layer: 'agent',
+          },
+        });
         messages.push({ role: 'tool', content: errorMsg, tool_call_id: entry.toolCall.id });
         steps.push({
           thought: `Tool ${entry.toolName} failed`,
@@ -452,6 +494,25 @@ export class AgentEngine {
         this.config.maxToolResultChars,
       );
       const kbCitations = this.citationsFromKnowledgeToolResult(entry.toolName, result);
+      aiLogger.logToolCall({
+        conversationId: context.conversationId,
+        channelId: context.channelId,
+        assistantId: context.assistantId,
+        toolName: entry.toolName,
+        args: entry.args,
+        summary: compactSummary,
+        resultData: result.data,
+        success: result.success,
+        duration: exec.duration,
+        iteration,
+        maxIterations: this.config.maxIterations,
+        toolCallId: entry.toolCall.id,
+        source: context.source === 'playground' ? 'playground' : 'inbox',
+        metadata: {
+          layer: 'agent',
+          hasCitations: Boolean(kbCitations),
+        },
+      });
 
       steps.push({
         thought: `Observed result from ${entry.toolName}`,
@@ -574,7 +635,12 @@ export class AgentEngine {
       messages.push({ role: 'user', content: userMessage });
     } else {
       const trimmed = this.trimHistoryToTokenBudget(context.messageHistory);
-      for (const msg of trimmed) {
+      const replay = [...trimmed];
+      const last = replay[replay.length - 1];
+      if (last?.role === 'user' && last.content === userMessage) {
+        replay.pop();
+      }
+      for (const msg of replay) {
         messages.push({ role: msg.role, content: msg.content });
       }
       messages.push({ role: 'user', content: userMessage });
@@ -730,31 +796,21 @@ export class AgentEngine {
       }
 
       try {
-        const response = await axios.post(
-          `${openRouterConfig.baseUrl}/chat/completions`,
-          {
-            model,
-            messages,
-            tools: tools.length > 0 ? tools : undefined,
-            tool_choice: tools.length > 0 ? toolChoice : undefined,
-            temperature: this.config.temperature,
-            max_tokens: this.config.maxTokens,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${openRouterConfig.apiKey}`,
-              'Content-Type': 'application/json',
-              ...openRouterHeaders('Foodflow AI Agent'),
-            },
-            timeout: this.config.requestTimeout,
-            signal,
-          },
-        );
-        const data = response.data as OpenRouterResponse;
+        const data = await createChatCompletion({
+          useCase: 'agent',
+          title: 'Foodflow AI Agent',
+          messages,
+          tools: tools.length > 0 ? tools : undefined,
+          toolChoice: tools.length > 0 ? toolChoice : undefined,
+          temperature: this.config.temperature,
+          maxTokens: this.config.maxTokens,
+          timeout: this.config.requestTimeout,
+          signal,
+        });
         if (!data?.choices?.[0]?.message) {
           const snippet = JSON.stringify(data ?? {}).slice(0, 1500);
           throw new Error(
-            `OpenRouter returned no choices (model=${model}). Response: ${snippet}`,
+            `AI provider returned no choices (model=${model}). Response: ${snippet}`,
           );
         }
         return data;

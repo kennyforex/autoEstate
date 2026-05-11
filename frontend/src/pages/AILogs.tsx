@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Image,
   Brain,
+  Wrench,
   XCircle,
   ChevronLeft,
 } from "lucide-react";
@@ -30,6 +31,7 @@ interface AILogEntry {
     | "complex_reply"
     | "media_analysis"
     | "decision"
+    | "tool_calling"
     | "error"
     | "info";
   conversationId?: string;
@@ -37,6 +39,7 @@ interface AILogEntry {
   channelId?: string;
   assistantId?: string;
   model?: string;
+  modelSource?: "D" | "O";
   input?: string;
   output?: string;
   duration?: number;
@@ -63,12 +66,13 @@ const typeIcons: Record<string, React.ReactNode> = {
   complex_reply: <Zap className="w-4 h-4" />,
   media_analysis: <Image className="w-4 h-4" />,
   decision: <CheckCircle className="w-4 h-4" />,
+  tool_calling: <Wrench className="w-4 h-4" />,
   error: <XCircle className="w-4 h-4" />,
   info: <Info className="w-4 h-4" />,
 };
 
 export const AILogs: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [logs, setLogs] = useState<AILogEntry[]>([]);
   const [stats, setStats] = useState<AILogStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,10 +94,15 @@ export const AILogs: React.FC = () => {
       complex_reply: t('aiLogs.types.complexReply'),
       media_analysis: t('aiLogs.types.mediaAnalysis'),
       decision: t('aiLogs.types.decision'),
+      tool_calling: t('aiLogs.types.toolCalling'),
       error: t('aiLogs.types.error'),
       info: t('aiLogs.types.info'),
     };
     return typeMap[type] || type;
+  };
+
+  const getLevelLabel = (level: AILogEntry["level"]): string => {
+    return t(`aiLogs.levels.${level}`);
   };
 
   const fetchLogs = useCallback(async () => {
@@ -154,7 +163,7 @@ export const AILogs: React.FC = () => {
 
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString("en-US", {
+    return date.toLocaleTimeString(i18n.language, {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
@@ -164,7 +173,7 @@ export const AILogs: React.FC = () => {
 
   const formatDate = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleDateString("en-US", {
+    return date.toLocaleDateString(i18n.language, {
       month: "short",
       day: "numeric",
     });
@@ -313,6 +322,7 @@ export const AILogs: React.FC = () => {
                     { value: "complex_reply", label: t('aiLogs.types.complexReply') },
                     { value: "media_analysis", label: t('aiLogs.types.mediaAnalysis') },
                     { value: "decision", label: t('aiLogs.types.decision') },
+                    { value: "tool_calling", label: t('aiLogs.types.toolCalling') },
                     { value: "error", label: t('aiLogs.types.error') },
                     { value: "info", label: t('aiLogs.types.info') },
                   ]}
@@ -399,7 +409,7 @@ export const AILogs: React.FC = () => {
                           </td>
                           <td className="px-4 py-3">
                             <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
-                              {log.level}
+                              {getLevelLabel(log.level)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-900 max-w-md truncate">
@@ -418,7 +428,7 @@ export const AILogs: React.FC = () => {
                                     {t('aiLogs.input')}
                                   </h4>
                                   <pre className="bg-white p-3 rounded-lg border border-gray-200 text-xs overflow-x-auto whitespace-pre-wrap">
-                                    {log.input || "N/A"}
+                                    {log.input || t('aiLogs.notAvailable')}
                                   </pre>
                                 </div>
                                 <div>
@@ -426,16 +436,46 @@ export const AILogs: React.FC = () => {
                                     {t('aiLogs.output')}
                                   </h4>
                                   <pre className="bg-white p-3 rounded-lg border border-gray-200 text-xs overflow-x-auto whitespace-pre-wrap">
-                                    {log.output || "N/A"}
+                                    {log.output || t('aiLogs.notAvailable')}
                                   </pre>
                                 </div>
+                                {log.messageId && (
+                                  <div>
+                                    <h4 className="font-medium text-gray-900 mb-1">
+                                      {t('aiLogs.messageId')}
+                                    </h4>
+                                    <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all">
+                                      {log.messageId}
+                                    </code>
+                                  </div>
+                                )}
                                 {log.conversationId && (
                                   <div>
                                     <h4 className="font-medium text-gray-900 mb-1">
                                       {t('aiLogs.conversationId')}
                                     </h4>
-                                    <code className="text-xs bg-gray-100 px-2 py-1 rounded">
+                                    <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all">
                                       {log.conversationId}
+                                    </code>
+                                  </div>
+                                )}
+                                {log.channelId && (
+                                  <div>
+                                    <h4 className="font-medium text-gray-900 mb-1">
+                                      {t('aiLogs.channelId')}
+                                    </h4>
+                                    <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all">
+                                      {log.channelId}
+                                    </code>
+                                  </div>
+                                )}
+                                {log.assistantId && (
+                                  <div>
+                                    <h4 className="font-medium text-gray-900 mb-1">
+                                      {t('aiLogs.assistantId')}
+                                    </h4>
+                                    <code className="text-xs bg-gray-100 px-2 py-1 rounded break-all">
+                                      {log.assistantId}
                                     </code>
                                   </div>
                                 )}
@@ -444,9 +484,16 @@ export const AILogs: React.FC = () => {
                                     <h4 className="font-medium text-gray-900 mb-1">
                                       {t('aiLogs.model')}
                                     </h4>
-                                    <code className="text-xs bg-gray-100 px-2 py-1 rounded">
-                                      {log.model}
-                                    </code>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <code className="text-xs bg-gray-100 px-2 py-1 rounded">
+                                        {log.model}
+                                      </code>
+                                      {log.modelSource && (
+                                        <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">
+                                          {t('aiLogs.modelSource')}: {log.modelSource}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                                 {log.tokens && (
@@ -455,8 +502,8 @@ export const AILogs: React.FC = () => {
                                       {t('aiLogs.tokens')}
                                     </h4>
                                     <span className="text-xs text-gray-600">
-                                      In: {log.tokens.input || 0} | Out:{" "}
-                                      {log.tokens.output || 0} | Total:{" "}
+                                      {t('aiLogs.tokenInput')}: {log.tokens.input || 0} | {t('aiLogs.tokenOutput')}:{" "}
+                                      {log.tokens.output || 0} | {t('aiLogs.tokenTotal')}:{" "}
                                       {log.tokens.total || 0}
                                     </span>
                                   </div>
@@ -486,7 +533,7 @@ export const AILogs: React.FC = () => {
               {logs.length > 0 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
                   <div className="text-sm text-gray-500">
-                    {t('aiLogs.showing')} {startIndex + 1} {t('aiLogs.to')} {Math.min(endIndex, logs.length)} {t('aiLogs.of')} {logs.length.toLocaleString()} logs
+                    {t('aiLogs.showing')} {startIndex + 1} {t('aiLogs.to')} {Math.min(endIndex, logs.length)} {t('aiLogs.of')} {logs.length.toLocaleString()} {t('aiLogs.logsUnit')}
                   </div>
                   <div className="flex items-center gap-1">
                     <Button

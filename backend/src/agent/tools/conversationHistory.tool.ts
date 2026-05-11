@@ -1,5 +1,6 @@
 import { BaseTool } from './base.js';
 import { Message } from '../../models/index.js';
+import { playgroundSessionService } from '../../services/playgroundSession.service.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
 export class ConversationHistoryTool extends BaseTool {
@@ -22,6 +23,22 @@ export class ConversationHistoryTool extends BaseTool {
     const limit = Math.min(Number(args.limit) || 10, 30);
 
     try {
+      if (context.source === 'playground') {
+        const messages = await playgroundSessionService.buildMessageHistory(context.conversationId, limit);
+        const formatted = messages.map((msg) => {
+          const role = msg.role === 'user' ? 'User' : 'AI';
+          return `${role}: ${msg.content}`;
+        });
+
+        return {
+          success: true,
+          data: { messageCount: messages.length, messages: formatted },
+          summary: formatted.length > 0
+            ? `Recent ${formatted.length} messages:\n${formatted.join('\n')}`
+            : 'No previous messages found in this conversation.',
+        };
+      }
+
       const messages = await Message.find({ conversationId: context.conversationId })
         .sort({ createdAt: -1 })
         .limit(limit)

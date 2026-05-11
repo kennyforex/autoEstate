@@ -48,6 +48,7 @@ function toSummary(doc: IShippingMethodDocument): ShippingMethodSummary {
 function labelMatches(doc: ShippingMethodSummary, input: string): boolean {
   const raw = input.trim().toLowerCase();
   if (!raw) return false;
+  if (doc.id === input.trim()) return true;
   const zh = (doc.labelZh || "").trim().toLowerCase();
   const en = (doc.labelEn || "").trim().toLowerCase();
   return (zh.length > 0 && zh === raw) || (en.length > 0 && en === raw);
@@ -64,15 +65,17 @@ export class ShippingService {
   }
 
   async resolveShipping(args: {
+    shippingMethodId?: unknown;
     shippingMethod?: unknown;
     shippingFee?: unknown;
     includeInactive?: boolean;
   }): Promise<ResolveShippingResult> {
+    const methodId = normalizeText(args.shippingMethodId);
     const methodText = normalizeText(args.shippingMethod);
     const feeNumber =
       args.shippingFee === undefined ? undefined : clampMoney(args.shippingFee);
 
-    if (!methodText) {
+    if (!methodId && !methodText) {
       return {
         kind: "custom",
         normalizedLabel: undefined,
@@ -81,7 +84,7 @@ export class ShippingService {
     }
 
     const methods = await this.list({ includeInactive: args.includeInactive === true });
-    const matched = methods.find((m) => labelMatches(m, methodText));
+    const matched = methods.find((m) => (methodId ? m.id === methodId : false) || (methodText ? labelMatches(m, methodText) : false));
     if (!matched) {
       return {
         kind: "custom",

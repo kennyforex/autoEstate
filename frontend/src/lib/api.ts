@@ -300,22 +300,25 @@ export const ordersApi = {
   },
 
   create: async (
-    payload: Pick<
-      Order,
-      | "clientName"
-      | "phoneNumber"
-      | "email"
-      | "shippingAddress"
-      | "shippingMethod"
-      | "deliveryDate"
-      | "status"
-      | "paymentStatus"
-      | "fulfillmentStatus"
-      | "currency"
-      | "discountTotal"
-      | "shippingFee"
-      | "taxTotal"
-      | "tagIds"
+    payload: Partial<
+      Pick<
+        Order,
+        | "clientName"
+        | "phoneNumber"
+        | "email"
+        | "shippingAddress"
+        | "shippingMethodId"
+        | "shippingMethod"
+        | "deliveryDate"
+        | "status"
+        | "paymentStatus"
+        | "fulfillmentStatus"
+        | "currency"
+        | "discountTotal"
+        | "shippingFee"
+        | "taxTotal"
+        | "tagIds"
+      >
     > & {
       contactId?: string;
       items: Array<{
@@ -346,6 +349,7 @@ export const ordersApi = {
         | "phoneNumber"
         | "email"
         | "shippingAddress"
+        | "shippingMethodId"
         | "shippingMethod"
         | "deliveryDate"
         | "status"
@@ -435,6 +439,11 @@ export interface AgentChatResult {
   steps?: unknown[];
   activeStaffId?: string;
   activeSkillSlug?: string;
+}
+
+export interface PlaygroundHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 async function streamAgentChat(
@@ -697,6 +706,17 @@ export const assistantsApi = {
   }> => {
     const { data } = await api.post(`/assistants/${id}/chat`, { messages });
     return data;
+  },
+
+  getPlaygroundHistory: async (id: string): Promise<PlaygroundHistoryMessage[]> => {
+    const { data } = await api.get<{ messages: PlaygroundHistoryMessage[] }>(
+      `/assistants/${id}/playground-history`,
+    );
+    return data.messages ?? [];
+  },
+
+  clearPlaygroundHistory: async (id: string): Promise<void> => {
+    await api.delete(`/assistants/${id}/playground-history`);
   },
 
   agentChat: async (

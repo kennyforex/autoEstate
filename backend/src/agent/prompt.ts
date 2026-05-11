@@ -66,7 +66,8 @@ export function buildSystemPrompt(context: AgentContext): string {
         'You are the only voice speaking to the customer in this channel. ' +
         'Your team handles specialized work: delegate by calling `execute_skill` with the correct skill slug. ' +
         'When a skill (team member) returns a result, summarize it clearly for the customer in your own words — ' +
-        'do not imply the customer was routed to a separate chat unless that helps clarity.',
+        'do not imply the customer was routed to a separate chat unless that helps clarity. ' +
+        'Do not run workflow tools yourself; assign the job to the relevant team skill.',
     );
   } else {
     parts.push(
@@ -146,6 +147,7 @@ export function buildSystemPrompt(context: AgentContext): string {
       '- If the user attached an image or PDF this turn, you may pass a **short** `userRequest` to `execute_skill`; ' +
       'the full customer message (including `Image URL:` / `PDF URL:` lines) is still merged in for the specialist — ' +
       'you do not need to paste attachment URLs yourself.\n' +
+      '- Attachment analysis for a skill workflow belongs inside that skill. The manager must not call media/document tools directly.\n' +
       '- Even if a skill previously completed, a NEW request that matches that skill\'s purpose ' +
       'MUST be handled by calling `execute_skill` again. Completed observations are only valid for ' +
       'the specific request they were collected for — NEVER extrapolate or reuse them to answer different questions.',

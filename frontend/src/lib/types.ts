@@ -280,7 +280,7 @@ export interface ProductOptionGroup {
 
 // Orders
 export type OrderStatus = "open" | "completed" | "cancelled";
-export type OrderPaymentStatus = "unpaid" | "paid";
+export type OrderPaymentStatus = "unpaid" | "verifying" | "paid";
 export type OrderFulfillmentStatus = "unfulfilled" | "fulfilled";
 export type OrderSource = "manual" | "skill";
 
@@ -308,6 +308,14 @@ export interface OrderActivityEntry {
   createdByUserId?: string;
 }
 
+export interface OrderPaymentProof {
+  receiptUrl: string;
+  receiptFileName?: string;
+  extracted?: Record<string, unknown>;
+  reviewNotes?: string;
+  checkedAt?: string;
+}
+
 export interface Order {
   _id: string;
   orderNumber: string;
@@ -317,10 +325,12 @@ export interface Order {
   phoneNumber?: string;
   email?: string;
   shippingAddress?: string;
+  shippingMethodId?: string;
   shippingMethod?: string;
   deliveryDate?: string;
   status: OrderStatus;
   paymentStatus: OrderPaymentStatus;
+  paymentProof?: OrderPaymentProof;
   fulfillmentStatus: OrderFulfillmentStatus;
   currency: string;
   items: OrderItem[];

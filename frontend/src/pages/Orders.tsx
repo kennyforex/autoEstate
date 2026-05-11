@@ -5,7 +5,7 @@ import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { PageHeader } from "../components/layout";
 import { Button, Input, Select, Badge } from "../components/common";
 import { ordersApi } from "../lib/api";
-import type { Order } from "../lib/types";
+import type { Order, OrderPaymentStatus } from "../lib/types";
 import { format } from "date-fns";
 
 const PAGE_SIZE = 25;
@@ -19,6 +19,12 @@ function getOrderItemTitle(order: Order["items"][number]) {
   return [order.snapshot.productName, order.snapshot.variantLabel || order.snapshot.optionSummary]
     .filter(Boolean)
     .join(" / ");
+}
+
+function paymentBadgeVariant(status: OrderPaymentStatus): "success" | "warning" | "default" {
+  if (status === "paid") return "success";
+  if (status === "verifying") return "warning";
+  return "default";
 }
 
 export const Orders: React.FC = () => {
@@ -50,12 +56,11 @@ export const Orders: React.FC = () => {
   };
 
   const paymentBadge = (order: Order) => {
-    switch (order.paymentStatus) {
-      case "paid":
-        return <Badge variant="success">{t("ordersPage.payment.paid")}</Badge>;
-      default:
-        return <Badge variant="default">{t("ordersPage.payment.unpaid")}</Badge>;
-    }
+    return (
+      <Badge variant={paymentBadgeVariant(order.paymentStatus)}>
+        {t(`ordersPage.payment.${order.paymentStatus}`)}
+      </Badge>
+    );
   };
 
   const fetchOrders = useCallback(async () => {

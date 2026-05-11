@@ -395,6 +395,72 @@ export const Products: React.FC = () => {
     return Number.isFinite(n) ? n : null;
   };
 
+  const resolvePriceForGroup = (
+    priceByGroup: ProductPriceByGroup | undefined,
+    groupSlug: string,
+  ) => {
+    if (!priceByGroup) return 0;
+    const direct = priceByGroup[groupSlug];
+    if (typeof direct === "number") return direct;
+    const fallback = priceByGroup[defaultClientGroupSlug];
+    if (typeof fallback === "number") return fallback;
+    return 0;
+  };
+
+  const calculateVariantPriceFromOptions = (
+    current: ProductDraft,
+    selectedOptionValueIds: string[],
+    groupSlug: string,
+  ) => {
+    const picked = new Set(selectedOptionValueIds);
+    const basePrice = resolvePriceForGroup(current.basePriceByGroup, groupSlug);
+    let deltaTotal = 0;
+    let absoluteTotal = 0;
+    let hasAbsoluteSelection = false;
+
+    for (const group of current.optionGroups || []) {
+      for (const value of group.values || []) {
+        if (!picked.has(value.id)) continue;
+        const amount = resolvePriceForGroup(value.priceByGroup, groupSlug);
+        if (group.pricingMode === "absolute") {
+          absoluteTotal += amount;
+          hasAbsoluteSelection = true;
+        } else {
+          deltaTotal += amount;
+        }
+      }
+    }
+
+    return (hasAbsoluteSelection ? absoluteTotal : basePrice) + deltaTotal;
+  };
+
+  const updateEditingOptionValuePrice = (
+    valueIndex: number,
+    groupSlug: string,
+    rawValue: string,
+  ) => {
+    const parsed = parseNumberOrNull(rawValue);
+    setEditingOptionGroupDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        values: current.values.map((value, index) => {
+          if (index !== valueIndex) return value;
+          const nextPriceMap = { ...(value.priceByGroup || {}) };
+          if (parsed == null) {
+            delete nextPriceMap[groupSlug];
+          } else {
+            nextPriceMap[groupSlug] = parsed;
+          }
+          return {
+            ...value,
+            priceByGroup: nextPriceMap,
+          };
+        }),
+      };
+    });
+  };
+
   const computeVariantCombos = (groups: ProductOptionGroup[]) => {
     const activeSingleGroups = groups
       .filter((g) => g.selectionType === "single")
@@ -475,6 +541,27 @@ export const Products: React.FC = () => {
     updateDraft((current) => syncVariantsFromOptions(updater(current)));
   };
 
+  const resetVariantPricesFromOptions = () => {
+    setFocusedNumberCell(null);
+    setNumberCellText({});
+    updateDraft((current) => ({
+      ...current,
+      variants: (current.variants || []).map((variant) => ({
+        ...variant,
+        priceByGroup: Object.fromEntries(
+          clientGroups.map((group) => [
+            group.slug,
+            calculateVariantPriceFromOptions(
+              current,
+              variant.optionValueIds || [],
+              group.slug,
+            ),
+          ]),
+        ),
+      })),
+    }));
+  };
+
   const closeOptionGroupEditor = () => {
     setEditingOptionGroupIndex(null);
     setEditingOptionGroupDraft(null);
@@ -489,15 +576,40 @@ export const Products: React.FC = () => {
     setEditingOptionGroupDraft(JSON.parse(JSON.stringify(group)) as ProductOptionGroup);
   };
 
-  const saveOptionGroupEditor = () => {
-    if (editingOptionGroupIndex == null || !editingOptionGroupDraft) return;
-    updateDraftVariants((current) => ({
-      ...current,
-      optionGroups: current.optionGroups.map((g, idx) =>
+  const persistProductDraft = async (nextDraft: ProductDraft) => {
+    if (nextDraft._id) {
+      const updated = await productsApi.update(nextDraft._id, nextDraft);
+      // Keep form on the saved product (server-normalized payload).
+      setDraft(hydrateProduct(updated, clientGroups));
+    } else {
+      const created = await productsApi.create(nextDraft);
+      // Keep form on the newly created product (no forced clear/reset).
+      setDraft(hydrateProduct(created, clientGroups));
+    }
+    await loadData();
+  };
+
+  const saveOptionGroupEditor = async () => {
+    if (!draft || editingOptionGroupIndex == null || !editingOptionGroupDraft) return;
+    const nextDraft = syncVariantsFromOptions({
+      ...draft,
+      optionGroups: draft.optionGroups.map((g, idx) =>
         idx === editingOptionGroupIndex ? editingOptionGroupDraft : g,
       ),
-    }));
-    closeOptionGroupEditor();
+    });
+
+    setIsSaving(true);
+    setError(null);
+    try {
+      await persistProductDraft(nextDraft);
+      closeOptionGroupEditor();
+    } catch (err: unknown) {
+      console.error("Failed to save product option group:", err);
+      const ax = err as { response?: { data?: { error?: string } } };
+      setError(ax?.response?.data?.error || t("productsPage.saveError"));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const uploadImageFiles = async (fileList: File[]) => {
@@ -590,16 +702,7 @@ export const Products: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
-      if (draft._id) {
-        const updated = await productsApi.update(draft._id, draft);
-        // Keep form on the saved product (server-normalized payload).
-        setDraft(hydrateProduct(updated, clientGroups));
-      } else {
-        const created = await productsApi.create(draft);
-        // Keep form on the newly created product (no forced clear/reset).
-        setDraft(hydrateProduct(created, clientGroups));
-      }
-      await loadData();
+      await persistProductDraft(draft);
     } catch (err: unknown) {
       console.error("Failed to save product:", err);
       const ax = err as { response?: { data?: { error?: string } } };
@@ -1058,7 +1161,7 @@ export const Products: React.FC = () => {
                   isOpen={editingOptionGroupIndex != null}
                   onClose={closeOptionGroupEditor}
                   title={t("productsPage.editOptionGroupTitle")}
-                  size="lg"
+                  size="xl"
                   bodyScroll
                   footer={
                     <>
@@ -1066,8 +1169,9 @@ export const Products: React.FC = () => {
                         {t("productsPage.cancel")}
                       </Button>
                       <Button
-                        onClick={saveOptionGroupEditor}
-                        disabled={!editingOptionGroupDraft?.name?.trim()}
+                        onClick={() => void saveOptionGroupEditor()}
+                        disabled={!editingOptionGroupDraft?.name?.trim() || isSaving}
+                        isLoading={isSaving}
                       >
                         {t("productsPage.saveChanges")}
                       </Button>
@@ -1193,45 +1297,120 @@ export const Products: React.FC = () => {
                           {editingOptionGroupDraft.values.map((value, valueIndex) => (
                             <div
                               key={`${value.id || "value"}-${valueIndex}`}
-                              className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2"
+                              className="rounded-lg border border-gray-200 bg-white px-3 py-3"
                             >
-                              <Input
-                                value={value.label}
-                                onChange={(e) =>
-                                  setEditingOptionGroupDraft((cur) =>
-                                    cur
-                                      ? {
-                                          ...cur,
-                                          values: cur.values.map((v, vi) =>
-                                            vi === valueIndex
-                                              ? { ...v, label: e.target.value }
-                                              : v,
-                                          ),
-                                        }
-                                      : cur,
-                                  )
-                                }
-                                placeholder={t("productsPage.valueLabelPlaceholder")}
-                                className="h-9"
-                              />
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                type="button"
-                                className="text-red-600 hover:bg-red-50"
-                                onClick={() =>
-                                  setEditingOptionGroupDraft((cur) =>
-                                    cur
-                                      ? {
-                                          ...cur,
-                                          values: cur.values.filter((_, i) => i !== valueIndex),
-                                        }
-                                      : cur,
-                                  )
-                                }
-                              >
-                                {t("productsPage.remove")}
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={value.label}
+                                  onChange={(e) =>
+                                    setEditingOptionGroupDraft((cur) =>
+                                      cur
+                                        ? {
+                                            ...cur,
+                                            values: cur.values.map((v, vi) =>
+                                              vi === valueIndex
+                                                ? { ...v, label: e.target.value }
+                                                : v,
+                                            ),
+                                          }
+                                        : cur,
+                                    )
+                                  }
+                                  placeholder={t("productsPage.valueLabelPlaceholder")}
+                                  className="h-9"
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  type="button"
+                                  className="text-red-600 hover:bg-red-50"
+                                  onClick={() =>
+                                    setEditingOptionGroupDraft((cur) =>
+                                      cur
+                                        ? {
+                                            ...cur,
+                                            values: cur.values.filter((_, i) => i !== valueIndex),
+                                          }
+                                        : cur,
+                                    )
+                                  }
+                                >
+                                  {t("productsPage.remove")}
+                                </Button>
+                              </div>
+
+                              {clientGroups.length > 0 ? (
+                                <div className="mt-3">
+                                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                    <div className="text-xs font-medium text-gray-700">
+                                      {t("productsPage.optionValuePrices")}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      {editingOptionGroupDraft.pricingMode === "absolute"
+                                        ? t("productsPage.optionValueAbsoluteHint")
+                                        : t("productsPage.optionValueDeltaHint")}
+                                    </div>
+                                  </div>
+                                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                    {clientGroups.map((group) => {
+                                      const key = `option:${editingOptionGroupIndex ?? "new"}:${valueIndex}:price:${group.slug}`;
+                                      const rawValue = value.priceByGroup?.[group.slug];
+                                      const isFocused = focusedNumberCell === key;
+                                      const display = isFocused
+                                        ? numberCellText[key] ??
+                                          (rawValue != null ? String(rawValue) : "")
+                                        : formatNumber(rawValue);
+                                      const accent =
+                                        clientGroupAccentBySlug[group.slug] ||
+                                        CLIENT_GROUP_ACCENTS[0];
+                                      return (
+                                        <div
+                                          key={group._id}
+                                          className="rounded-md border border-gray-100 bg-gray-50/60 p-2"
+                                          style={{ borderLeftColor: accent, borderLeftWidth: 3 }}
+                                        >
+                                          <Input
+                                            label={group.name}
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={display}
+                                            onFocus={(e) => {
+                                              setFocusedNumberCell(key);
+                                              setNumberCellText((m) => ({
+                                                ...m,
+                                                [key]: rawValue != null ? String(rawValue) : "",
+                                              }));
+                                              e.target.select();
+                                            }}
+                                            onChange={(e) =>
+                                              setNumberCellText((m) => ({
+                                                ...m,
+                                                [key]: e.target.value,
+                                              }))
+                                            }
+                                            onBlur={() => {
+                                              setFocusedNumberCell((cur) =>
+                                                cur === key ? null : cur,
+                                              );
+                                              updateEditingOptionValuePrice(
+                                                valueIndex,
+                                                group.slug,
+                                                numberCellText[key] ?? "",
+                                              );
+                                              setNumberCellText((m) => {
+                                                const nextMap = { ...m };
+                                                delete nextMap[key];
+                                                return nextMap;
+                                              });
+                                            }}
+                                            className="h-9"
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
                           ))}
                         </div>
@@ -1329,43 +1508,59 @@ export const Products: React.FC = () => {
                   ))}
                 </div>
 
-                {clientGroups.length > 1 ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {clientGroups.map((group) => {
-                      const isActive = group.slug === activeVariantPriceGroupSlug;
-                      const accent = clientGroupAccentBySlug[group.slug] || CLIENT_GROUP_ACCENTS[0];
-                      return (
-                        <button
-                          key={group._id}
-                          type="button"
-                          className={`rounded-full border px-3 py-1 text-xs font-medium transition flex items-center gap-2 ${
-                            isActive ? "" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-                          }`}
-                          style={
-                            isActive
-                              ? {
-                                  borderColor: accent,
-                                  backgroundColor: rgba(accent, 0.12),
-                                  color: accent,
-                                }
-                              : undefined
-                          }
-                          onClick={() => {
-                            setFocusedNumberCell(null);
-                            setActiveVariantPriceGroupSlug(group.slug);
-                          }}
-                        >
-                          <span
-                            className="inline-block h-2 w-2 rounded-full"
-                            style={{ backgroundColor: accent }}
-                            aria-hidden="true"
-                          />
-                          {group.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  {clientGroups.length > 1 ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {clientGroups.map((group) => {
+                        const isActive = group.slug === activeVariantPriceGroupSlug;
+                        const accent =
+                          clientGroupAccentBySlug[group.slug] || CLIENT_GROUP_ACCENTS[0];
+                        return (
+                          <button
+                            key={group._id}
+                            type="button"
+                            className={`rounded-full border px-3 py-1 text-xs font-medium transition flex items-center gap-2 ${
+                              isActive
+                                ? ""
+                                : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                            }`}
+                            style={
+                              isActive
+                                ? {
+                                    borderColor: accent,
+                                    backgroundColor: rgba(accent, 0.12),
+                                    color: accent,
+                                  }
+                                : undefined
+                            }
+                            onClick={() => {
+                              setFocusedNumberCell(null);
+                              setActiveVariantPriceGroupSlug(group.slug);
+                            }}
+                          >
+                            <span
+                              className="inline-block h-2 w-2 rounded-full"
+                              style={{ backgroundColor: accent }}
+                              aria-hidden="true"
+                            />
+                            {group.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div />
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    onClick={resetVariantPricesFromOptions}
+                    disabled={(draft.variants || []).length === 0 || clientGroups.length === 0}
+                  >
+                    {t("productsPage.resetPrice")}
+                  </Button>
+                </div>
 
                 <div className="mt-2 overflow-x-auto rounded-xl border border-gray-200 bg-white">
                   <table className="min-w-[720px] w-full text-sm">

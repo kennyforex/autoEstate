@@ -1,5 +1,6 @@
 import { BaseTool } from './base.js';
 import { googleWorkspaceService } from '../../services/googleWorkspace.service.js';
+import { normalizeHongKongDateTimeInput } from '../../utils/hongKongDate.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
 export class GoogleCalendarTool extends BaseTool {
@@ -88,11 +89,13 @@ export class GoogleCalendarTool extends BaseTool {
 
         case 'create_event': {
           const summary = args.summary as string;
-          const startTime = args.startTime as string;
-          const endTime = args.endTime as string;
-          if (!summary || !startTime || !endTime) {
+          const rawStartTime = args.startTime as string;
+          const rawEndTime = args.endTime as string;
+          if (!summary || !rawStartTime || !rawEndTime) {
             return { success: false, data: null, summary: 'Missing required parameters: summary, startTime, endTime' };
           }
+          const startTime = normalizeHongKongDateTimeInput(rawStartTime, { defaultTime: '11:00' });
+          const endTime = normalizeHongKongDateTimeInput(rawEndTime, { defaultTime: '11:30' });
           const attendees = args.attendees ? (args.attendees as string).split(',').map((e) => e.trim()) : undefined;
           const result = await googleWorkspaceService.createEvent(userId, {
             summary,
@@ -148,8 +151,12 @@ export class GoogleCalendarTool extends BaseTool {
             : undefined;
           const result = await googleWorkspaceService.updateEvent(userId, eventId, {
             summary: args.summary as string | undefined,
-            startTime: args.startTime as string | undefined,
-            endTime: args.endTime as string | undefined,
+            startTime: typeof args.startTime === 'string'
+              ? normalizeHongKongDateTimeInput(args.startTime, { defaultTime: '11:00' })
+              : undefined,
+            endTime: typeof args.endTime === 'string'
+              ? normalizeHongKongDateTimeInput(args.endTime, { defaultTime: '11:30' })
+              : undefined,
             description: args.description as string | undefined,
             location: args.location as string | undefined,
             attendees,

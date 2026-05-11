@@ -1,7 +1,6 @@
-import axios from 'axios';
 import { BaseTool } from './base.js';
-import { openRouterHeaders } from '../../config/httpAttribution.js';
-import { openRouterConfig } from '../../config/openrouter.js';
+import { createChatCompletion } from '../../config/aiChatProvider.js';
+import { aiLogger } from '../../services/aiLogger.service.js';
 import { skillStorage } from '../../services/skillStorage.service.js';
 import type { AgentContext, AgentSkillInfo, ToolResult, OpenAITool, SkillExecutionResult } from '../types.js';
 import {
@@ -10,6 +9,8 @@ import {
   parsePaymentPendingFolderIdFromSkillMarkdown,
 } from '../../utils/skillMdConfig.js';
 import { stripSkillMarkers } from '../../utils/helpers.js';
+import { buildHongKongDateFacts } from '../../utils/hongKongDate.js';
+import { normalizeNumberedMenuLineBreaks } from '../../utils/assistantMessageFormatting.js';
 import type { ToolRegistry } from './registry.js';
 
 const DEFAULT_DESCRIPTION =
@@ -30,6 +31,7 @@ function mergeSkillUserRequestWithFullTurn(userRequest: string, fullTurn?: strin
   const u = userRequest.trim();
   const full = fullTurn?.trim() ?? '';
   if (!full) return u;
+  if (u === full) return u;
   const fullHasMedia = /Image URL:|PDF URL:/i.test(full);
   const uHasMedia = /Image URL:|PDF URL:/i.test(u);
   if (fullHasMedia && !uHasMedia) {
@@ -39,7 +41,11 @@ function mergeSkillUserRequestWithFullTurn(userRequest: string, fullTurn?: strin
       `${full}`
     );
   }
-  return u;
+  return (
+    `${u}\n\n` +
+    `[Original customer message — use this as the source of truth if it differs from the manager paraphrase]\n` +
+    `${full}`
+  );
 }
 
 export class SkillExecutionTool extends BaseTool {
@@ -416,7 +422,13 @@ export class SkillExecutionTool extends BaseTool {
 
     // Latest user message: merge execute_skill args with full turn so Image URL / PDF URL are not lost
     const mergedUserRequest = mergeSkillUserRequestWithFullTurn(userRequest, context.lastUserTurnContent);
-    messages.push({ role: 'user', content: mergedUserRequest });
+    const dateFacts =
+      (context.lastUserTurnContent ? buildHongKongDateFacts(context.lastUserTurnContent) : '') ||
+      buildHongKongDateFacts(mergedUserRequest);
+    messages.push({
+      role: 'user',
+      content: dateFacts ? `${dateFacts}\n\nCustomer request:\n${mergedUserRequest}` : mergedUserRequest,
+    });
 
     // Debug: log the messages being sent to sub-LLM
     console.log(`[SkillTool] Sub-LLM message count: ${messages.length}`);
@@ -489,8 +501,29 @@ export class SkillExecutionTool extends BaseTool {
           console.log(`[SkillTool] Executing tool "${toolName}" with args: ${JSON.stringify(toolArgs).substring(0, 200)}`);
           toolCalledInLoop = true;
           calledToolNames.add(toolName);
+          const toolStartTime = Date.now();
           try {
             const toolResult = await tool.execute(toolArgs, context, signal);
+            const toolDuration = Date.now() - toolStartTime;
+            aiLogger.logToolCall({
+              conversationId: context.conversationId,
+              channelId: context.channelId,
+              assistantId: context.assistantId,
+              toolName,
+              args: toolArgs,
+              summary: toolResult.summary,
+              resultData: toolResult.data,
+              success: toolResult.success,
+              duration: toolDuration,
+              iteration: iterations - 1,
+              maxIterations,
+              toolCallId: tc.id,
+              source: context.source === 'playground' ? 'playground' : 'skill',
+              metadata: {
+                layer: 'skill',
+                skillSlug: skill.slug,
+              },
+            });
             console.log(`[SkillTool] Tool "${toolName}" result (${toolResult.success ? 'ok' : 'fail'}): ${toolResult.summary.substring(0, 150)}`);
             messages.push({
               role: 'tool',
@@ -498,6 +531,25 @@ export class SkillExecutionTool extends BaseTool {
               tool_call_id: tc.id,
             });
           } catch (error: any) {
+            const toolDuration = Date.now() - toolStartTime;
+            aiLogger.logToolCall({
+              conversationId: context.conversationId,
+              channelId: context.channelId,
+              assistantId: context.assistantId,
+              toolName,
+              args: toolArgs,
+              error: error.message,
+              success: false,
+              duration: toolDuration,
+              iteration: iterations - 1,
+              maxIterations,
+              toolCallId: tc.id,
+              source: context.source === 'playground' ? 'playground' : 'skill',
+              metadata: {
+                layer: 'skill',
+                skillSlug: skill.slug,
+              },
+            });
             console.error(`[SkillTool] Tool "${toolName}" threw:`, error.message);
             messages.push({
               role: 'tool',
@@ -687,12 +739,12 @@ export class SkillExecutionTool extends BaseTool {
         console.log(`[SkillTool] Skill "${skill.slug}" signalled UNHANDLED_INTENT: ${unhandledIntent}`);
       }
 
-      const cleaned = content
+      const cleaned = normalizeNumberedMenuLineBreaks(content
         .replace(/<think>[\s\S]*?<\/think>\s*/g, '')
         .replace(/SKILL_OBSERVATIONS\n[\s\S]*?\nEND_OBSERVATIONS\s*/g, '')
         .replace(/SKILL_COMPLETE\s*/g, '')
         .replace(/UNHANDLED_INTENT:\s*.+/g, '')
-        .trim();
+        .trim());
 
       if (isComplete) {
         console.log(`[SkillTool] Skill COMPLETED. Observations: ${JSON.stringify(observations)}`);
@@ -792,32 +844,17 @@ export class SkillExecutionTool extends BaseTool {
     tools?: OpenAITool[],
     signal?: AbortSignal,
   ): Promise<any> {
-    const body: any = {
-      model: openRouterConfig.models.agent,
-      messages,
+    const data = await createChatCompletion({
+      useCase: 'skill',
+      title: 'Foodflow Skill Execution',
+      messages: messages as any,
+      tools: tools && tools.length > 0 ? tools : undefined,
+      toolChoice: tools && tools.length > 0 ? 'auto' : undefined,
       temperature: 0.3,
-      max_tokens: 2048,
-    };
-    if (tools && tools.length > 0) {
-      body.tools = tools;
-      body.tool_choice = 'auto';
-    }
-
-    const response = await axios.post(
-      `${openRouterConfig.baseUrl}/chat/completions`,
-      body,
-      {
-        headers: {
-          Authorization: `Bearer ${openRouterConfig.apiKey}`,
-          'Content-Type': 'application/json',
-          ...openRouterHeaders('Foodflow Skill Execution'),
-        },
-        timeout: 90_000,
-        signal,
-      },
-    );
-
-    const data = response.data;
+      maxTokens: 2048,
+      timeout: 90_000,
+      signal,
+    });
     if (!data?.choices?.[0]?.message) {
       const snippet = JSON.stringify(data ?? {}).slice(0, 800);
       throw new Error(`Skill sub-LLM returned no choices. ${snippet}`);

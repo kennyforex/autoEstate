@@ -1,6 +1,7 @@
 import { BaseTool } from "./base.js";
 import { orderService } from "../../services/order.service.js";
 import { shippingService } from "../../services/shipping.service.js";
+import { normalizeHongKongDateTimeInput } from "../../utils/hongKongDate.js";
 import type { AgentContext, ToolResult } from "../types.js";
 
 export class CreateOrderTool extends BaseTool {
@@ -21,13 +22,14 @@ export class CreateOrderTool extends BaseTool {
       phoneNumber: { type: "string", description: "Customer phone override." },
       email: { type: "string", description: "Customer email override." },
       shippingAddress: { type: "string", description: "Shipping address." },
+      shippingMethodId: { type: "string", description: "Configured shipping method id." },
       shippingMethod: { type: "string", description: "Shipping method." },
       deliveryDate: {
         type: "string",
         description: "Optional delivery date/time in ISO-8601.",
       },
       status: { type: "string", enum: ["open", "completed", "cancelled"] },
-      paymentStatus: { type: "string", enum: ["unpaid", "paid"] },
+      paymentStatus: { type: "string", enum: ["unpaid", "verifying", "paid"] },
       fulfillmentStatus: { type: "string", enum: ["unfulfilled", "fulfilled"] },
       currency: { type: "string", description: "Currency code, e.g. HKD." },
       items: {
@@ -75,6 +77,7 @@ export class CreateOrderTool extends BaseTool {
           : context.contact?.id;
 
       const resolvedShipping = await shippingService.resolveShipping({
+        shippingMethodId: args.shippingMethodId,
         shippingMethod: args.shippingMethod,
         shippingFee: args.shippingFee,
         includeInactive: false,
@@ -94,6 +97,11 @@ export class CreateOrderTool extends BaseTool {
             ? resolvedShipping.normalizedFee
             : undefined;
 
+      const normalizedDeliveryDate =
+        typeof args.deliveryDate === "string" && args.deliveryDate.trim()
+          ? normalizeHongKongDateTimeInput(args.deliveryDate, { defaultTime: "11:00" })
+          : undefined;
+
       const order = await orderService.create({
         source: "skill",
         contactId,
@@ -103,16 +111,17 @@ export class CreateOrderTool extends BaseTool {
         email: typeof args.email === "string" ? args.email : undefined,
         shippingAddress:
           typeof args.shippingAddress === "string" ? args.shippingAddress : undefined,
+        shippingMethodId:
+          typeof args.shippingMethodId === "string" ? args.shippingMethodId : undefined,
         shippingMethod: normalizedShippingMethod,
-        deliveryDate:
-          typeof args.deliveryDate === "string" ? args.deliveryDate : undefined,
+        deliveryDate: normalizedDeliveryDate,
         status:
           typeof args.status === "string"
             ? (args.status as "open" | "completed" | "cancelled")
             : undefined,
         paymentStatus:
           typeof args.paymentStatus === "string"
-            ? (args.paymentStatus as "unpaid" | "paid")
+            ? (args.paymentStatus as "unpaid" | "verifying" | "paid")
             : undefined,
         fulfillmentStatus:
           typeof args.fulfillmentStatus === "string"

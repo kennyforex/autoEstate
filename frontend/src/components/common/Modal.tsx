@@ -110,7 +110,7 @@ export const Modal: React.FC<ModalProps> = ({
         <div
           className={cn(
             'px-6 py-4',
-            bodyScroll && 'flex min-h-0 flex-1 flex-col overflow-hidden',
+            bodyScroll && 'flex min-h-0 flex-1 flex-col overflow-y-auto',
             bodyClassName,
           )}
         >

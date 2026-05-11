@@ -38,6 +38,22 @@ function priceMapToRecord(value: unknown): PriceByGroup {
   return {};
 }
 
+function compareCatalogItems(
+  first: { displayOrder?: number | null; label?: string; name?: string },
+  second: { displayOrder?: number | null; label?: string; name?: string },
+): number {
+  const firstOrder = typeof first.displayOrder === "number" ? first.displayOrder : 0;
+  const secondOrder = typeof second.displayOrder === "number" ? second.displayOrder : 0;
+
+  if (firstOrder !== secondOrder) {
+    return firstOrder - secondOrder;
+  }
+
+  const firstLabel = first.label ?? first.name ?? "";
+  const secondLabel = second.label ?? second.name ?? "";
+  return firstLabel.localeCompare(secondLabel);
+}
+
 class CatalogService {
   async ensureDefaultClientGroup(): Promise<IClientGroupDocument> {
     let basicGroup = await ClientGroup.findOne({ slug: DEFAULT_CLIENT_GROUP_SLUG });
@@ -305,20 +321,22 @@ class CatalogService {
       images,
       primaryImageUrl,
       variants: Array.isArray(product.variants)
-        ? product.variants.map((variant) => ({
-            id: variant.id,
-            optionValueIds: Array.isArray(variant.optionValueIds) ? variant.optionValueIds : [],
-            label: variant.label,
-            isActive: variant.isActive,
-            displayOrder: variant.displayOrder,
-            onHand: variant.onHand,
-            priceByGroup: priceMapToRecord(variant.priceByGroup),
-            effectivePrice: resolvePriceByClientGroup(
-              priceMapToRecord(variant.priceByGroup),
-              clientGroupSlug,
-              defaultGroupSlug,
-            ),
-          }))
+        ? [...product.variants]
+            .sort(compareCatalogItems)
+            .map((variant) => ({
+              id: variant.id,
+              optionValueIds: Array.isArray(variant.optionValueIds) ? variant.optionValueIds : [],
+              label: variant.label,
+              isActive: variant.isActive,
+              displayOrder: variant.displayOrder,
+              onHand: variant.onHand,
+              priceByGroup: priceMapToRecord(variant.priceByGroup),
+              effectivePrice: resolvePriceByClientGroup(
+                priceMapToRecord(variant.priceByGroup),
+                clientGroupSlug,
+                defaultGroupSlug,
+              ),
+            }))
         : [],
       basePriceByGroup,
       effectiveBasePrice: resolvePriceByClientGroup(
@@ -326,7 +344,8 @@ class CatalogService {
         clientGroupSlug,
         defaultGroupSlug,
       ),
-      optionGroups: product.optionGroups
+      optionGroups: [...product.optionGroups]
+        .sort(compareCatalogItems)
         .filter((group) => includeInactive || group.values.some((value) => value.isActive))
         .map((group) => ({
           id: group.id,
@@ -335,7 +354,8 @@ class CatalogService {
           pricingMode: group.pricingMode,
           required: group.required,
           displayOrder: group.displayOrder,
-          values: group.values
+          values: [...group.values]
+            .sort(compareCatalogItems)
             .filter((value) => includeInactive || value.isActive)
             .map((value) => {
               const priceByGroup = priceMapToRecord(value.priceByGroup);

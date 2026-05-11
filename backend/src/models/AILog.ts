@@ -6,6 +6,8 @@ export interface ITokens {
   total?: number;
 }
 
+export type AIModelSource = "D" | "O";
+
 /** `model` on Document is Mongoose's model() — omit so we can store LLM model id on `model`. */
 export interface IAILogDocument extends Omit<Document, "model"> {
   _id: mongoose.Types.ObjectId;
@@ -15,6 +17,7 @@ export interface IAILogDocument extends Omit<Document, "model"> {
     | "complex_reply"
     | "media_analysis"
     | "decision"
+    | "tool_calling"
     | "error"
     | "info";
   level: "info" | "warn" | "error";
@@ -23,6 +26,7 @@ export interface IAILogDocument extends Omit<Document, "model"> {
   channelId?: mongoose.Types.ObjectId;
   assistantId?: mongoose.Types.ObjectId;
   model?: string;
+  modelSource?: AIModelSource;
   input?: string;
   output?: string;
   duration?: number;
@@ -50,6 +54,7 @@ const aiLogSchema = new Schema<IAILogDocument>(
         "complex_reply",
         "media_analysis",
         "decision",
+        "tool_calling",
         "error",
         "info",
       ],
@@ -79,6 +84,10 @@ const aiLogSchema = new Schema<IAILogDocument>(
     },
     model: {
       type: String,
+    },
+    modelSource: {
+      type: String,
+      enum: ["D", "O"],
     },
     input: {
       type: String,

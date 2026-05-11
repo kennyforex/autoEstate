@@ -247,6 +247,7 @@ class GoogleWorkspaceService {
       description?: string;
       location?: string;
       attendees?: string[];
+      timezone?: string;
     },
   ) {
     const auth = await this.getAuthedClient(userId);
@@ -258,8 +259,8 @@ class GoogleWorkspaceService {
         summary: params.summary,
         description: params.description,
         location: params.location,
-        start: { dateTime: params.startTime },
-        end: { dateTime: params.endTime },
+        start: { dateTime: params.startTime, timeZone: params.timezone ?? "Asia/Hong_Kong" },
+        end: { dateTime: params.endTime, timeZone: params.timezone ?? "Asia/Hong_Kong" },
         attendees: params.attendees?.map((email) => ({ email })),
       },
     });
@@ -283,6 +284,7 @@ class GoogleWorkspaceService {
       description?: string;
       location?: string;
       attendees?: string[];
+      timezone?: string;
     },
   ) {
     const auth = await this.getAuthedClient(userId);
@@ -294,9 +296,9 @@ class GoogleWorkspaceService {
       requestBody.description = params.description;
     if (params.location !== undefined) requestBody.location = params.location;
     if (params.startTime !== undefined)
-      requestBody.start = { dateTime: params.startTime };
+      requestBody.start = { dateTime: params.startTime, timeZone: params.timezone ?? "Asia/Hong_Kong" };
     if (params.endTime !== undefined)
-      requestBody.end = { dateTime: params.endTime };
+      requestBody.end = { dateTime: params.endTime, timeZone: params.timezone ?? "Asia/Hong_Kong" };
     if (params.attendees !== undefined) {
       requestBody.attendees = params.attendees.map((email) => ({ email }));
     }

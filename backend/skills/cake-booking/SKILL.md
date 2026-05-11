@@ -34,36 +34,17 @@ metadata:
     - 訂購蛋糕
     - book cake
     - pre-order cake
-  order_sheet_id: 1kh8YbUIrrUAXed2qHfSmY600kUPH_akqkYMSYdDFu4Y
   payment_pending_folder_id: ""
-  sheet_fields:
-    - Order ID
-    - Order Date
-    - Customer
-    - Phone
-    - Email
-    - Cake Name
-    - Flavor
-    - Size
-    - Servings
-    - Pickup Date
-    - Pickup Time
-    - Decoration Notes
-    - Dietary
-    - Status
-    - Price (HKD)
-    - Payment Status
-    - Payment Amount
-    - Paid Date
-    - Payment Checked
-    - Receipt
   required_tools:
     - document_data_capture
     - get_product_menu
+    - get_shipping_options
+    - create_order
+    - search_orders
+    - update_order_payment
     - google_calendar
     - google_drive
     - google_gmail
-    - google_sheets
 steps:
 
 - id: menu
@@ -78,6 +59,9 @@ collects: flavor_customisation
 - id: pickup
 label: 偏好取貨日期與時間
 collects: pickup_datetime
+- id: shipping
+label: 從系統配送方式中選擇自取／送貨安排
+collects: shipping_method
 - id: contact
 label: 客人姓名、電話、電郵
 collects: contact_details
@@ -85,13 +69,13 @@ collects: contact_details
 label: 確認訂單摘要與價錢
 collects: confirmation
 - id: log_order
-label: 寫入試算表 WAITING 列並發送含付款資料的確認電郵
+label: 建立系統訂單並發送含付款資料的確認電郵
 collects: order_logged
 - id: payment
 label: 付款指示與上傳收據
 collects: payment_proof
 - id: finalize
-label: 核對收據、上傳 Drive、更新試算表列、已付款確認電郵
+label: 核對收據、上傳 Drive、更新系統訂單付款狀態、收據確認電郵
 collects: completion
 
 ---
@@ -116,24 +100,28 @@ collects: completion
 - 當客人問「餐單」、「有咩口味」、「幾錢」，或你需要提供**報價／確認總額**時，先呼叫 `**get_product_menu`**。  
 - 若客人已表明某個蛋糕類型，可用 `query` 或 `category` 縮窄；若你已知產品 id 並已收集選項值 id，可傳 `productId` + `selectedOptionValueIds` 取得工具計算的總額。  
 - 向客人展示時，只摘要與對方需求相關的產品／尺寸／口味／價錢；除非對方明確要求，**不要一次貼整份餐單**。  
+- **餐單格式：** 顯示產品、尺寸、口味、價錢時必須逐行列出；每個選項／價錢一行。不要把 1、2、3、4、5 等選項壓成同一段文字。WhatsApp／Playground 都要用換行，方便客人閱讀及選擇。  
 - 若工具沒有結果或失敗，坦白說「我先幫你向店內確認最新款式與價錢」，**不要自行編造價錢**。
+
+## 配送方式來源（必須）
+
+- **配送／自取方式與費用** 一律以 `**get_shipping_options`** 工具回傳的系統設定為準；**不要**自行編造配送選項或費用。
+- 在展示最終訂單摘要前，必須呼叫 `**get_shipping_options`**，列出可用方式，並請客人選擇／確認其中一項。
+- 若客人已提及「自取」、「送貨」、「Lalamove」、「GoGoVan」等，仍須用工具結果核對是否為系統內有效選項；如無匹配，請客人從工具列出的選項中選擇。
+- 系統沒有 active 配送方式時，坦白說需要同事確認配送安排，不要自行決定費用。
 
 ## 政策（相關時簡短說明）
 
 - **預訂時間：** 一般訂單至少 **48 小時**；複雜設計 **5–7 天**。急單僅在客人明確接受附加費並註明「須廚房批准」時處理。  
+- **日期判斷：** 若系統訊息提供 `SYSTEM DATE FACTS (Hong Kong Time)`，必須以該段為準解析客人日期（例如 `May 15 -> 2026-05-15` 及相隔日數）；不要自行把明確日期改寫成「聽日／tomorrow」。如沒有系統日期事實而日期含糊，請先澄清。  
 - **取貨：** 一般每日 **11:00–19:00**（按你店實際調整）。休息日依真實日曆；若不確定，可說「廚房確認後再通知取貨時段」。  
-- **客人確認摘要後**訂單會寫入試算表（**Payment Status** 為 **WAITING**）。仍須**以收據核實付款**後才可標記為已付並發「已付款」電郵（若 `**document_data_capture`** 不清或失敗，可能需人手審核）。  
+- **客人確認摘要後**訂單會建立在內部訂單系統（**paymentStatus** 為 `unpaid`）。收到收據後只可用 `**update_order_payment`** 將付款狀態設為 `verifying`；仍須由後台同事核實後才可標記為已付（若 `**document_data_capture`** 不清或失敗，可能需人手審核）。  
 - **致敏原：** 可能含蛋、奶、麩質、堅果；若客人要 **無堅果／無麩質**，請詢問並在摘要中交給廚房。
-
-## Google Drive（收據）
-
-收據放入 `**Client Payment` → `Pending`**（若未有此巢狀資料夾，建立一次即可）。  
-**建議：** 在本檔 YAML `metadata.payment_pending_folder_id`（或舊鍵 `paymentPendingFolderId`）設定 **Pending** 資料夾 ID（在 Drive 開啟資料夾，從網址 `https://drive.google.com/drive/folders/<FOLDER_ID>` 複製），可避免名稱不符。若留空，上傳仍會依資料夾名稱解析 **Client Payment → Pending**。
 
 ## 必須收集的資料（順序）
 
-1. 蛋糕類型、尺寸、口味、取貨日期時間、姓名、電話、電郵
-2. **Order ID**（由你產生，全程沿用）
+1. 蛋糕類型、尺寸、口味、取貨／送貨日期時間、系統配送方式、姓名、電話、電郵
+2. **Order ID / orderNumber**（由 `**create_order`** 回傳，全程沿用）
 3. **報價總額（HKD）**
 4. 付款後：**收據**為清晰**圖片**（截圖／相片）或 **PDF**（銀行／FPS／PayMe 確認）
 5. 透過 `**document_data_capture`** 驗證 **金額、貨幣、付款日期**：工具回傳的 JSON 須符合你傳入的 `**outputSchema`**（除非客人／商戶另有自訂欄位清單，否則用下方預設 schema）。
@@ -149,7 +137,9 @@ collects: completion
 
 ### 步驟 1–5 — 先用工具找合適產品，再收集資料
 
-先用 `**get_product_menu**` 找到合適的蛋糕類型、尺寸、口味與適用價錢，再以對話方式逐步收集：蛋糕類型、尺寸、口味／備註、取貨日期時間、姓名、電話、電郵。
+先用 `**get_product_menu`** 找到合適的蛋糕類型、尺寸、口味與適用價錢，再以對話方式逐步收集：蛋糕類型、尺寸、口味／備註、取貨／送貨日期時間。
+
+在確認訂單前，呼叫 `**get_shipping_options**` 取得系統配送方式，請客人選擇／確認一項。之後才收集姓名、電話、電郵與地址（如選擇送貨）。
 
 ### 步驟 6 — 訂單摘要並請對方確認
 
@@ -157,55 +147,43 @@ collects: completion
 
 > **Order summary**  
 >
-> - Order ID: `[MILLE-YYYYMMDD-xxx]`（現在產生，之後付款與試算表沿用）  
+> - Order ID: `[system orderNumber]`（確認後由系統訂單工具回傳，之後付款 reference 與收據更新沿用）  
 > - Cake: [type, size]  
 > - Flavour & notes: […]  
 > - Pickup: [date, time]  
+> - Fulfilment: [shipping method from `get_shipping_options`]  
+> - Shipping fee (HKD): [fee from `get_shipping_options`]  
+> - Delivery address: [if applicable]  
 > - Name: [name]  
 > - Phone: [phone]  
 > - Email: [email]  
-> - **Total due (HKD):** [number from `get_product_menu`]
+> - Cake subtotal (HKD): [number from `get_product_menu`]  
+> - **Total due (HKD):** [cake subtotal + shipping fee]
 >
 > 「以上是否正確？請回覆 **yes** 以確認並為你記錄訂單。」
 
-**在對方回覆 yes 之前，不要呼叫 `google_sheets` 或 `google_gmail`**（下一步才做）。
+**在對方回覆 yes 之前，不要呼叫 `create_order` 或 `google_gmail`**（下一步才做）。
 
-### 步驟 7 — 寫入試算表 + 確認電郵（對方說 **yes** 之後）
+### 步驟 7 — 建立系統訂單 + 確認電郵（對方說 **yes** 之後）
 
 **依序執行**（在要求付款證明前全部必須完成）：
 
-#### 7a — 新增列（`google_sheets`）— 必須
+#### 7a — 建立系統訂單（`create_order`）— 必須
 
-**action:** `append_row` | **sheetName:** `Cake orders` | **spreadsheetId:** omit
+先呼叫 `**create_order`**，把確認後的訂單寫入系統，方便後台查看及之後將收據狀態更新為 **verifying / 核對中**。
 
-**使用 `data` 物件**（不要用舊版 `row` 陣列）。鍵名必須與 `sheetFields` 完全一致（不分大小寫）。工具會自動對應欄位；缺漏的鍵預設為 `"—"`。共 **20 欄**（A–T）。
+必要欄位：
 
-```json
-{
-  "Order ID": "MILLE-YYYYMMDD-XXX",
-  "Order Date": "YYYY-MM-DD",
-  "Customer": "...",
-  "Phone": "...",
-  "Email": "...",
-  "Cake Name": "...",
-  "Flavor": "...",
-  "Size": "...",
-  "Servings": "...",
-  "Pickup Date": "YYYY-MM-DD",
-  "Pickup Time": "HH:MM",
-  "Decoration Notes": "...",
-  "Dietary": "...",
-  "Status": "Pending payment",
-  "Price (HKD)": "620",
-  "Payment Status": "WAITING",
-  "Payment Amount": "620",
-  "Paid Date": "—",
-  "Payment Checked": "No",
-  "Receipt": "—"
-}
-```
+- **clientName / phoneNumber / email**
+- **shippingMethod:** 客人確認的系統配送方式 label
+- **shippingAddress:** 送貨時填地址；自取可省略或填取貨點
+- **deliveryDate:** 取貨／送貨日期時間 ISO 8601
+- **paymentStatus:** `unpaid`
+- **currency:** `HKD`
+- **items:** 使用 `get_product_menu` 的產品名稱、選項摘要、數量、單價
+- **shippingFee:** `get_shipping_options` 回傳的費用
 
-若某欄無值，**仍須包含該鍵**，值用 `"—"`，以免跳欄。
+保留工具回傳的 **orderNumber**。付款 reference、收據更新都使用這個系統 orderNumber，不要另行編造第二個 Order ID。
 
 #### 7b — 確認電郵（`google_gmail`）— 必須
 
@@ -225,7 +203,7 @@ collects: completion
 
 #### 7c — 日曆取貨時段（`google_calendar`）— 必須
 
-試算表新增成功後，在已連結的 Google Calendar 新增**取貨時段**。
+系統訂單建立成功後，在已連結的 Google Calendar 新增**取貨時段**。
 
 呼叫 `**google_calendar`**：  
 
@@ -235,16 +213,16 @@ collects: completion
 - **description：** Order ID、蛋糕（類型、尺寸、口味）、裝飾／飲食備註、電話、電郵、報價總額 (HKD)、**Payment Status: WAITING**、以及 **「Subject to kitchen confirmation.」**  
 - **location：** 若有固定店名或取貨地址則填；否則可省略。
 
-若 `**google_calendar`** 因暫時性錯誤失敗，告知客人訂單仍在試算表，同事可手動加日曆——**不要**因此阻斷確認電郵。
+若 `**google_calendar`** 因暫時性錯誤失敗，告知客人訂單已在系統中建立，同事可手動加日曆——**不要**因此阻斷確認電郵。
 
 ### 步驟 8 — 請客人提供付款證明
 
 在 7a–7c 成功後，於**對話回覆**中簡短提醒：請依**電郵內指示**付款，並**回覆附上收據**（相片／截圖／PDF）。  
-說明**付款會經核實**，核實後試算表會更新為已付。
+說明**付款會經核實**，核實後後台同事會在系統訂單標記為已付。
 
 ### 步驟 9 — 收據：`document_data_capture`（客人傳檔時必須）
 
-將 `**outputSchema`** 作為**單一 JSON 字串**（不要用 markdown 程式碼區塊包在參數裡）：外層 `{ "name", "strict", "schema" }`，其中 `**schema`** 為 JSON Schema。屬性的 `**description**` 給視覺模型作指示。工具回傳 `**data.extracted**` 及 `**summary**`；請讀 `**data.extracted**`。
+將 `**outputSchema`** 作為**單一 JSON 字串**（不要用 markdown 程式碼區塊包在參數裡）：外層 `{ "name", "strict", "schema" }`，其中 `**schema`** 為 JSON Schema。屬性的 `**description`** 給視覺模型作指示。工具回傳 `**data.extracted**` 及 `**summary**`；請讀 `**data.extracted**`。
 
 #### 預設 schema（除非客人另有自訂欄位清單）
 
@@ -290,13 +268,13 @@ collects: completion
 
 #### 若客人（或商戶）要求收據上**額外**欄位
 
-保留上述屬性**並**新增鍵，每個含 `type`、`description`，且 `**required`** 列出全部鍵。維持 strict 友善：物件需 `**required**` + `**additionalProperties": false**`。
+保留上述屬性**並**新增鍵，每個含 `type`、`description`，且 `**required`** 列出全部鍵。維持 strict 友善：物件需 `**required`** + `**additionalProperties": false**`。
 
 #### 若**無人指定**要擷取哪些欄位（一般文件）
 
 工具**一律**需要 `**outputSchema`** 字串。你自訂 `{ "name": "...", "strict": true, "schema": { ... } }`，**properties** 依文件內容（例如 `merchant`, `invoiceNumber`, `tax`, `lineItemsSummary`）。規則：
 
-- 每個屬性需 `**type`** 與 `**description**`（指示模型填什麼）。  
+- 每個屬性需 `**type`** 與 `**description`**（指示模型填什麼）。  
 - `**required**` 含全部屬性名，`**additionalProperties": false**`。  
 - 若是付款單據，建議至少含 `**docType**`、`**amount**`（數字，未知用 `-1`）、`**currency**`、`**payDate**`、`**remark**`；非付款文件仍用合理欄位名，細節可放 `**remark**`。
 
@@ -315,7 +293,7 @@ collects: completion
 
 若客人**只傳文字沒有檔案**，請再索取**截圖、相片或 PDF**。
 
-收據**不要**用 `**media_analysis`**；本技能請用 `**document_data_capture**`。
+收據**不要**用 `**media_analysis`**；本技能請用 `**document_data_capture`**。
 
 ### 步驟 10 — 驗證付款
 
@@ -324,69 +302,37 @@ collects: completion
 - 若 `**remark**` 含 **UNREADABLE** 或 `**amount` 為 `-1`**，視同辨識失敗：在政策允許下用 **Pending review**（電郵註明人手審核）。  
 - **HKD** 訂單：`**currency`** 應與 HKD 一致（接受 `HKD`, `HK$`, `HKD.`）。若文件為其他貨幣，標示並優先 **Pending review** 或向客人查證。  
 - 貨幣為 HKD 時，將 `**amount`** 與 **Total due (HKD)** 比對（同數字）。不符則請客人更正或重傳。  
-- 若 `**payDate`** 為空，試算表 **Paid Date** 填 `—`；若金額與 HKD 相符，**Payment Status** 仍可為 `**Paid`** 且日期 `—`。  
-- 若 `**document_data_capture**` 工具錯誤，告知收據**需人手審核**，試算表用 `**Pending review`**。
+- 若 `**payDate`** 為空，仍可提交收據作人手核對；在 `reviewNotes` 註明付款日期未能辨識。  
+- 若 `**document_data_capture`** 工具錯誤，告知收據**需人手審核**，仍只可用 `**update_order_payment`** 將系統訂單設為 `verifying` 並在 `reviewNotes` 註明原因。
 
-### 步驟 11 — 上傳收據至 Drive（`google_drive`）— 必須
 
-呼叫 `**google_drive**`：  
+### 步驟 11 — 更新系統訂單付款狀態（`update_order_payment`）— 必須
 
-- **action:** `upload`  
-- **fileUrl：** 訊息中同一張收據的 **Image URL**  
-- **fileName：** 圖片用 `Receipt-[OrderID]-[YYYYMMDD].jpg` 或 `.png`；PDF 用 `**.pdf`**  
-- **parentFolderId：** 省略——工具會用 YAML 的 `**metadata.payment_pending_folder_id`**（若有），否則依名稱解析 **Client Payment → Pending**
+呼叫 `**update_order_payment`**，讓後台訂單顯示收據並將付款狀態設為 **verifying / 核對中**：
 
-保留回傳的 **webViewLink** 供步驟 13 已付款電郵及試算表 **Receipt** 欄（步驟 12）。
+- **orderNumber:** 步驟 7a `create_order` 回傳的 orderNumber
+- **paymentStatus:** `verifying`
+- **receiptUrl:** 客人訊息中同一張收據的 **Image URL** 或 **PDF URL**（讓後台可以直接看到原始收據）
+- **receiptFileName:** `Receipt-[OrderID]-[YYYYMMDD].jpg` 或 PDF 檔名
+- **extracted:** `document_data_capture` 回傳的 `data.extracted`
+- **reviewNotes:** 簡短說明核對結果，例如 `Amount/currency match` 或 `Pending review: USD vs HKD`
 
-### 步驟 12 — 更新同一列（`google_sheets`）— 必須
+即使收據金額與 HKD 相符，也只設為 `verifying`；**不要**設為 `paid`。必須由後台同事核對後在 Order UI 標記為 **PAID**。
 
-**不要**再呼叫 `**append_row`**——訂單列已在步驟 7a 建立。**以付款後資料取代該列。**
+### 步驟 12 — 已收到付款證明電郵（`google_gmail`）— 必須
 
-**action:** `update_row_by_order_id`（或 `update_row`）| **sheetName:** `Cake orders` | **spreadsheetId:** omit | **matchValue：** 與欄 A 相同的 **Order ID**
-
-**使用 `data` 物件**（與步驟 7a 相同）。`update_row` 僅會變更你提供的欄位；省略的欄位保留原值。
-
-若要完整取代整列，請提供 **全部 20 個欄位**（對應 `sheetFields`）：
-
-```json
-{
-  "Order ID": "MILLE-YYYYMMDD-XXX",
-  "Order Date": "(keep same as Step 7a)",
-  "Customer": "...",
-  "Phone": "...",
-  "Email": "...",
-  "Cake Name": "...",
-  "Flavor": "...",
-  "Size": "...",
-  "Servings": "...",
-  "Pickup Date": "YYYY-MM-DD",
-  "Pickup Time": "HH:MM",
-  "Decoration Notes": "...",
-  "Dietary": "...",
-  "Status": "Confirmed or Pending review",
-  "Price (HKD)": "620",
-  "Payment Status": "Paid or Pending review",
-  "Payment Amount": "from document_data_capture amount (or —)",
-  "Paid Date": "from payDate extraction (or —)",
-  "Payment Checked": "Yes or No",
-  "Receipt": "=HYPERLINK(\"<Drive webViewLink>\",\"Receipt\")"
-}
-```
-
-### 步驟 13 — 已付款確認電郵（`google_gmail`）— 必須
-
-**action:** `send` | **to:** 客人電郵 | **subject:** `Cake order paid — [Order ID] — pickup [date]`  
-**body：** 完整摘要：訂單 + 已核實付款 + 收據連結 + 「subject to kitchen confirmation」。感謝付款。
+**action:** `send` | **to:** 客人電郵 | **subject:** `Cake payment proof received — [Order ID] — pickup [date]`  
+**body：** 完整摘要：訂單 + 已收到付款證明 + 收據連結 + 「同事正在核對付款，核實後會再通知」。不要聲稱已付款完成，除非後台同事已標記 **PAID**。
 
 ### 完成條件
 
-在 **步驟 7**（試算表 `**append_row`** 且 **WAITING** + `**google_gmail`** 確認 + `**google_calendar**`）成功前，**不要**輸出 `SKILL_COMPLETE`。客人傳收據後，須 `**document_data_capture`**、`**google_drive**` `upload`、`**google_sheets**` `update_row_by_order_id`（以 **Order ID** 對應列並寫入完整 `data`）、以及 **步驟 13** `**google_gmail`** 均成功。**例外：** 僅 **步驟 7c** `google_calendar` 失敗時，若試算表 + Gmail 已成功，仍可繼續。
+在 **步驟 7**（`**create_order`** + `**google_gmail`** 確認 + `**google_calendar`**）成功前，**不要**輸出 `SKILL_COMPLETE`。客人傳收據後，須 `**document_data_capture`**、`**google_drive`** `upload`、`**update_order_payment**`（設為 **verifying** 並保存收據）、以及 **步驟 13** `**google_gmail`** 均成功。**例外：** 僅 **步驟 7c** `google_calendar` 失敗時，若系統訂單 + Gmail 已成功，仍可繼續。
 
 工具失敗時，向客人說明並重試或請求協助。
 
 ### 若客人一直未傳收據
 
-保持技能**進行中**；在付款處理完前不要輸出 `**SKILL_COMPLETE`**，除非對話已明確結束且無付款（此時可簡短交接說明後完成——**不要**新增第二列試算表）。
+保持技能**進行中**；在付款處理完前不要輸出 `**SKILL_COMPLETE`**，除非對話已明確結束且無付款（此時可簡短交接說明後完成——**不要**建立重複訂單）。
 
 ## 規則
 

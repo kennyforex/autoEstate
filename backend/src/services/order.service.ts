@@ -1,6 +1,17 @@
 import { isValidObjectId } from "mongoose";
-import { Order, Contact, OrderTag, type IOrderDocument } from "../models/index.js";
+import {
+  Order,
+  Contact,
+  OrderTag,
+  type IOrderDocument,
+  type IOrderPaymentProof,
+  type OrderPaymentStatus,
+} from "../models/index.js";
 import { shippingService } from "./shipping.service.js";
+import {
+  formatHongKongDateOnly,
+  normalizeHongKongDateTimeInput,
+} from "../utils/hongKongDate.js";
 
 export interface OrderListParams {
   search?: string;
@@ -41,11 +52,13 @@ export interface CreateOrderInput {
   email?: string;
 
   shippingAddress?: string;
+  shippingMethodId?: string;
   shippingMethod?: string;
   deliveryDate?: string;
 
   status?: "open" | "completed" | "cancelled";
-  paymentStatus?: "unpaid" | "paid";
+  paymentStatus?: OrderPaymentStatus;
+  paymentProof?: IOrderPaymentProof;
   fulfillmentStatus?: "unfulfilled" | "fulfilled";
 
   currency?: string;
@@ -105,14 +118,27 @@ function formatDateLike(v: unknown): string | undefined {
   if (!v) return undefined;
   if (v instanceof Date) {
     if (Number.isNaN(v.getTime())) return undefined;
-    return v.toISOString().slice(0, 10);
+    return formatHongKongDateOnly(v);
   }
   if (typeof v === "string") {
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return normalizeText(v);
-    return d.toISOString().slice(0, 10);
+    try {
+      const d = new Date(normalizeHongKongDateTimeInput(v, { defaultTime: "00:00" }));
+      if (Number.isNaN(d.getTime())) return normalizeText(v);
+      return formatHongKongDateOnly(d);
+    } catch {
+      return normalizeText(v);
+    }
   }
   return undefined;
+}
+
+function parseOrderDate(value: string, defaultTime = "00:00"): Date {
+  const normalized = normalizeHongKongDateTimeInput(value, { defaultTime });
+  const d = new Date(normalized);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Invalid order date/time: ${value}`);
+  }
+  return d;
 }
 
 function toIdStrings(ids: unknown): string[] {
@@ -170,6 +196,9 @@ function makeOrderUpdateSummary(args: {
   // Status
   addEnumField("status:", args.before.status, args.after.status);
   addEnumField("payment:", args.before.paymentStatus, args.after.paymentStatus);
+  if (JSON.stringify(args.before.paymentProof ?? null) !== JSON.stringify(args.after.paymentProof ?? null)) {
+    parts.push("payment proof updated");
+  }
   addEnumField("fulfillment:", args.before.fulfillmentStatus, args.after.fulfillmentStatus);
 
   // Money
@@ -279,11 +308,11 @@ async function generateUniqueOrderNumber(): Promise<string> {
 function parseDateRange(from?: string, to?: string): Record<string, Date> | undefined {
   const out: Record<string, Date> = {};
   if (from) {
-    const d = new Date(from);
+    const d = parseOrderDate(from, "00:00");
     if (!Number.isNaN(d.getTime())) out.$gte = d;
   }
   if (to) {
-    const d = new Date(to);
+    const d = parseOrderDate(to, "23:59");
     if (!Number.isNaN(d.getTime())) out.$lte = d;
   }
   return Object.keys(out).length ? out : undefined;
@@ -350,6 +379,12 @@ class OrderService {
     return Order.findById(id);
   }
 
+  async getByOrderNumber(orderNumber: string): Promise<IOrderDocument | null> {
+    const normalized = orderNumber.trim();
+    if (!normalized) return null;
+    return Order.findOne({ orderNumber: normalized });
+  }
+
   async create(input: CreateOrderInput): Promise<IOrderDocument> {
     const orderNumber = await generateUniqueOrderNumber();
 
@@ -362,13 +397,15 @@ class OrderService {
     // - If shippingMethod matches a configured method and shippingFee is omitted, auto-fill configured fee.
     // - Always normalize matched methods to the configured label.
     // - Preserve explicit custom overrides when shippingFee is provided.
-    if (input.source === "skill" && input.shippingMethod) {
+    if (input.source === "skill" && (input.shippingMethodId || input.shippingMethod)) {
       const resolved = await shippingService.resolveShipping({
+        shippingMethodId: input.shippingMethodId,
         shippingMethod: input.shippingMethod,
         shippingFee: input.shippingFee,
         includeInactive: false,
       });
       if (resolved.kind === "configured") {
+        input.shippingMethodId = resolved.method.id;
         input.shippingMethod = resolved.normalizedLabel;
         if (input.shippingFee === undefined) {
           input.shippingFee = resolved.normalizedFee;
@@ -427,10 +464,15 @@ class OrderService {
       phoneNumber: input.phoneNumber ?? contact?.phoneNumber ?? undefined,
       email: input.email ?? contact?.email ?? undefined,
       shippingAddress: input.shippingAddress,
+      shippingMethodId:
+        input.shippingMethodId && isValidObjectId(input.shippingMethodId)
+          ? input.shippingMethodId
+          : undefined,
       shippingMethod: input.shippingMethod,
-      deliveryDate: input.deliveryDate ? new Date(input.deliveryDate) : undefined,
+      deliveryDate: input.deliveryDate ? parseOrderDate(input.deliveryDate) : undefined,
       status: input.status ?? "open",
       paymentStatus: input.paymentStatus ?? "unpaid",
+      paymentProof: input.paymentProof,
       fulfillmentStatus: input.fulfillmentStatus ?? "unfulfilled",
       currency: (input.currency || "HKD").toUpperCase(),
       items,
@@ -461,13 +503,19 @@ class OrderService {
     if (typeof input.email === "string") order.email = input.email;
 
     if (typeof input.shippingAddress === "string") order.shippingAddress = input.shippingAddress;
+    if (typeof input.shippingMethodId === "string") {
+      order.shippingMethodId = input.shippingMethodId && isValidObjectId(input.shippingMethodId)
+        ? (input.shippingMethodId as unknown as never)
+        : undefined;
+    }
     if (typeof input.shippingMethod === "string") order.shippingMethod = input.shippingMethod;
     if (typeof input.deliveryDate === "string") {
-      order.deliveryDate = input.deliveryDate ? new Date(input.deliveryDate) : undefined;
+      order.deliveryDate = input.deliveryDate ? parseOrderDate(input.deliveryDate) : undefined;
     }
 
     if (input.status) order.status = input.status;
     if (input.paymentStatus) order.paymentStatus = input.paymentStatus;
+    if (input.paymentProof) order.paymentProof = input.paymentProof as never;
     if (input.fulfillmentStatus) order.fulfillmentStatus = input.fulfillmentStatus;
 
     if (typeof input.currency === "string" && input.currency.trim()) {
@@ -546,6 +594,35 @@ class OrderService {
       createdAt: new Date(),
       createdByUserId: input.createdByUserId,
     });
+    await order.save();
+    return order;
+  }
+
+  async updatePaymentByIdentifier(input: {
+    orderId?: string;
+    orderNumber?: string;
+    paymentStatus: Extract<OrderPaymentStatus, "verifying">;
+    paymentProof: IOrderPaymentProof;
+    updatedByUserId?: string;
+  }): Promise<IOrderDocument | null> {
+    const order =
+      input.orderId && isValidObjectId(input.orderId)
+        ? await this.getById(input.orderId)
+        : input.orderNumber
+          ? await this.getByOrderNumber(input.orderNumber)
+          : null;
+
+    if (!order) return null;
+
+    order.paymentStatus = input.paymentStatus;
+    order.paymentProof = input.paymentProof as never;
+    order.activity.push({
+      kind: "system",
+      message: `Payment proof received; payment status set to verifying (${input.paymentProof.receiptUrl})`,
+      createdAt: new Date(),
+      createdByUserId: input.updatedByUserId,
+    });
+
     await order.save();
     return order;
   }

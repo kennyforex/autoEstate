@@ -46,15 +46,22 @@ export {
   type IOrderActivityEntry,
   type IOrderItem,
   type IOrderItemSnapshot,
+  type IOrderPaymentProof,
   type OrderFulfillmentStatus,
   type OrderPaymentStatus,
   type OrderSource,
   type OrderStatus,
 } from "./Order.js";
 export { Company, type ICompanyDocument } from "./Company.js";
-export { AILog, type IAILogDocument, type ITokens } from "./AILog.js";
+export { AILog, type AIModelSource, type IAILogDocument, type ITokens } from "./AILog.js";
 export { Skill, type ISkillDocument } from "./Skill.js";
 export { AgentSession, type IAgentSessionDocument } from "./AgentSession.js";
+export {
+  PlaygroundSession,
+  type IPlaygroundSessionDocument,
+  type IPlaygroundMessage,
+  type PlaygroundMessageRole,
+} from "./PlaygroundSession.js";
 export {
   PaymentReminderLog,
   type IPaymentReminderLogDocument,

@@ -1,5 +1,5 @@
 export { AgentEngine } from './engine.js';
-export { buildAgentContext, buildPlaygroundContext } from './context.js';
+export { buildAgentContext, buildPlaygroundContext, buildPlaygroundSessionContext } from './context.js';
 export { buildSystemPrompt } from './prompt.js';
 export { routeIntent, wantsGeneralWebOrNewsIntent } from './router.js';
 export type { ClassifyIntentResult } from './router.js';
@@ -26,6 +26,7 @@ import { AgentEngine } from './engine.js';
 import { createDefaultRegistry } from './tools/index.js';
 import { conversationStateService } from '../services/conversationState.service.js';
 import { reminderService } from '../services/reminder.service.js';
+import { aiLogger } from '../services/aiLogger.service.js';
 import type {
   AgentResult,
   AgentSessionData,
@@ -67,7 +68,8 @@ const afterToolCall: AfterToolCallHook = async ({ toolName, result, context, loo
   if (toolName === 'execute_skill' && result.success && result.summary) {
     const data = result.data as any;
     const convId = context.conversationId;
-    const isPlayground = convId === 'playground';
+    const isPlayground = context.source === 'playground' || convId === 'playground';
+    const shouldPersistGoalState = Boolean(convId) && convId !== 'playground';
 
     if (data?.outOfScope) {
       console.log(`[Agent] Skill "${data.skill}" returned OUT_OF_SCOPE: ${data.reason}`);
@@ -81,18 +83,21 @@ const afterToolCall: AfterToolCallHook = async ({ toolName, result, context, loo
     const isComplete = data?.completed || false;
     const observations = data?.observations || {};
     const unhandledIntent = data?.unhandledIntent as string | undefined;
+    let goalStatePersisted = false;
 
-    // Persist goal state to DB (skip for playground)
-    if (slug && !isPlayground) {
+    // Persist goal state for real inbox conversations and DB-backed playground sessions.
+    if (slug && shouldPersistGoalState) {
       try {
         if (isComplete) {
           const updated = await conversationStateService.completeGoal(convId, slug, observations);
           context.goalStack = updated;
+          goalStatePersisted = true;
           console.log(`[Agent] Goal "${slug}" completed — persisted to DB`);
         } else {
           const skill = context.skills.find((s) => s.slug === slug);
           const updated = await conversationStateService.activateGoal(convId, slug, skill?.steps);
           context.goalStack = updated;
+          goalStatePersisted = true;
           if (Object.keys(observations).length > 0) {
             await conversationStateService.updateStepProgress(convId, slug, observations);
           }
@@ -101,6 +106,21 @@ const afterToolCall: AfterToolCallHook = async ({ toolName, result, context, loo
       } catch (err: any) {
         console.error(`[Agent] Failed to persist goal state: ${err.message}`);
       }
+    }
+
+    if (slug && isComplete) {
+      aiLogger.logSkillGoalCompleted({
+        conversationId: convId,
+        assistantId: context.assistantId,
+        skillSlug: slug,
+        observations,
+        source: isPlayground ? 'playground' : 'inbox',
+        goalStatePersisted,
+        metadata: {
+          channelId: context.channelId,
+          skippedGoalPersistence: !shouldPersistGoalState,
+        },
+      });
     }
 
     // Schedule or cancel reminders (skip for playground)

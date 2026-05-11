@@ -22,6 +22,7 @@ router.get(
         "complex_reply",
         "media_analysis",
         "decision",
+        "tool_calling",
         "error",
         "info",
       ])

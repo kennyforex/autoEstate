@@ -1,6 +1,4 @@
-import axios from "axios";
-import { openRouterHeaders } from "../config/httpAttribution.js";
-import { openRouterConfig } from "../config/openrouter.js";
+import { createChatCompletion } from "../config/aiChatProvider.js";
 import type { AgentContext, AgentSkillInfo, RouterDecision } from "./types.js";
 
 /** Min classifier confidence (0–1) to auto-force `execute_skill` without main model veto. */
@@ -203,25 +201,16 @@ async function classifyIntent(
     `User message: "${sanitizeMessageForIntentRouting(userMessage)}"`;
 
   try {
-    const response = await axios.post(
-      `${openRouterConfig.baseUrl}/chat/completions`,
-      {
-        model: process.env.OPENROUTER_ROUTER_MODEL || "deepseek/deepseek-chat",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0,
-        max_tokens: 80,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${openRouterConfig.apiKey}`,
-          "Content-Type": "application/json",
-          ...openRouterHeaders("Foodflow Router"),
-        },
-        timeout: 5000,
-      },
-    );
+    const response = await createChatCompletion({
+      useCase: "router",
+      title: "Foodflow Router",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      maxTokens: 80,
+      timeout: 5000,
+    });
 
-    const content = response.data.choices?.[0]?.message?.content || "";
+    const content = response.choices?.[0]?.message?.content || "";
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.log(

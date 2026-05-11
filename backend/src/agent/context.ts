@@ -1,5 +1,7 @@
 import { Assistant, Contact, Conversation, Message, Skill } from '../models/index.js';
 import { conversationStateService } from '../services/conversationState.service.js';
+import { playgroundSessionService } from '../services/playgroundSession.service.js';
+import { skillStorage } from '../services/skillStorage.service.js';
 import type {
   AgentContext,
   AgentContactInfo,
@@ -92,7 +94,7 @@ async function loadAssistantSkillsAndRoster(assistantId: string): Promise<{
 
     const teamRoster = buildTeamRoster(a, idToSlug);
 
-    const skills: AgentSkillInfo[] = skillsLean.map((s) => {
+    const skills: AgentSkillInfo[] = await Promise.all(skillsLean.map(async (s) => {
       const doc = s as {
         _id: { toString(): string };
         name: string;
@@ -110,6 +112,16 @@ async function loadAssistantSkillsAndRoster(assistantId: string): Promise<{
         maxReminders?: number;
       };
       const owner = skillIdToOwner.get(doc._id.toString());
+      const availableScripts = doc.storagePath
+        ? await skillStorage.listScripts(doc.storagePath)
+        : [];
+
+      if ((doc.scripts || []).length > 0 && availableScripts.length === 0) {
+        console.warn(
+          `[AgentContext] Skill "${doc.slug}" has script metadata but no scripts in storage; ignoring stale metadata.`,
+        );
+      }
+
       return {
         name: doc.name,
         slug: doc.slug,
@@ -117,7 +129,7 @@ async function loadAssistantSkillsAndRoster(assistantId: string): Promise<{
         triggerHints: doc.triggerHints || [],
         hasReferences: doc.hasReferences || false,
         hasExamples: doc.hasExamples || false,
-        availableScripts: doc.scripts || [],
+        availableScripts,
         storagePath: doc.storagePath || '',
         steps: doc.steps as AgentSkillInfo['steps'],
         instructions: doc.instructions,
@@ -129,7 +141,7 @@ async function loadAssistantSkillsAndRoster(assistantId: string): Promise<{
         ownerResponsibilitiesSnippet: owner?.responsibilities,
         ownerStaffId: owner?.staffId,
       };
-    });
+    }));
 
     console.log(
       `[AgentContext] Loaded ${skills.length} active skill(s): ${skills.map((x) => x.slug).join(', ')}`,
@@ -242,6 +254,7 @@ export async function buildAgentContext(
     conversationId,
     assistantId,
     channelId,
+    source: 'inbox',
     userId,
     contact: contactInfo,
     assistant: assistantInfo,
@@ -303,6 +316,7 @@ export async function buildPlaygroundContext(
     conversationId: 'playground',
     assistantId,
     channelId: 'playground',
+    source: 'playground',
     userId,
     contact: playgroundContact,
     assistant: assistantInfo,
@@ -310,6 +324,72 @@ export async function buildPlaygroundContext(
     messageHistory,
     session,
     markdownEnabled: true,
+    ...(skillLoadError ? { skillLoadError } : {}),
+    ...(skillBindingMismatch ? { skillBindingMismatch } : {}),
+  };
+}
+
+/**
+ * Build an AgentContext for a persisted Playground session.
+ */
+export async function buildPlaygroundSessionContext(
+  assistantId: string,
+  playgroundSessionId: string,
+  playgroundUserId?: string,
+  session?: AgentSessionData,
+): Promise<AgentContext> {
+  const [assistant, loaded, messageHistory, goalStack] = await Promise.all([
+    Assistant.findById(assistantId).populate('skills').lean(),
+    loadAssistantSkillsAndRoster(assistantId),
+    playgroundSessionService.buildMessageHistory(playgroundSessionId),
+    conversationStateService.load(playgroundSessionId),
+  ]);
+
+  if (!assistant) throw new Error(`Assistant ${assistantId} not found`);
+
+  const {
+    skills: skillDocs,
+    teamRoster,
+    skillLoadError,
+    skillBindingMismatch,
+  } = loaded;
+
+  const a = assistant as Record<string, unknown>;
+  const mgr = teamRoster.find((t) => t.isManager);
+  const assistantInfo: AgentAssistantInfo = {
+    id: (a._id as { toString(): string }).toString(),
+    name: String(a.name ?? ''),
+    departmentName: (a.departmentName as string | undefined) || String(a.name ?? ''),
+    managerName: mgr?.displayName || (a.managerName as string | undefined),
+    managerNickname: a.managerNickname as string | undefined,
+    primaryLanguage: a.primaryLanguage as AgentAssistantInfo['primaryLanguage'],
+    tone: a.tone as AgentAssistantInfo['tone'],
+    instructions: a.instructions as string | undefined,
+    model: String(a.aiModel ?? ''),
+    pineconeAssistantName: String(a.pineconeAssistantName ?? ''),
+    teamRoster,
+  };
+
+  const playgroundContact: AgentContactInfo = {
+    id: playgroundSessionId,
+    name: 'Playground User',
+  };
+
+  const userId = playgroundUserId || (a.createdBy as { toString(): string } | undefined)?.toString();
+
+  return {
+    conversationId: playgroundSessionId,
+    assistantId,
+    channelId: playgroundSessionId,
+    source: 'playground',
+    userId,
+    contact: playgroundContact,
+    assistant: assistantInfo,
+    skills: skillDocs,
+    messageHistory,
+    session,
+    markdownEnabled: true,
+    goalStack: goalStack || undefined,
     ...(skillLoadError ? { skillLoadError } : {}),
     ...(skillBindingMismatch ? { skillBindingMismatch } : {}),
   };

@@ -566,6 +566,7 @@ export const AssistantPlayground: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isClearingHistory, setIsClearingHistory] = useState(false);
   const [agentStatus, setAgentStatus] = useState<string | null>(null);
   const [agentSteps, setAgentSteps] = useState<
     Array<{
@@ -592,6 +593,19 @@ export const AssistantPlayground: React.FC = () => {
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const playgroundBlobUrlsRef = useRef<Set<string>>(new Set());
 
+  const resetPlaygroundChatUi = () => {
+    playgroundBlobUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+    playgroundBlobUrlsRef.current.clear();
+    setMessages([]);
+    setInputMessage("");
+    setIsTyping(false);
+    setAgentSteps([]);
+    setAgentStatus(null);
+    setActiveResponsibleStaffId(null);
+    setProcessingStaffId(null);
+    setSelectedChatFile(null);
+  };
+
   useEffect(() => {
     return () => {
       const blobUrls = playgroundBlobUrlsRef.current;
@@ -599,6 +613,33 @@ export const AssistantPlayground: React.FC = () => {
       blobUrls.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    resetPlaygroundChatUi();
+    let cancelled = false;
+
+    const fetchHistory = async () => {
+      try {
+        const history = await assistantsApi.getPlaygroundHistory(id);
+        if (cancelled) return;
+        setMessages(history);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to fetch playground history:", error);
+          showError(
+            t("assistants.playground.historyLoadFailedTitle"),
+            t("assistants.playground.historyLoadFailedBody"),
+          );
+        }
+      }
+    };
+
+    fetchHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   useEffect(() => {
     if (!id) return;
@@ -949,7 +990,7 @@ export const AssistantPlayground: React.FC = () => {
         content || (fileToSend ? `[File: ${fileToSend.name}]` : ""),
       ...(localAttachment ? { localAttachment } : {}),
     };
-    const apiMessages = toApiMessages([...messages, userMessage]);
+    const apiMessages = toApiMessages([userMessage]);
     setMessages((prev) => [...prev, userMessage]);
     setInputMessage("");
     setSelectedChatFile(null);
@@ -1103,6 +1144,32 @@ export const AssistantPlayground: React.FC = () => {
     }
     if (chatFileInputRef.current) {
       chatFileInputRef.current.value = "";
+    }
+  };
+
+  const handleClearPlaygroundHistory = async () => {
+    if (!id || isTyping || isClearingHistory) return;
+    const confirmed = window.confirm(
+      t("assistants.playground.clearHistoryConfirm"),
+    );
+    if (!confirmed) return;
+
+    setIsClearingHistory(true);
+    try {
+      await assistantsApi.clearPlaygroundHistory(id);
+      resetPlaygroundChatUi();
+      showSuccess(
+        t("assistants.playground.clearHistorySuccessTitle"),
+        t("assistants.playground.clearHistorySuccessBody"),
+      );
+    } catch (error) {
+      console.error("Failed to clear playground history:", error);
+      showError(
+        t("assistants.playground.clearHistoryFailedTitle"),
+        t("assistants.playground.clearHistoryFailedBody"),
+      );
+    } finally {
+      setIsClearingHistory(false);
     }
   };
 
@@ -1739,6 +1806,20 @@ export const AssistantPlayground: React.FC = () => {
             <p className="text-sm text-gray-500">{displayDeptName}</p>
           </div>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleClearPlaygroundHistory}
+          disabled={isTyping || isClearingHistory || messages.length === 0}
+          className="flex items-center gap-2"
+        >
+          {isClearingHistory ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Trash2 className="w-4 h-4" />
+          )}
+          {t("assistants.playground.clearHistory")}
+        </Button>
       </div>
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -1822,7 +1903,7 @@ export const AssistantPlayground: React.FC = () => {
                               remarkPlugins={[remarkGfm]}
                               components={{
                                 p: ({ children }) => (
-                                  <p className="my-2 leading-relaxed">
+                                  <p className="my-2 leading-relaxed whitespace-pre-wrap">
                                     {children}
                                   </p>
                                 ),

@@ -3,7 +3,7 @@
  * Stores AI usage logs in MongoDB with in-memory cache for performance
  */
 
-import { AILog, type IAILogDocument } from "../models/index.js";
+import { AILog, type AIModelSource, type IAILogDocument } from "../models/index.js";
 import mongoose from "mongoose";
 
 export interface AILogEntry {
@@ -15,6 +15,7 @@ export interface AILogEntry {
     | "complex_reply"
     | "media_analysis"
     | "decision"
+    | "tool_calling"
     | "error"
     | "info";
   conversationId?: string;
@@ -22,6 +23,7 @@ export interface AILogEntry {
   channelId?: string;
   assistantId?: string;
   model?: string;
+  modelSource?: AIModelSource;
   input?: string;
   output?: string;
   duration?: number;
@@ -53,6 +55,15 @@ class AILoggerService {
       return new mongoose.Types.ObjectId(id);
     } catch {
       return undefined;
+    }
+  }
+
+  private stringifyForLog(value: unknown): string {
+    if (typeof value === "string") return value;
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
     }
   }
 
@@ -108,6 +119,7 @@ class AILoggerService {
         channelId: this.toObjectId(logEntry.channelId),
         assistantId: this.toObjectId(logEntry.assistantId),
         model: logEntry.model,
+        modelSource: logEntry.modelSource,
         input: logEntry.input,
         output: logEntry.output,
         duration: logEntry.duration,
@@ -130,6 +142,7 @@ class AILoggerService {
     result: "SIMPLE" | "COMPLEX";
     duration: number;
     model?: string;
+    modelSource?: AIModelSource;
   }): AILogEntry {
     return this.log({
       type: "classification",
@@ -137,7 +150,8 @@ class AILoggerService {
       conversationId: params.conversationId,
       messageId: params.messageId,
       model: params.model,
-      input: params.input.substring(0, 200),
+      modelSource: params.modelSource,
+      input: params.input,
       output: params.result,
       duration: params.duration,
       metadata: {
@@ -155,6 +169,7 @@ class AILoggerService {
     output: string;
     duration: number;
     model?: string;
+    modelSource?: AIModelSource;
     tokens?: { input?: number; output?: number; total?: number };
   }): AILogEntry {
     return this.log({
@@ -162,10 +177,15 @@ class AILoggerService {
       level: "info",
       conversationId: params.conversationId,
       model: params.model,
-      input: params.input.substring(0, 200),
+      modelSource: params.modelSource,
+      input: params.input,
       output: params.output,
       duration: params.duration,
       tokens: params.tokens,
+      metadata: {
+        inputLength: params.input.length,
+        outputLength: params.output.length,
+      },
     });
   }
 
@@ -180,7 +200,9 @@ class AILoggerService {
     duration: number;
     citations?: any[];
     model?: string;
+    modelSource?: AIModelSource;
     tokens?: { input?: number; output?: number; total?: number };
+    metadata?: Record<string, any>;
   }): AILogEntry {
     return this.log({
       type: "complex_reply",
@@ -188,13 +210,17 @@ class AILoggerService {
       conversationId: params.conversationId,
       assistantId: params.assistantId,
       model: params.model,
-      input: params.input.substring(0, 200),
+      modelSource: params.modelSource,
+      input: params.input,
       output: params.output,
       duration: params.duration,
       tokens: params.tokens,
       metadata: {
+        inputLength: params.input.length,
+        outputLength: params.output.length,
         citationCount: params.citations?.length || 0,
         citations: params.citations,
+        ...params.metadata,
       },
     });
   }
@@ -210,6 +236,7 @@ class AILoggerService {
     result: string;
     duration: number;
     model?: string;
+    modelSource?: AIModelSource;
   }): AILogEntry {
     return this.log({
       type: "media_analysis",
@@ -217,6 +244,7 @@ class AILoggerService {
       conversationId: params.conversationId,
       messageId: params.messageId,
       model: params.model,
+      modelSource: params.modelSource,
       input: `[${params.mediaType}] ${params.mediaUrl?.substring(0, 50) || "N/A"}...`,
       output: params.result,
       duration: params.duration,
@@ -247,10 +275,57 @@ class AILoggerService {
   }
 
   /**
+   * Log agent tool execution with full arguments/result summary where practical.
+   */
+  logToolCall(params: {
+    conversationId?: string;
+    channelId?: string;
+    assistantId?: string;
+    toolName: string;
+    args?: Record<string, unknown>;
+    summary?: string;
+    resultData?: unknown;
+    error?: string;
+    success: boolean;
+    duration?: number;
+    iteration?: number;
+    maxIterations?: number;
+    toolCallId?: string;
+    source?: "playground" | "inbox" | "skill" | string;
+    metadata?: Record<string, any>;
+  }): AILogEntry {
+    const output = params.error || params.summary || "";
+
+    return this.log({
+      type: "tool_calling",
+      level: params.error ? "error" : params.success ? "info" : "warn",
+      conversationId: params.conversationId,
+      channelId: params.channelId,
+      assistantId: params.assistantId,
+      input: this.stringifyForLog(params.args || {}),
+      output,
+      duration: params.duration,
+      metadata: {
+        toolName: params.toolName,
+        success: params.success,
+        source: params.source,
+        iteration: params.iteration,
+        maxIterations: params.maxIterations,
+        toolCallId: params.toolCallId,
+        inputLength: this.stringifyForLog(params.args || {}).length,
+        outputLength: output.length,
+        ...(params.resultData !== undefined ? { toolResultData: params.resultData } : {}),
+        ...params.metadata,
+      },
+    });
+  }
+
+  /**
    * Log error
    */
   logError(params: {
     conversationId?: string;
+    assistantId?: string;
     error: Error | string;
     context?: string;
     metadata?: Record<string, any>;
@@ -264,6 +339,7 @@ class AILoggerService {
       type: "error",
       level: "error",
       conversationId: params.conversationId,
+      assistantId: params.assistantId,
       output: errorMessage,
       metadata: {
         context: params.context,
@@ -291,6 +367,35 @@ class AILoggerService {
   }
 
   /**
+   * Log successful skill goal completion for goal-list confirmation.
+   */
+  logSkillGoalCompleted(params: {
+    conversationId?: string;
+    assistantId?: string;
+    skillSlug: string;
+    observations?: Record<string, unknown>;
+    source?: "playground" | "inbox" | string;
+    goalStatePersisted?: boolean;
+    metadata?: Record<string, any>;
+  }): AILogEntry {
+    return this.log({
+      type: "info",
+      level: "info",
+      conversationId: params.conversationId,
+      assistantId: params.assistantId,
+      output: `Skill goal completed: ${params.skillSlug}`,
+      metadata: {
+        event: "skill_goal_completed",
+        skillSlug: params.skillSlug,
+        observations: params.observations || {},
+        source: params.source,
+        goalStatePersisted: params.goalStatePersisted,
+        ...params.metadata,
+      },
+    });
+  }
+
+  /**
    * Convert database document to AILogEntry format
    */
   private dbToLogEntry(doc: IAILogDocument): AILogEntry {
@@ -304,6 +409,7 @@ class AILoggerService {
       channelId: doc.channelId?.toString(),
       assistantId: doc.assistantId?.toString(),
       model: doc.model,
+      modelSource: doc.modelSource,
       input: doc.input,
       output: doc.output,
       duration: doc.duration,

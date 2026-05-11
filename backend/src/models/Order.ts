@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export type OrderStatus = "open" | "completed" | "cancelled";
-export type OrderPaymentStatus = "unpaid" | "paid";
+export type OrderPaymentStatus = "unpaid" | "verifying" | "paid";
 export type OrderFulfillmentStatus = "unfulfilled" | "fulfilled";
 export type OrderSource = "manual" | "skill";
 
@@ -29,6 +29,14 @@ export interface IOrderActivityEntry {
   createdByUserId?: string;
 }
 
+export interface IOrderPaymentProof {
+  receiptUrl: string;
+  receiptFileName?: string;
+  extracted?: Record<string, unknown>;
+  reviewNotes?: string;
+  checkedAt?: Date;
+}
+
 export interface IOrderDocument extends Document {
   _id: mongoose.Types.ObjectId;
 
@@ -41,11 +49,13 @@ export interface IOrderDocument extends Document {
   email?: string;
 
   shippingAddress?: string;
+  shippingMethodId?: mongoose.Types.ObjectId;
   shippingMethod?: string;
   deliveryDate?: Date;
 
   status: OrderStatus;
   paymentStatus: OrderPaymentStatus;
+  paymentProof?: IOrderPaymentProof;
   fulfillmentStatus: OrderFulfillmentStatus;
 
   currency: string;
@@ -96,6 +106,17 @@ const orderActivityEntrySchema = new Schema<IOrderActivityEntry>(
   { _id: false },
 );
 
+const orderPaymentProofSchema = new Schema<IOrderPaymentProof>(
+  {
+    receiptUrl: { type: String, required: true, trim: true },
+    receiptFileName: { type: String, trim: true },
+    extracted: { type: Schema.Types.Mixed },
+    reviewNotes: { type: String, trim: true },
+    checkedAt: { type: Date },
+  },
+  { _id: false },
+);
+
 const orderSchema = new Schema<IOrderDocument>(
   {
     orderNumber: { type: String, required: true, trim: true, unique: true },
@@ -107,11 +128,13 @@ const orderSchema = new Schema<IOrderDocument>(
     email: { type: String, lowercase: true, trim: true },
 
     shippingAddress: { type: String, trim: true },
+    shippingMethodId: { type: Schema.Types.ObjectId, ref: "ShippingMethod" },
     shippingMethod: { type: String, trim: true },
     deliveryDate: { type: Date },
 
     status: { type: String, enum: ["open", "completed", "cancelled"], default: "open" },
-    paymentStatus: { type: String, enum: ["unpaid", "paid"], default: "unpaid" },
+    paymentStatus: { type: String, enum: ["unpaid", "verifying", "paid"], default: "unpaid" },
+    paymentProof: { type: orderPaymentProofSchema },
     fulfillmentStatus: { type: String, enum: ["unfulfilled", "fulfilled"], default: "unfulfilled" },
 
     currency: { type: String, trim: true, uppercase: true, default: "HKD" },

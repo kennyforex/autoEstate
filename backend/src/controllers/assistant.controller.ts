@@ -3,8 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Response, NextFunction } from 'express';
 import { assistantService } from '../services/assistant.service.js';
-import { agentEngine, buildPlaygroundContext } from '../agent/index.js';
+import { agentEngine, buildPlaygroundSessionContext } from '../agent/index.js';
 import { getSkillPermissionToolOptions } from '../agent/tools/index.js';
+import { aiChatProvider } from '../config/aiChatProvider.js';
+import { aiLogger } from '../services/aiLogger.service.js';
+import { playgroundSessionService } from '../services/playgroundSession.service.js';
+import { AgentSession } from '../models/index.js';
 import type { AuthRequest } from '../types/index.js';
 import type { ChatMessage, AgentEvent } from '../agent/types.js';
 import { getUploadsRoot } from '../utils/uploadsPath.js';
@@ -376,6 +380,58 @@ export async function chatWithAssistant(
   }
 }
 
+export async function getPlaygroundHistory(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const { id } = req.params;
+    const assistant = await assistantService.findById(id);
+    if (!assistant) {
+      res.status(404).json({ error: 'Assistant not found' });
+      return;
+    }
+
+    const messages = await playgroundSessionService.listMessages(id, req.user.userId);
+    res.json({
+      messages: messages.map((message) => playgroundSessionService.formatForApi(message)),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function clearPlaygroundHistory(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const { id } = req.params;
+    const assistant = await assistantService.findById(id);
+    if (!assistant) {
+      res.status(404).json({ error: 'Assistant not found' });
+      return;
+    }
+
+    await playgroundSessionService.clear(id, req.user.userId);
+    res.json({ messages: [] });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getFileStatus(
   req: AuthRequest,
   res: Response,
@@ -580,7 +636,14 @@ export async function agentChat(
   res: Response,
   next: NextFunction
 ): Promise<void> {
+  const assistantIdForLog = req.params.id;
   try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const userId = req.user.userId;
     const { id } = req.params;
     const file = req.file;
 
@@ -603,11 +666,6 @@ export async function agentChat(
       res.status(400).json({ error: 'No user message found' });
       return;
     }
-
-    const history: ChatMessage[] = messages.slice(0, -1).map((m: ChatMessage) => ({
-      role: m.role,
-      content: m.content,
-    }));
 
     // Use SSE to stream agent progress steps in real-time
     res.writeHead(200, {
@@ -662,6 +720,10 @@ export async function agentChat(
     };
 
     let effectiveContent = lastUserMsg.content || '';
+    let persistedUserContent = effectiveContent;
+    let persistedUserContentType: 'text' | 'image' | 'audio' | 'document' = 'text';
+    let persistedMediaUrl: string | undefined;
+    let persistedMediaDescription: string | undefined;
 
     // If a file was uploaded, analyze it and include text / description for the agent
     if (file) {
@@ -680,12 +742,19 @@ export async function agentChat(
           const analysisResult = await analyzeMedia('image', dataUrl);
           effectiveContent =
             `The user shared an image${effectiveContent ? ` with message: "${effectiveContent}"` : ''}. ${urlLine} Image description: ${analysisResult}`;
+          persistedUserContent = lastUserMsg.content || '[Image]';
+          persistedUserContentType = 'image';
+          persistedMediaUrl = urlForAgent;
+          persistedMediaDescription = analysisResult;
           console.log(`[AgentChat] Image analysis complete: ${analysisResult.substring(0, 100)}...`);
         } catch (analysisError: unknown) {
           const msg = analysisError instanceof Error ? analysisError.message : String(analysisError);
           console.error(`[AgentChat] Image analysis failed:`, msg);
           effectiveContent =
             `The user shared an image${effectiveContent ? ` with message: "${effectiveContent}"` : ''}. ${urlLine} (Note: optional image description failed: ${msg})`;
+          persistedUserContent = lastUserMsg.content || '[Image]';
+          persistedUserContentType = 'image';
+          persistedMediaUrl = urlForAgent;
         }
       } else if (mimetype.startsWith('audio/')) {
         const base64Data = file.buffer.toString('base64');
@@ -695,17 +764,24 @@ export async function agentChat(
         try {
           const analysisResult = await analyzeMedia('audio', dataUrl);
           effectiveContent = `The user sent an audio message. Transcription: ${analysisResult}`;
+          persistedUserContent = lastUserMsg.content || '[Audio]';
+          persistedUserContentType = 'audio';
+          persistedMediaDescription = analysisResult;
           console.log(`[AgentChat] Audio analysis complete: ${analysisResult.substring(0, 100)}...`);
         } catch (analysisError: unknown) {
           const msg = analysisError instanceof Error ? analysisError.message : String(analysisError);
           console.error(`[AgentChat] Audio analysis failed:`, msg);
           effectiveContent = `The user shared an audio file${effectiveContent ? `: "${effectiveContent}"` : ''}. (Note: Transcription failed, responding based on available context)`;
+          persistedUserContent = effectiveContent;
+          persistedUserContentType = 'audio';
         }
       } else if (isPlainTextDocumentMime(mimetype) || looksLikePlainTextFile(origName)) {
         sendEvent({ type: 'status', status: 'thinking' });
         const raw = file.buffer.toString('utf8');
         const truncated = truncateForAgentContext(raw);
         effectiveContent = `The user shared a text document (${origName})${effectiveContent ? ` with message: "${effectiveContent}"` : ''}.\n\n--- Document content ---\n${truncated}\n--- End ---`;
+        persistedUserContent = effectiveContent;
+        persistedUserContentType = 'document';
         console.log(`[AgentChat] Inlined text document: ${origName} (${file.size} bytes)`);
       } else if (mimetype === 'application/pdf' || origName.toLowerCase().endsWith('.pdf')) {
         sendEvent({ type: 'status', status: 'thinking' });
@@ -726,23 +802,61 @@ export async function agentChat(
           const truncated = truncateForAgentContext(text);
           effectiveContent =
             `The user shared a PDF (${origName})${effectiveContent ? ` with message: "${effectiveContent}"` : ''}. ${pdfUrlLine}\n\n--- PDF text (reference only) ---\n${truncated || '[No extractable text in PDF]'}\n--- End ---`;
+          persistedUserContent = effectiveContent;
+          persistedUserContentType = 'document';
+          persistedMediaUrl = pdfUrlForAgent;
           console.log(`[AgentChat] Extracted PDF text: ${origName} (${text.length} chars)`);
         } catch (pdfError: unknown) {
           const msg = pdfError instanceof Error ? pdfError.message : String(pdfError);
           console.error(`[AgentChat] PDF parse failed:`, msg);
           effectiveContent =
             `The user attached PDF "${origName}". ${pdfUrlLine} (Note: local PDF text extraction failed: ${msg})`;
+          persistedUserContent = effectiveContent;
+          persistedUserContentType = 'document';
+          persistedMediaUrl = pdfUrlForAgent;
         }
       } else {
         sendEvent({ type: 'status', status: 'thinking' });
         effectiveContent = `The user attached a file: ${origName} (type: ${mimetype || 'unknown'}, ${file.size} bytes). This binary format is not supported in chat; ask them to provide a PDF, plain text (.txt/.md), or paste the content.${effectiveContent ? ` They also wrote: "${effectiveContent}"` : ''}`;
+        persistedUserContent = effectiveContent;
+        persistedUserContentType = 'document';
         console.log(`[AgentChat] Unsupported attachment type: ${mimetype} ${origName}`);
       }
     }
 
     sendEvent({ type: 'status', status: 'thinking' });
 
-    const context = await buildPlaygroundContext(id, history);
+    const playgroundSession = await playgroundSessionService.findOrCreate(id, userId);
+    await playgroundSessionService.appendMessage(playgroundSession._id.toString(), {
+      role: 'user',
+      content: persistedUserContent || effectiveContent || '[Message]',
+      contentType: persistedUserContentType,
+      mediaUrl: persistedMediaUrl,
+      mediaDescription: persistedMediaDescription,
+    });
+
+    const pendingSession = await AgentSession.findOne({
+      conversationId: playgroundSession._id,
+      status: 'awaiting_clarification',
+    }).lean();
+
+    const context = await buildPlaygroundSessionContext(
+      id,
+      playgroundSession._id.toString(),
+      userId,
+      pendingSession
+        ? {
+            conversationId: pendingSession.conversationId.toString(),
+            assistantId: pendingSession.assistantId.toString(),
+            status: pendingSession.status,
+            originalMessage: pendingSession.originalMessage,
+            steps: pendingSession.steps as any,
+            messages: pendingSession.messages as any,
+            pendingClarification: pendingSession.pendingClarification,
+            expiresAt: pendingSession.expiresAt,
+          }
+        : undefined,
+    );
 
     const roster = context.assistant.teamRoster ?? [];
     const useDeptPersona =
@@ -812,7 +926,46 @@ export async function agentChat(
       }
     };
 
+    const agentStartTime = Date.now();
     const result = await agentEngine.run(effectiveContent, context, onEvent);
+    const agentDuration = Date.now() - agentStartTime;
+
+    if (pendingSession) {
+      await AgentSession.deleteOne({ _id: pendingSession._id });
+    }
+    if (result.type === 'clarification' && result.session) {
+      await AgentSession.create(result.session);
+    }
+    await playgroundSessionService.appendMessage(playgroundSession._id.toString(), {
+      role: 'assistant',
+      content: result.content || '',
+      contentType: 'text',
+    });
+
+    aiLogger.logComplexReply({
+      conversationId: playgroundSession._id.toString(),
+      assistantId: id,
+      input: effectiveContent,
+      output: result.content,
+      duration: agentDuration,
+      citations: result.citations || [],
+      model: result.model,
+      modelSource: aiChatProvider.sourceSymbol(),
+      tokens: result.usage
+        ? {
+            input: result.usage.prompt_tokens,
+            output: result.usage.completion_tokens,
+            total: result.usage.total_tokens,
+          }
+        : undefined,
+      metadata: {
+        source: 'playground',
+        resultType: result.type,
+        activeSkillSlug: result.activeSkillSlug,
+        activeStaffId: result.activeStaffId,
+        stepCount: result.steps.length,
+      },
+    });
 
     const donePayload: Record<string, unknown> = {
       type: 'done',
@@ -830,6 +983,15 @@ export async function agentChat(
     res.end();
   } catch (error) {
     console.error('[AgentChat] Error:', error instanceof Error ? error.message : error);
+    aiLogger.logError({
+      assistantId: assistantIdForLog,
+      error: error instanceof Error ? error : String(error),
+      context: 'playground_agent_chat',
+      metadata: {
+        source: 'playground',
+        headersSent: res.headersSent,
+      },
+    });
     if (error instanceof Error && error.stack) {
       console.error(error.stack);
     }

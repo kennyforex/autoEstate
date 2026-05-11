@@ -247,6 +247,18 @@ router.post(
   assistantController.chatWithAssistant,
 );
 
+router.get(
+  "/:id/playground-history",
+  validate([param("id").isMongoId().withMessage("Invalid assistant ID")]),
+  assistantController.getPlaygroundHistory,
+);
+
+router.delete(
+  "/:id/playground-history",
+  validate([param("id").isMongoId().withMessage("Invalid assistant ID")]),
+  assistantController.clearPlaygroundHistory,
+);
+
 // Chat via ReAct Agent Engine (Playground agent mode)
 // Supports optional file upload for media analysis
 // Note: validation is handled in controller due to multipart/form-data
