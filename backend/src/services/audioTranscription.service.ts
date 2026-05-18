@@ -29,13 +29,32 @@ export class AudioTranscriptionError extends Error {
   }
 }
 
+/** Evolution/WhatsApp often returns `audio/ogg; codecs=opus` — strip parameters for stable data URLs and format inference. */
+export function normalizeAudioMimetype(mimetype: string): string {
+  const trimmed = mimetype.trim();
+  const base = trimmed.split(";")[0]?.trim() || "audio/ogg";
+  return base.toLowerCase();
+}
+
 function normalizedModelList(primary: string, fallbacks: string[]): string[] {
   const models = [primary, ...fallbacks.map((m) => m.trim())].filter(Boolean);
   return Array.from(new Set(models));
 }
 
+function envFlag(name: string): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return false;
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
+/** ASR models should use OpenRouter `input_audio` first; optional env forces the same for all audio models. */
+function preferInputAudioFirst(model: string): boolean {
+  if (envFlag("OPENROUTER_AUDIO_PREFER_INPUT_AUDIO")) return true;
+  return /asr/i.test(model);
+}
+
 function inferAudioFormat(mimetype: string): string {
-  const lower = mimetype.toLowerCase();
+  const lower = normalizeAudioMimetype(mimetype).toLowerCase();
   if (lower.includes("wav")) return "wav";
   if (lower.includes("mpeg") || lower.includes("mp3")) return "mp3";
   if (lower.includes("flac")) return "flac";
@@ -47,6 +66,15 @@ function extractBase64(dataUrl: string): string {
   if (!dataUrl.includes(",")) return dataUrl;
   const [, base64 = ""] = dataUrl.split(",", 2);
   return base64;
+}
+
+/** Rewrite data URL to use normalized MIME (no `codecs=` suffix). */
+function normalizeAudioDataUrl(audioDataUrl: string, normalizedMime: string): string {
+  if (!audioDataUrl.startsWith("data:")) return audioDataUrl;
+  const comma = audioDataUrl.indexOf(",");
+  if (comma === -1) return audioDataUrl;
+  const base64 = audioDataUrl.slice(comma + 1);
+  return `data:${normalizedMime};base64,${base64}`;
 }
 
 function errorMessageFrom(error: unknown): string {
@@ -96,7 +124,8 @@ async function requestTranscription(params: {
   timeoutMs: number;
   title: string;
 }): Promise<string> {
-  const { model, prompt, audioDataUrl, audioMimetype, method, timeoutMs, title } = params;
+  const { model, prompt, audioDataUrl, audioMimetype, method, timeoutMs, title } =
+      params;
 
   const content =
     method === "input_audio"
@@ -162,58 +191,59 @@ export async function transcribeAudioWithFallback(params: {
   const models = normalizedModelList(primaryModel, fallbackModels);
   const attempts: AudioTranscriptionAttempt[] = [];
 
+  const normalizedMime = normalizeAudioMimetype(params.audioMimetype);
+  const audioDataUrl = normalizeAudioDataUrl(
+    params.audioDataUrl,
+    normalizedMime,
+  );
+
   for (const model of models) {
-    try {
-      const text = await requestTranscription({
-        model,
-        prompt: params.prompt,
-        audioDataUrl: params.audioDataUrl,
-        audioMimetype: params.audioMimetype,
-        method: "image_url_data_url",
-        timeoutMs,
-        title,
-      });
-      attempts.push({ model, method: "image_url_data_url", success: true });
-      return { text, model, method: "image_url_data_url", attempts };
-    } catch (error) {
-      const message = errorMessageFrom(error);
-      attempts.push({
-        model,
-        method: "image_url_data_url",
-        success: false,
-        status: statusFrom(error),
-        errorMessage: message,
-      });
+    const methods: AudioPayloadMethod[] = preferInputAudioFirst(model)
+      ? ["input_audio", "image_url_data_url"]
+      : ["image_url_data_url", "input_audio"];
 
-      if (isModelUnavailableError(message)) {
-        continue;
+    for (const method of methods) {
+      console.log(
+        `[AI:Audio] OpenRouter attempt: model=${model} method=${method}`,
+      );
+      try {
+        const text = await requestTranscription({
+          model,
+          prompt: params.prompt,
+          audioDataUrl,
+          audioMimetype: normalizedMime,
+          method,
+          timeoutMs,
+          title,
+        });
+        attempts.push({ model, method, success: true });
+        console.log(
+          `[AI:Audio] OpenRouter success: model=${model} method=${method}`,
+        );
+        return { text, model, method, attempts };
+      } catch (error) {
+        const message = errorMessageFrom(error);
+        attempts.push({
+          model,
+          method,
+          success: false,
+          status: statusFrom(error),
+          errorMessage: message,
+        });
+        console.warn(
+          `[AI:Audio] OpenRouter failed: model=${model} method=${method} status=${statusFrom(error) ?? "?"} message=${message}`,
+        );
+
+        if (isModelUnavailableError(message)) {
+          break;
+        }
+
+        const tryAlternates =
+          isPayloadFormatError(message) || method === "input_audio";
+        if (!tryAlternates) {
+          break;
+        }
       }
-
-      if (!isPayloadFormatError(message)) {
-        continue;
-      }
-    }
-
-    try {
-      const text = await requestTranscription({
-        model,
-        prompt: params.prompt,
-        audioDataUrl: params.audioDataUrl,
-        audioMimetype: params.audioMimetype,
-        method: "input_audio",
-        timeoutMs,
-        title,
-      });
-      attempts.push({ model, method: "input_audio", success: true });
-      return { text, model, method: "input_audio", attempts };
-    } catch (error) {
-      attempts.push({
-        model,
-        method: "input_audio",
-        success: false,
-        status: statusFrom(error),
-        errorMessage: errorMessageFrom(error),
-      });
     }
   }
 

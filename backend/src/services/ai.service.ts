@@ -25,6 +25,7 @@ import { reminderService } from "./reminder.service.js";
 import {
   AudioTranscriptionError,
   audioTranscriptionFailureMessage,
+  normalizeAudioMimetype,
   transcribeAudioWithFallback,
 } from "./audioTranscription.service.js";
 import type { AgentEvent } from "../agent/types.js";
@@ -509,7 +510,9 @@ IMPORTANT RULES:
           );
           if (mediaData) {
             audioBase64 = mediaData.base64;
-            audioMimetype = mediaData.mimetype || "audio/ogg";
+            audioMimetype = normalizeAudioMimetype(
+              mediaData.mimetype || "audio/ogg",
+            );
             console.log(
               `[AI:Media] Got base64 audio on attempt ${attempt} (${audioMimetype}, ${audioBase64.length} chars)`,
             );

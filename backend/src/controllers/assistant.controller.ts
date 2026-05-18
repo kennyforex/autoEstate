@@ -10,6 +10,7 @@ import { aiLogger } from '../services/aiLogger.service.js';
 import {
   AudioTranscriptionError,
   audioTranscriptionFailureMessage,
+  normalizeAudioMimetype,
   transcribeAudioWithFallback,
 } from '../services/audioTranscription.service.js';
 import { playgroundSessionService } from '../services/playgroundSession.service.js';
@@ -1068,7 +1069,9 @@ IMPORTANT RULES:
     const mimeFromDataUrl = dataUrl.startsWith('data:')
       ? dataUrl.slice(5, dataUrl.indexOf(';') > 5 ? dataUrl.indexOf(';') : undefined)
       : '';
-    const audioMimetype = mimeFromDataUrl || defaultMime;
+    const audioMimetype = normalizeAudioMimetype(
+      mimeFromDataUrl || defaultMime,
+    );
 
     try {
       const transcription = await transcribeAudioWithFallback({

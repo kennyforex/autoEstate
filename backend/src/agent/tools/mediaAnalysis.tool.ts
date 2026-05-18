@@ -5,6 +5,7 @@ import { openRouterConfig } from '../../config/openrouter.js';
 import {
   AudioTranscriptionError,
   audioTranscriptionFailureMessage,
+  normalizeAudioMimetype,
   transcribeAudioWithFallback,
 } from '../../services/audioTranscription.service.js';
 import type { AgentContext, ToolResult } from '../types.js';
@@ -62,7 +63,9 @@ export class MediaAnalysisTool extends BaseTool {
         const mimeFromDataUrl = mediaDataUrl.startsWith('data:')
           ? mediaDataUrl.slice(5, mediaDataUrl.indexOf(';') > 5 ? mediaDataUrl.indexOf(';') : undefined)
           : '';
-        const audioMimetype = mimeFromDataUrl || defaultMime;
+        const audioMimetype = normalizeAudioMimetype(
+          mimeFromDataUrl || defaultMime,
+        );
 
         try {
           const transcription = await transcribeAudioWithFallback({
