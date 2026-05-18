@@ -44,4 +44,30 @@ assertEqual(
 );
 assertEqual(payload.items[0].notes, undefined, "blank item notes should be omitted");
 
+const payloadWithDatetime = buildOrderPayload({
+  draft: {
+    deliveryDate: "2026-05-20T15:30+08:00",
+    status: "open",
+    paymentStatus: "unpaid",
+    fulfillmentStatus: "unfulfilled",
+    currency: "HKD",
+    discountTotal: 0,
+    shippingFee: 0,
+    taxTotal: 0,
+    tagIds: [],
+  },
+  items: [
+    {
+      snapshot: { productName: "Chocolate Cake" },
+      quantity: 1,
+      unitPrice: 288,
+    },
+  ],
+});
+assertEqual(
+  payloadWithDatetime.deliveryDate,
+  "2026-05-20T15:30+08:00",
+  "deliveryDate datetime must pass through unchanged",
+);
+
 console.log("order form payload normalization ok");

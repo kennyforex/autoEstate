@@ -488,6 +488,7 @@
       "order": "订单",
       "createdAt": "创建时间",
       "customer": "客户",
+      "pickup": "取货",
       "payment": "付款",
       "fulfillment": "履约",
       "total": "总计"
@@ -554,7 +555,8 @@
       "shippingMethodNone": "请选择…",
       "shippingMethodCustom": "自定义（手动填写）",
       "shippingMethodCustomDetail": "配送方式名称",
-      "deliveryDate": "配送日期"
+      "deliveryDate": "配送日期",
+      "deliveryDateTime": "取货日期时间"
     },
     "tagsEmpty": "暂无订单标签。",
     "tagManager": {

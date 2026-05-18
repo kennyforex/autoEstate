@@ -433,6 +433,7 @@
       "order": "Order",
       "createdAt": "Date created",
       "customer": "Customer",
+      "pickup": "Pickup",
       "payment": "Payment",
       "fulfillment": "Fulfillment",
       "total": "Total"
@@ -499,7 +500,8 @@
       "shippingMethodNone": "Select a method…",
       "shippingMethodCustom": "Custom (enter manually)",
       "shippingMethodCustomDetail": "Delivery method name",
-      "deliveryDate": "Delivery date"
+      "deliveryDate": "Delivery date",
+      "deliveryDateTime": "Pickup date & time"
     },
     "tagsEmpty": "No order tags yet.",
     "tagManager": {

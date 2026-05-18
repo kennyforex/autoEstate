@@ -488,6 +488,7 @@
       "order": "訂單",
       "createdAt": "建立時間",
       "customer": "客戶",
+      "pickup": "取貨",
       "payment": "付款",
       "fulfillment": "履約",
       "total": "總計"
@@ -554,7 +555,8 @@
       "shippingMethodNone": "請選擇…",
       "shippingMethodCustom": "自訂（手動填寫）",
       "shippingMethodCustomDetail": "配送方式名稱",
-      "deliveryDate": "配送日期"
+      "deliveryDate": "配送日期",
+      "deliveryDateTime": "取貨日期時間"
     },
     "tagsEmpty": "尚無訂單標籤。",
     "tagManager": {

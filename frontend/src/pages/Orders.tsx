@@ -6,6 +6,10 @@ import { PageHeader } from "../components/layout";
 import { Button, Input, Select, Badge } from "../components/common";
 import { ordersApi } from "../lib/api";
 import type { Order, OrderPaymentStatus } from "../lib/types";
+import {
+  formatHongKongPickupDate,
+  formatHongKongPickupTime,
+} from "../utils/hongKongDateTime";
 import { format } from "date-fns";
 
 const PAGE_SIZE = 25;
@@ -28,7 +32,7 @@ function paymentBadgeVariant(status: OrderPaymentStatus): "success" | "warning" 
 }
 
 export const Orders: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -200,6 +204,7 @@ export const Orders: React.FC = () => {
                       <th className="p-3">{t("ordersPage.columns.order")}</th>
                       <th className="p-3">{t("ordersPage.columns.createdAt")}</th>
                       <th className="p-3">{t("ordersPage.columns.customer")}</th>
+                      <th className="p-3">{t("ordersPage.columns.pickup")}</th>
                       <th className="p-3">{t("ordersPage.columns.payment")}</th>
                       <th className="p-3">{t("ordersPage.columns.fulfillment")}</th>
                       <th className="p-3 text-right">{t("ordersPage.columns.total")}</th>
@@ -244,6 +249,20 @@ export const Orders: React.FC = () => {
                         </td>
                         <td className="p-3 text-gray-700">
                           {order.clientName || order.phoneNumber || order.email || "—"}
+                        </td>
+                        <td className="p-3 align-top text-gray-600">
+                          <div className="space-y-0.5 text-xs">
+                            <div>
+                              {formatHongKongPickupDate(
+                                order.deliveryDate,
+                                i18n.language,
+                              )}
+                            </div>
+                            <div>{formatHongKongPickupTime(order.deliveryDate)}</div>
+                            <div className="text-gray-900">
+                              {order.shippingMethod?.trim() || "—"}
+                            </div>
+                          </div>
                         </td>
                         <td className="p-3">{paymentBadge(order)}</td>
                         <td className="p-3">{statusBadge(order)}</td>

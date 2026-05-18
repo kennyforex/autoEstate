@@ -6,6 +6,10 @@ import { PageHeader } from "../components/layout";
 import { Button, Input, Modal, Select, Textarea, Badge } from "../components/common";
 import { clientGroupsApi, orderTagsApi, ordersApi, productsApi, shippingMethodsApi } from "../lib/api";
 import { buildOrderPayload } from "../utils/orderFormPayload";
+import {
+  fromDatetimeLocalValue,
+  toDatetimeLocalValue,
+} from "../utils/hongKongDateTime";
 import type {
   ClientGroup,
   Order,
@@ -116,21 +120,6 @@ function computeTotals(args: {
   );
   const total = clampMoney(subtotal - args.discountTotal + args.shippingFee + args.taxTotal);
   return { subtotal, total };
-}
-
-function formatHongKongDateInputValue(value: string | undefined): string {
-  if (!value) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Hong_Kong",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const part = (type: string) => parts.find((p) => p.type === type)?.value || "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 function Section({
@@ -1231,13 +1220,13 @@ export const OrderForm: React.FC = () => {
                 />
               )}
               <Input
-                type="date"
-                label={t("ordersPage.orderInfo.deliveryDate")}
-                value={formatHongKongDateInputValue(draft.deliveryDate)}
+                type="datetime-local"
+                label={t("ordersPage.orderInfo.deliveryDateTime")}
+                value={toDatetimeLocalValue(draft.deliveryDate)}
                 onChange={(e) =>
                   setDraft((cur) => ({
                     ...cur,
-                    deliveryDate: e.target.value,
+                    deliveryDate: fromDatetimeLocalValue(e.target.value),
                   }))
                 }
               />
