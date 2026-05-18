@@ -8,6 +8,13 @@ const defaultVisionModel =
 
 const docCaptureStructuredEnv =
   process.env.OPENROUTER_DOCUMENT_CAPTURE_USE_STRUCTURED_OUTPUT?.toLowerCase();
+const audioFallbackModelsEnv = process.env.OPENROUTER_AUDIO_FALLBACK_MODELS;
+const parsedAudioFallbackModels = audioFallbackModelsEnv
+  ? audioFallbackModelsEnv
+      .split(",")
+      .map((model) => model.trim())
+      .filter(Boolean)
+  : [];
 
 export const openRouterConfig = {
   apiKey: process.env.OPENROUTER_API_KEY || "",
@@ -23,7 +30,9 @@ export const openRouterConfig = {
     vision: defaultVisionModel,
     // Video model for video analysis (Z.AI GLM supports video via base64)
     video: process.env.OPENROUTER_VIDEO_MODEL || "z-ai/glm-4.6v",
-    audio: process.env.OPENROUTER_AUDIO_MODEL || "google/gemini-2.0-flash-001",
+    audio:
+      process.env.OPENROUTER_AUDIO_MODEL || "qwen/qwen3-asr-flash-2026-02-10",
+    audioFallback: parsedAudioFallbackModels,
     // Fast text (classification, simple reply)
     fast: process.env.OPENROUTER_FAST_MODEL || "google/gemini-2.0-flash-001",
     // Reasoning model for the ReAct agent engine (configured via env, independent of Pinecone's chat model)

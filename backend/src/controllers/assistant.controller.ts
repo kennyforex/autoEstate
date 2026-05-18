@@ -7,6 +7,11 @@ import { agentEngine, buildPlaygroundSessionContext } from '../agent/index.js';
 import { getSkillPermissionToolOptions } from '../agent/tools/index.js';
 import { aiChatProvider } from '../config/aiChatProvider.js';
 import { aiLogger } from '../services/aiLogger.service.js';
+import {
+  AudioTranscriptionError,
+  audioTranscriptionFailureMessage,
+  transcribeAudioWithFallback,
+} from '../services/audioTranscription.service.js';
 import { playgroundSessionService } from '../services/playgroundSession.service.js';
 import { AgentSession } from '../models/index.js';
 import type { AuthRequest } from '../types/index.js';
@@ -1045,10 +1050,6 @@ async function analyzeMedia(mediaType: 'image' | 'audio', dataUrl: string): Prom
     throw new Error('OpenRouter API key not configured');
   }
 
-  const model = mediaType === 'image'
-    ? openRouterConfig.models.vision
-    : openRouterConfig.models.audio;
-
   const prompt = mediaType === 'image'
     ? 'Describe this image in detail.'
     : `Transcribe this audio message accurately.
@@ -1062,6 +1063,48 @@ IMPORTANT RULES:
 - Add punctuation. Keep filler words if audible.
 - Return ONLY the transcription text, nothing else.`;
 
+  if (mediaType === 'audio') {
+    const defaultMime = 'audio/ogg';
+    const mimeFromDataUrl = dataUrl.startsWith('data:')
+      ? dataUrl.slice(5, dataUrl.indexOf(';') > 5 ? dataUrl.indexOf(';') : undefined)
+      : '';
+    const audioMimetype = mimeFromDataUrl || defaultMime;
+
+    try {
+      const transcription = await transcribeAudioWithFallback({
+        audioDataUrl: dataUrl,
+        audioMimetype,
+        prompt,
+        timeoutMs: 60_000,
+        title: 'Foodflow AI Agent',
+      });
+
+      aiLogger.logInfo({
+        message: `Playground audio transcription fallback attempts: ${transcription.attempts.length}`,
+        metadata: {
+          attempts: transcription.attempts,
+          selectedModel: transcription.model,
+          selectedMethod: transcription.method,
+          source: 'playground',
+        },
+      });
+
+      return transcription.text;
+    } catch (error) {
+      const attempts = error instanceof AudioTranscriptionError ? error.attempts : [];
+      aiLogger.logError({
+        error: error instanceof Error ? error : String(error),
+        context: 'playground_analyzeMedia_audio_fallback',
+        metadata: {
+          source: 'playground',
+          attempts,
+        },
+      });
+      return audioTranscriptionFailureMessage(attempts);
+    }
+  }
+
+  const model = openRouterConfig.models.vision;
   const content = [
     { type: 'text' as const, text: prompt },
     { type: 'image_url' as const, image_url: { url: dataUrl } },

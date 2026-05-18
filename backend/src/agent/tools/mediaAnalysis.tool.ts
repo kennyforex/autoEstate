@@ -2,6 +2,11 @@ import { BaseTool } from './base.js';
 import axios from 'axios';
 import { openRouterHeaders } from '../../config/httpAttribution.js';
 import { openRouterConfig } from '../../config/openrouter.js';
+import {
+  AudioTranscriptionError,
+  audioTranscriptionFailureMessage,
+  transcribeAudioWithFallback,
+} from '../../services/audioTranscription.service.js';
 import type { AgentContext, ToolResult } from '../types.js';
 
 export class MediaAnalysisTool extends BaseTool {
@@ -48,14 +53,50 @@ export class MediaAnalysisTool extends BaseTool {
     }
 
     try {
-      const model = mediaType === 'image'
-        ? openRouterConfig.models.vision
-        : openRouterConfig.models.audio;
-
       const defaultPrompt = mediaType === 'image'
         ? 'Describe this image in detail.'
         : 'Transcribe this audio message accurately.';
 
+      if (mediaType === 'audio') {
+        const defaultMime = 'audio/ogg';
+        const mimeFromDataUrl = mediaDataUrl.startsWith('data:')
+          ? mediaDataUrl.slice(5, mediaDataUrl.indexOf(';') > 5 ? mediaDataUrl.indexOf(';') : undefined)
+          : '';
+        const audioMimetype = mimeFromDataUrl || defaultMime;
+
+        try {
+          const transcription = await transcribeAudioWithFallback({
+            audioDataUrl: mediaDataUrl,
+            audioMimetype,
+            prompt: customPrompt || defaultPrompt,
+            timeoutMs: 60_000,
+            title: 'Foodflow AI Agent',
+          });
+
+          return {
+            success: true,
+            data: {
+              result: transcription.text,
+              model: transcription.model,
+              method: transcription.method,
+              attempts: transcription.attempts,
+            },
+            summary: transcription.text,
+          };
+        } catch (error) {
+          const attempts = error instanceof AudioTranscriptionError ? error.attempts : [];
+          const failureSummary = audioTranscriptionFailureMessage(attempts);
+          return {
+            success: false,
+            data: {
+              attempts,
+            },
+            summary: failureSummary,
+          };
+        }
+      }
+
+      const model = openRouterConfig.models.vision;
       const content = [
         { type: 'text', text: customPrompt || defaultPrompt },
         { type: 'image_url', image_url: { url: mediaDataUrl } },

@@ -22,6 +22,11 @@ import { getEvolutionClient } from "../config/evolution.js";
 import { agentEngine } from "../agent/index.js";
 import { buildAgentContext } from "../agent/context.js";
 import { reminderService } from "./reminder.service.js";
+import {
+  AudioTranscriptionError,
+  audioTranscriptionFailureMessage,
+  transcribeAudioWithFallback,
+} from "./audioTranscription.service.js";
 import type { AgentEvent } from "../agent/types.js";
 import type {
   ServerToClientEvents,
@@ -398,13 +403,9 @@ class AIService {
     }
 
     try {
-      let prompt = "";
-      let model = "";
-      let content: any[] = [];
-
       if (contentType === "image") {
-        model = openRouterConfig.models.vision;
-        prompt =
+        const model = openRouterConfig.models.vision;
+        const prompt =
           "Describe this image in detail. If it is a sticker or a simple thank you image, mention that.";
 
         // Fetch the actual base64 media from Evolution API
@@ -426,103 +427,20 @@ class AIService {
           }
         }
 
-        content = [
+        const content = [
           { type: "text", text: prompt },
           { type: "image_url", image_url: { url: imageDataUrl } },
         ];
-      } else {
-        model = openRouterConfig.models.audio;
-        prompt = `Transcribe this audio message accurately.
-The speaker is most likely using Hong Kong Cantonese with a mix of english Terms (廣東話/spoken form).
-IMPORTANT RULES:
-- Output in Traditional Chinese characters (繁體字) only.
-- Use natural spoken Cantonese vocabulary and grammar, NOT Mandarin.
-- Use Cantonese-specific words: 唔係(not 不是), 咩(not 什麼), 嘅(not 的), 喺(not 在), 冇(not 沒有), 嗰個(not 那個), 而家(not 現在), 點解(not 為什麼), 做咩(not 做什麼), 係(not 是).
-- Keep Cantonese particles: 啦, 喎, 囉, 咩, 呀, 嘛, 㗎, 喇, 吖.
-- If the audio is clearly in English or Mandarin, transcribe in that language instead.
-- Add punctuation. Keep filler words if audible.
-- Return ONLY the transcription text, nothing else.`;
+        const requestBody: any = {
+          model,
+          messages: [{ role: "user", content }],
+        };
 
-        // For audio, we MUST fetch base64 from Evolution API.
-        // WhatsApp media URLs are encrypted and inaccessible to external services.
-        let audioBase64: string | null = null;
-        let audioMimetype = "audio/ogg";
+        console.log(
+          `[AI:Media] Calling OpenRouter with model=${model}, contentType=${contentType}`,
+        );
 
-        if (messageId && conversationId) {
-          // Give WhatsApp/Evolution a moment to make the audio available
-          console.log(
-            `[AI:Media] Waiting 2s for audio to become available from WhatsApp servers...`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-
-          // Try up to 4 times with increasing delay (audio may take time to download/decrypt on WhatsApp servers)
-          for (let attempt = 1; attempt <= 4; attempt++) {
-            console.log(
-              `[AI:Media] Attempt ${attempt}/4 to fetch base64 audio...`,
-            );
-            const mediaData = await this.fetchMediaBase64(
-              messageId,
-              conversationId,
-            );
-            if (mediaData) {
-              audioBase64 = mediaData.base64;
-              audioMimetype = mediaData.mimetype || "audio/ogg";
-              console.log(
-                `[AI:Media] Got base64 audio on attempt ${attempt} (${audioMimetype}, ${audioBase64.length} chars)`,
-              );
-              break;
-            }
-            if (attempt < 4) {
-              const delayMs = attempt * 3000; // 3s, 6s, 9s
-              console.log(
-                `[AI:Media] Attempt ${attempt} failed, retrying in ${delayMs}ms...`,
-              );
-              await new Promise((resolve) => setTimeout(resolve, delayMs));
-            } else {
-              console.error(
-                `[AI:Media] All ${attempt} attempts failed to fetch audio base64`,
-              );
-            }
-          }
-        }
-
-        if (audioBase64) {
-          // Strip any data URL prefix if present
-          const cleanBase64 = audioBase64.includes(",")
-            ? audioBase64.split(",")[1]
-            : audioBase64;
-
-          // Gemini accepts audio via data URL in image_url content type
-          const audioDataUrl = `data:${audioMimetype};base64,${cleanBase64}`;
-          console.log(
-            `[AI:Media] Sending audio as data URL (mimetype=${audioMimetype}, base64 length=${cleanBase64.length})`,
-          );
-
-          content = [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: audioDataUrl } },
-          ];
-        } else {
-          // Cannot transcribe without base64 data - WhatsApp URLs are encrypted
-          console.error(
-            `[AI:Media] All base64 fetch attempts failed for audio. Cannot transcribe.`,
-          );
-          return "[Audio transcription unavailable - could not retrieve audio data]";
-        }
-      }
-
-      const requestBody: any = {
-        model,
-        messages: [{ role: "user", content }],
-      };
-
-      console.log(
-        `[AI:Media] Calling OpenRouter with model=${model}, contentType=${contentType}`,
-      );
-
-      let response;
-      try {
-        response = await axios.post(
+        const response = await axios.post(
           `${openRouterConfig.baseUrl}/chat/completions`,
           requestBody,
           {
@@ -537,32 +455,152 @@ IMPORTANT RULES:
         console.log(
           `[AI:Media] OpenRouter response status: ${response.status}`,
         );
-      } catch (error: any) {
-        console.error(
-          `[AI:Media] OpenRouter error:`,
-          error.response?.status,
-          error.response?.data || error.message,
-        );
-        throw error;
+
+        const result =
+          response.data.choices[0].message.content ||
+          "[No description generated]";
+        const duration = Date.now() - startTime;
+
+        aiLogger.logMediaAnalysis({
+          conversationId,
+          messageId,
+          mediaType: contentType,
+          mediaUrl,
+          result,
+          duration,
+          model,
+          modelSource: "O",
+        });
+
+        return result;
       }
 
-      const result =
-        response.data.choices[0].message.content ||
-        "[No description generated]";
-      const duration = Date.now() - startTime;
+      const prompt = `Transcribe this audio message accurately.
+The speaker is most likely using Hong Kong Cantonese with a mix of english Terms (廣東話/spoken form).
+IMPORTANT RULES:
+- Output in Traditional Chinese characters (繁體字) only.
+- Use natural spoken Cantonese vocabulary and grammar, NOT Mandarin.
+- Use Cantonese-specific words: 唔係(not 不是), 咩(not 什麼), 嘅(not 的), 喺(not 在), 冇(not 沒有), 嗰個(not 那個), 而家(not 現在), 點解(not 為什麼), 做咩(not 做什麼), 係(not 是).
+- Keep Cantonese particles: 啦, 喎, 囉, 咩, 呀, 嘛, 㗎, 喇, 吖.
+- If the audio is clearly in English or Mandarin, transcribe in that language instead.
+- Add punctuation. Keep filler words if audible.
+- Return ONLY the transcription text, nothing else.`;
 
-      aiLogger.logMediaAnalysis({
-        conversationId,
-        messageId,
-        mediaType: contentType,
-        mediaUrl,
-        result,
-        duration,
-        model,
-        modelSource: "O",
-      });
+      // For audio, we MUST fetch base64 from Evolution API.
+      // WhatsApp media URLs are encrypted and inaccessible to external services.
+      let audioBase64: string | null = null;
+      let audioMimetype = "audio/ogg";
 
-      return result;
+      if (messageId && conversationId) {
+        // Give WhatsApp/Evolution a moment to make the audio available
+        console.log(
+          `[AI:Media] Waiting 2s for audio to become available from WhatsApp servers...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Try up to 4 times with increasing delay (audio may take time to download/decrypt on WhatsApp servers)
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          console.log(
+            `[AI:Media] Attempt ${attempt}/4 to fetch base64 audio...`,
+          );
+          const mediaData = await this.fetchMediaBase64(
+            messageId,
+            conversationId,
+          );
+          if (mediaData) {
+            audioBase64 = mediaData.base64;
+            audioMimetype = mediaData.mimetype || "audio/ogg";
+            console.log(
+              `[AI:Media] Got base64 audio on attempt ${attempt} (${audioMimetype}, ${audioBase64.length} chars)`,
+            );
+            break;
+          }
+          if (attempt < 4) {
+            const delayMs = attempt * 3000; // 3s, 6s, 9s
+            console.log(
+              `[AI:Media] Attempt ${attempt} failed, retrying in ${delayMs}ms...`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          } else {
+            console.error(
+              `[AI:Media] All ${attempt} attempts failed to fetch audio base64`,
+            );
+          }
+        }
+      }
+
+      if (!audioBase64) {
+        console.error(
+          `[AI:Media] All base64 fetch attempts failed for audio. Cannot transcribe.`,
+        );
+        return "[Audio transcription unavailable - could not retrieve audio data]";
+      }
+
+      const cleanBase64 = audioBase64.includes(",")
+        ? audioBase64.split(",")[1]
+        : audioBase64;
+      const audioDataUrl = `data:${audioMimetype};base64,${cleanBase64}`;
+      console.log(
+        `[AI:Media] Sending audio as data URL (mimetype=${audioMimetype}, base64 length=${cleanBase64.length})`,
+      );
+
+      try {
+        const transcription = await transcribeAudioWithFallback({
+          audioDataUrl,
+          audioMimetype,
+          prompt,
+          timeoutMs: 60_000,
+          title: "Foodflow AI",
+        });
+
+        const duration = Date.now() - startTime;
+
+        aiLogger.logInfo({
+          conversationId,
+          message: `Audio transcription fallback attempts: ${transcription.attempts.length}`,
+          metadata: {
+            messageId,
+            attempts: transcription.attempts,
+            selectedModel: transcription.model,
+            selectedMethod: transcription.method,
+          },
+        });
+
+        aiLogger.logMediaAnalysis({
+          conversationId,
+          messageId,
+          mediaType: contentType,
+          mediaUrl,
+          result: transcription.text,
+          duration,
+          model: transcription.model,
+          modelSource: "O",
+        });
+
+        return transcription.text;
+      } catch (error: unknown) {
+        const duration = Date.now() - startTime;
+        const attempts =
+          error instanceof AudioTranscriptionError ? error.attempts : [];
+        const failureMessage = audioTranscriptionFailureMessage(attempts);
+
+        aiLogger.logError({
+          conversationId,
+          error:
+            error instanceof Error
+              ? error
+              : "Audio transcription fallback failed",
+          context: "analyzeMedia (audio_fallback)",
+          metadata: {
+            duration,
+            mediaUrl,
+            messageId,
+            attempts,
+          },
+        });
+
+        return failureMessage;
+      }
     } catch (error: any) {
       const duration = Date.now() - startTime;
       aiLogger.logError({
