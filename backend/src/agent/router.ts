@@ -123,6 +123,21 @@ export async function routeIntent(
     return { action: "llm_decide" };
   }
 
+  // 1.75 Persisted active goals are authoritative even if the hidden skill
+  // marker was lost by an earlier direct reply.
+  const activeGoal =
+    (goalStack?.activeGoalId
+      ? goalStack.goals.find(
+          (g) => g.id === goalStack.activeGoalId && g.status === "active",
+        )
+      : undefined) || goalStack?.goals.find((g) => g.status === "active");
+  if (
+    activeGoal &&
+    context.skills.some((skill) => skill.slug === activeGoal.skillSlug)
+  ) {
+    return { action: "suggest_skill", slug: activeGoal.skillSlug };
+  }
+
   // 2. Continue an active (in-progress) skill conversation
   const recent = context.messageHistory.slice(-4);
   for (let i = recent.length - 1; i >= 0; i--) {

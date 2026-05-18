@@ -5,6 +5,7 @@ import { channelService } from "./channel.service.js";
 import { conversationService } from "./conversation.service.js";
 import { messageService, type CreateMessageInput } from "./message.service.js";
 import { aiLogger } from "./aiLogger.service.js";
+import { conversationStateService } from "./conversationState.service.js";
 import { Conversation, Channel, Contact, Message, Assistant } from "../models/index.js";
 import { AgentSession } from "../models/AgentSession.js";
 import { delay, recipientJidForEvolutionSend } from "../utils/helpers.js";
@@ -28,12 +29,22 @@ import {
   normalizeAudioMimetype,
   transcribeAudioWithFallback,
 } from "./audioTranscription.service.js";
-import type { AgentEvent } from "../agent/types.js";
+import type { AgentEvent, GoalStack } from "../agent/types.js";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
   IMessage,
 } from "../types/index.js";
+
+export function shouldBypassSimpleClassificationForGoalStack(
+  goalStack: GoalStack | null | undefined,
+): boolean {
+  return Boolean(
+    goalStack?.goals.some(
+      (goal) => goal.status === "active" || goal.status === "suspended",
+    ),
+  );
+}
 
 /**
  * Queue to handle sequential message processing per conversation
@@ -1044,11 +1055,37 @@ IMPORTANT RULES:
             message: "Bad wording detected, using custom response",
           });
         } else {
-          // 2. Decision Layer: Classify message
-          classification = await this.classifyMessage(
-            effectiveContent,
-            conversationId,
-          );
+          const goalStackForRouting =
+            await conversationStateService.load(conversationId);
+          if (
+            shouldBypassSimpleClassificationForGoalStack(goalStackForRouting)
+          ) {
+            classification = "COMPLEX";
+            aiLogger.logInfo({
+              conversationId,
+              message:
+                "Active skill goal detected, bypassing SIMPLE classifier",
+              metadata: {
+                activeGoalId: goalStackForRouting?.activeGoalId,
+                openGoals: goalStackForRouting?.goals
+                  .filter(
+                    (goal) =>
+                      goal.status === "active" ||
+                      goal.status === "suspended",
+                  )
+                  .map((goal) => ({
+                    skillSlug: goal.skillSlug,
+                    status: goal.status,
+                  })),
+              },
+            });
+          } else {
+            // 2. Decision Layer: Classify message
+            classification = await this.classifyMessage(
+              effectiveContent,
+              conversationId,
+            );
+          }
 
           // Emit thinking status
           this.emitAIStatus(conversationId, "thinking");
