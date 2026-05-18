@@ -53,6 +53,7 @@ metadata:
     - Receipt
   required_tools:
     - google_sheets
+    - send_whatsapp
 steps:
   - id: lookup
     label: 用試算表查詢此客戶未付款訂單
@@ -76,7 +77,8 @@ steps:
 3. 若客戶提供訂單編號，可優先篩選該 **Order ID**。
 4. 用清晰、有禮的語氣提醒尚欠金額（以表上 **Price (HKD)** / **Payment Amount** 為準），並依公司政策說明付款方式（FPS、銀行轉帳等 — 只引用你已知或 SKILL / 知識庫內容，不要捏造帳號）。
 5. 若找不到相符未付訂單：說明情況並請客戶提供訂單編號或下單電話以便查核。
-6. 完成查詢與回覆後結束 skill（標記完成），讓一般對話可繼續。
+6. **主動 WhatsApp（可選）**：若試算表 **Phone** 與目前對話聯絡人不同，且客戶或員工明確要求向該號碼發送催款，使用 **send_whatsapp**：`recipient` = 表上電話（含國碼數字），`message_type` = `text`，內容引用 **Order ID** 與尚欠金額。Playground 只會模擬發送，不會真的發出。
+7. 完成查詢與回覆後結束 skill（標記完成），讓一般對話可繼續。
 
 ## 語言
 

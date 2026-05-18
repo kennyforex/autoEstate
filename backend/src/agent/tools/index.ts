@@ -24,6 +24,7 @@ export { GetShippingOptionsTool } from './getShippingOptions.tool.js';
 export { CreateOrderTool } from './createOrder.tool.js';
 export { SearchOrdersTool } from './searchOrders.tool.js';
 export { UpdateOrderPaymentTool } from './updateOrderPayment.tool.js';
+export { SendWhatsAppTool } from './sendWhatsApp.tool.js';
 
 import { ToolRegistry } from './registry.js';
 import { KnowledgeBaseTool } from './knowledgeBase.tool.js';
@@ -49,6 +50,7 @@ import { GetShippingOptionsTool } from './getShippingOptions.tool.js';
 import { CreateOrderTool } from './createOrder.tool.js';
 import { SearchOrdersTool } from './searchOrders.tool.js';
 import { UpdateOrderPaymentTool } from './updateOrderPayment.tool.js';
+import { SendWhatsAppTool } from './sendWhatsApp.tool.js';
 
 export function createDefaultRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
@@ -74,6 +76,7 @@ export function createDefaultRegistry(): ToolRegistry {
   registry.register(new CreateOrderTool());
   registry.register(new SearchOrdersTool());
   registry.register(new UpdateOrderPaymentTool());
+  registry.register(new SendWhatsAppTool());
 
   const skillTool = new SkillExecutionTool();
   skillTool.setParentRegistry(registry);
