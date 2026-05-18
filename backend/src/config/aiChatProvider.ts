@@ -50,13 +50,13 @@ export const aiChatProvider = {
   model(useCase: AiChatUseCase): string {
     if (this.isDeepSeek) {
       if (useCase === 'router') {
-        return process.env.DEEPSEEK_ROUTER_MODEL?.trim() || 'deepseek-v4-flash';
+        return process.env.DEEPSEEK_ROUTER_MODEL?.trim() || 'deepseek-v4-pro';
       }
       if (useCase === 'fast') {
         return (
           process.env.DEEPSEEK_FAST_MODEL?.trim() ||
           process.env.DEEPSEEK_ROUTER_MODEL?.trim() ||
-          'deepseek-v4-flash'
+          'deepseek-v4-pro'
         );
       }
       return process.env.DEEPSEEK_AGENT_MODEL?.trim() || 'deepseek-v4-pro';
