@@ -143,6 +143,7 @@ export function useAssistantSkillLibrary(
   }, [assistantId, fetchSkills]);
 
   useEffect(() => {
+    if (!assistantId) return;
     let cancelled = false;
     (async () => {
       setSkillToolOptionsLoading(true);
@@ -158,7 +159,7 @@ export function useAssistantSkillLibrary(
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [assistantId]);
 
   const isSkillBoundToStaff = (
     skillId: string,
