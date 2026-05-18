@@ -581,12 +581,18 @@ class OrderService {
   }
 
   async addActivity(input: {
-    orderId: string;
+    orderId?: string;
+    orderNumber?: string;
     message: string;
     kind?: "note" | "system";
     createdByUserId?: string;
   }): Promise<IOrderDocument | null> {
-    const order = await this.getById(input.orderId);
+    const order =
+      input.orderId && isValidObjectId(input.orderId)
+        ? await this.getById(input.orderId)
+        : input.orderNumber
+          ? await this.getByOrderNumber(input.orderNumber)
+          : null;
     if (!order) return null;
     order.activity.push({
       kind: input.kind ?? "note",
