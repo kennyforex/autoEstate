@@ -2,7 +2,10 @@ import axios from "axios";
 import { openRouterConfig } from "../config/openrouter.js";
 import { openRouterHeaders } from "../config/httpAttribution.js";
 
-type AudioPayloadMethod = "image_url_data_url" | "input_audio";
+type AudioPayloadMethod =
+  | "audio_transcriptions"
+  | "image_url_data_url"
+  | "input_audio";
 
 export interface AudioTranscriptionAttempt {
   model: string;
@@ -51,6 +54,10 @@ function envFlag(name: string): boolean {
 function preferInputAudioFirst(model: string): boolean {
   if (envFlag("OPENROUTER_AUDIO_PREFER_INPUT_AUDIO")) return true;
   return /asr/i.test(model);
+}
+
+function isSpeechToTextModel(model: string): boolean {
+  return /asr|whisper|transcri/i.test(model);
 }
 
 function inferAudioFormat(mimetype: string): string {
@@ -167,6 +174,41 @@ async function requestTranscription(params: {
   return text;
 }
 
+async function requestSpeechToTextTranscription(params: {
+  model: string;
+  audioDataUrl: string;
+  audioMimetype: string;
+  timeoutMs: number;
+  title: string;
+}): Promise<string> {
+  const { model, audioDataUrl, audioMimetype, timeoutMs, title } = params;
+
+  const response = await axios.post(
+    `${openRouterConfig.baseUrl}/audio/transcriptions`,
+    {
+      model,
+      input_audio: {
+        data: extractBase64(audioDataUrl),
+        format: inferAudioFormat(audioMimetype),
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${openRouterConfig.apiKey}`,
+        "Content-Type": "application/json",
+        ...openRouterHeaders(title),
+      },
+      timeout: timeoutMs,
+    },
+  );
+
+  const text = response.data?.text?.trim();
+  if (!text) {
+    throw new Error("No transcription text returned from STT provider");
+  }
+  return text;
+}
+
 export async function transcribeAudioWithFallback(params: {
   audioDataUrl: string;
   audioMimetype: string;
@@ -198,24 +240,35 @@ export async function transcribeAudioWithFallback(params: {
   );
 
   for (const model of models) {
-    const methods: AudioPayloadMethod[] = preferInputAudioFirst(model)
-      ? ["input_audio", "image_url_data_url"]
-      : ["image_url_data_url", "input_audio"];
+    const methods: AudioPayloadMethod[] = isSpeechToTextModel(model)
+      ? ["audio_transcriptions", "input_audio", "image_url_data_url"]
+      : preferInputAudioFirst(model)
+        ? ["input_audio", "image_url_data_url"]
+        : ["image_url_data_url", "input_audio"];
 
     for (const method of methods) {
       console.log(
         `[AI:Audio] OpenRouter attempt: model=${model} method=${method}`,
       );
       try {
-        const text = await requestTranscription({
-          model,
-          prompt: params.prompt,
-          audioDataUrl,
-          audioMimetype: normalizedMime,
-          method,
-          timeoutMs,
-          title,
-        });
+        const text =
+          method === "audio_transcriptions"
+            ? await requestSpeechToTextTranscription({
+                model,
+                audioDataUrl,
+                audioMimetype: normalizedMime,
+                timeoutMs,
+                title,
+              })
+            : await requestTranscription({
+                model,
+                prompt: params.prompt,
+                audioDataUrl,
+                audioMimetype: normalizedMime,
+                method,
+                timeoutMs,
+                title,
+              });
         attempts.push({ model, method, success: true });
         console.log(
           `[AI:Audio] OpenRouter success: model=${model} method=${method}`,

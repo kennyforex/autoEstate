@@ -546,6 +546,9 @@ IMPORTANT RULES:
       console.log(
         `[AI:Media] Sending audio as data URL (mimetype=${audioMimetype}, base64 length=${cleanBase64.length})`,
       );
+      console.log(
+        `[AI:Media] Audio transcription path=stt-v1 model=${openRouterConfig.models.audio} mimetype=${audioMimetype} fallbackModels=${openRouterConfig.models.audioFallback.join(",") || "none"}`,
+      );
 
       try {
         const transcription = await transcribeAudioWithFallback({

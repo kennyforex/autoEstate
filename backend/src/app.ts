@@ -9,6 +9,7 @@ import { initializeSocketHandlers } from "./socket/handlers.js";
 import { errorHandler } from "./middleware/error.middleware.js";
 import routes from "./routes/index.js";
 import { getUploadsRoot } from "./utils/uploadsPath.js";
+import { openRouterConfig } from "./config/openrouter.js";
 import { initPaymentReminderScheduler } from "./services/paymentReminder.scheduler.js";
 import { initSkillScheduleScheduler } from "./services/skillSchedule.scheduler.js";
 import { initScheduledJobScheduler } from "./services/scheduledJob.scheduler.js";
@@ -25,6 +26,17 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+
+function buildFingerprint(): string {
+  return (
+    process.env.BUILD_VERSION ||
+    process.env.BUILD_SHA ||
+    process.env.GIT_COMMIT ||
+    process.env.SOURCE_VERSION ||
+    process.env.RENDER_GIT_COMMIT ||
+    "unknown"
+  );
+}
 
 // Serve uploaded videos so DashScope can fetch them by URL (no auth for GET)
 const uploadsDir = getUploadsRoot();
@@ -96,6 +108,12 @@ async function startServer() {
       console.log(`📡 WebSocket server ready`);
       console.log(`🔗 Health check: http://localhost:${PORT}/health`);
       console.log(`📁 Uploads served from: ${uploadsDir} -> /uploads`);
+      console.log(
+        `[Runtime] nodeEnv=${process.env.NODE_ENV || "unset"} cwd=${process.cwd()} build=${buildFingerprint()}`,
+      );
+      console.log(
+        `[Runtime] audioModel=${openRouterConfig.models.audio} audioFallbacks=${openRouterConfig.models.audioFallback.join(",") || "none"} preferInputAudio=${process.env.OPENROUTER_AUDIO_PREFER_INPUT_AUDIO || "unset"}`,
+      );
       initPaymentReminderScheduler();
       initSkillScheduleScheduler(io);
       initScheduledJobPlaygroundIo(io);
