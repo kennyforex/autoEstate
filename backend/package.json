@@ -19,6 +19,7 @@
     "test:hong-kong-date": "tsx src/scripts/test-hong-kong-date.ts",
     "test:product-menu-output": "tsx src/scripts/test-product-menu-output.ts",
     "test:all-tools": "tsx src/scripts/test-all-tools.ts",
+    "test:send-whatsapp": "tsx src/scripts/test-send-whatsapp.ts --playground",
     "install:payment-collection-skill": "tsx src/scripts/install-payment-collection-skill.ts",
     "sync:cake-booking-skill": "tsx src/scripts/sync-cake-booking-skill.ts",
     "install:hello-cron-test-skill": "tsx src/scripts/install-hello-cron-test-skill.ts",

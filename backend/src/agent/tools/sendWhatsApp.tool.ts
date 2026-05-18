@@ -76,6 +76,27 @@ async function resolveOrCreateContact(
   return contact;
 }
 
+/**
+ * Honor explicit E.164 from skill/script over a stored LID when both exist on a matched contact.
+ */
+function resolveEvolutionRecipient(
+  recipientInput: string,
+  contact: { phoneNumber?: string; whatsappId?: string },
+): string {
+  const trimmed = recipientInput.trim();
+  const inputDigits = trimmed.replace(/\D/g, '');
+
+  if (inputDigits && isValidInternationalPhoneDigits(inputDigits)) {
+    return inputDigits;
+  }
+
+  if (trimmed.includes('@lid')) {
+    return trimmed;
+  }
+
+  return recipientJidForEvolutionSend(contact) ?? trimmed;
+}
+
 async function resolveOrCreateConversation(
   contactId: string,
   channelId: string,
@@ -208,8 +229,7 @@ export class SendWhatsAppTool extends BaseTool {
       }
 
       const contact = await resolveOrCreateContact(channelId, recipient);
-      const recipientId =
-        recipientJidForEvolutionSend(contact) ?? recipient.trim();
+      const recipientId = resolveEvolutionRecipient(recipient, contact);
 
       const contentType = messageType === 'image' ? 'image' : 'text';
       const content =
@@ -219,7 +239,8 @@ export class SendWhatsAppTool extends BaseTool {
 
       console.log(
         `[send_whatsapp] assistant=${context.assistantId} skill=${context.activeSkillSlug ?? 'none'} ` +
-          `conversation=${context.conversationId} type=${messageType} to=${maskRecipient(recipient)}`,
+          `conversation=${context.conversationId} type=${messageType} to=${maskRecipient(recipient)} ` +
+          `evolutionTarget=${maskRecipient(recipientId)}`,
       );
 
       const evolutionMessageId = await messageService.sendViaWhatsApp(
