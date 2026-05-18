@@ -70,14 +70,14 @@ function isModelUnavailableError(message: string): boolean {
     lower.includes("not available in your region") ||
     lower.includes("model is not available in your region") ||
     lower.includes("model not found") ||
-    lower.includes("does not exist") ||
-    lower.includes("no endpoints found")
+    lower.includes("does not exist")
   );
 }
 
 function isPayloadFormatError(message: string): boolean {
   const lower = message.toLowerCase();
   return (
+    lower.includes("no endpoints found that support image input") ||
     lower.includes("invalid image") ||
     lower.includes("invalid url") ||
     lower.includes("unsupported content type") ||
