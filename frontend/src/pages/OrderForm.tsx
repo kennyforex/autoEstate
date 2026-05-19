@@ -6,6 +6,7 @@ import { PageHeader } from "../components/layout";
 import { Button, Input, Modal, Select, Textarea, Badge } from "../components/common";
 import { clientGroupsApi, orderTagsApi, ordersApi, productsApi, shippingMethodsApi } from "../lib/api";
 import { buildOrderPayload } from "../utils/orderFormPayload";
+import { resolveOrderItemSnapshot } from "../utils/orderItemSnapshot";
 import {
   fromDatetimeLocalValue,
   toDatetimeLocalValue,
@@ -251,14 +252,18 @@ export const OrderForm: React.FC = () => {
         const order = await ordersApi.get(id);
         setDraft(order);
         setItems(
-          (order.items || []).map((it) => ({
-            ...it,
-            quantity: it.quantity || 1,
-            unitPrice: it.unitPrice || 0,
-            selectedVariantId: undefined,
-            selectedOptionValueIds: [],
-            isManualUnitPrice: false,
-          })),
+          (order.items || []).map((it) => {
+            const resolved = resolveOrderItemSnapshot(it.snapshot, p);
+            return {
+              ...it,
+              snapshot: resolved.snapshot,
+              quantity: it.quantity || 1,
+              unitPrice: it.unitPrice || 0,
+              selectedVariantId: resolved.variantId,
+              selectedOptionValueIds: [],
+              isManualUnitPrice: false,
+            };
+          }),
         );
         const mid = findShippingMethodId(shipMethods, order.shippingMethod, order.shippingMethodId);
         if (mid) setShippingSelectValue(mid);

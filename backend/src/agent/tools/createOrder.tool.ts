@@ -41,7 +41,12 @@ export class CreateOrderTool extends BaseTool {
             snapshot: {
               type: "object",
               properties: {
-                productId: { type: "string" },
+                productId: {
+                  type: "string",
+                  description:
+                    "Parent product MongoDB id from get_product_menu (products[].id). " +
+                    "Do NOT use variant ids (e.g. whole__original). If omitted, the server links by productName.",
+                },
                 productName: { type: "string" },
                 variantLabel: { type: "string" },
                 optionSummary: { type: "string" },

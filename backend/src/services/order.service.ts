@@ -1,4 +1,4 @@
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 import {
   Order,
   Contact,
@@ -8,6 +8,11 @@ import {
   type OrderPaymentStatus,
 } from "../models/index.js";
 import { shippingService } from "./shipping.service.js";
+import {
+  loadProductsForSnapshotResolution,
+  resolveOrderItemSnapshot,
+  type OrderSnapshotInput,
+} from "../utils/orderItemSnapshot.js";
 import {
   formatHongKongDateOnly,
   normalizeHongKongDateTimeInput,
@@ -318,7 +323,72 @@ function parseDateRange(from?: string, to?: string): Record<string, Date> | unde
   return Object.keys(out).length ? out : undefined;
 }
 
+function toSnapshotInput(snapshot: {
+  productId?: mongoose.Types.ObjectId | string;
+  productName: string;
+  variantLabel?: string;
+  optionSummary?: string;
+  sku?: string;
+  imageUrl?: string;
+}): OrderSnapshotInput {
+  const rawId = snapshot.productId;
+  const productId =
+    typeof rawId === "string"
+      ? rawId
+      : rawId
+        ? rawId.toString()
+        : undefined;
+  return {
+    productId,
+    productName: snapshot.productName,
+    variantLabel: snapshot.variantLabel,
+    optionSummary: snapshot.optionSummary,
+    sku: snapshot.sku,
+    imageUrl: snapshot.imageUrl,
+  };
+}
+
+function logSnapshotResolution(before: OrderSnapshotInput, after: OrderSnapshotInput): void {
+  const beforeId = before.productId?.trim() || "";
+  const afterId = after.productId?.trim() || "";
+  if (afterId && afterId !== beforeId) {
+    console.log(
+      `[OrderService] Linked item "${before.productName}" to product ${afterId}` +
+        (beforeId && beforeId !== afterId ? ` (was ${beforeId})` : ""),
+    );
+  }
+}
+
 class OrderService {
+  private async resolveItemsWithCatalog<T extends { snapshot: OrderSnapshotInput }>(
+    items: T[],
+  ): Promise<T[]> {
+    if (!items.length) return items;
+    const products = await loadProductsForSnapshotResolution();
+    return items.map((item) => {
+      const resolved = resolveOrderItemSnapshot(item.snapshot, products);
+      logSnapshotResolution(item.snapshot, resolved.snapshot);
+      return { ...item, snapshot: resolved.snapshot };
+    });
+  }
+
+  private async hydrateOrderItemsForRead(order: IOrderDocument): Promise<void> {
+    if (!order.items?.length) return;
+    const products = await loadProductsForSnapshotResolution();
+    for (const item of order.items) {
+      const before = { ...item.snapshot };
+      const resolved = resolveOrderItemSnapshot(toSnapshotInput(item.snapshot), products);
+      if (resolved.snapshot.productId && isValidObjectId(resolved.snapshot.productId)) {
+        item.snapshot.productId = new mongoose.Types.ObjectId(resolved.snapshot.productId);
+      }
+      if (resolved.snapshot.productName) item.snapshot.productName = resolved.snapshot.productName;
+      if (resolved.snapshot.variantLabel) item.snapshot.variantLabel = resolved.snapshot.variantLabel;
+      if (resolved.snapshot.imageUrl && !before.imageUrl) {
+        item.snapshot.imageUrl = resolved.snapshot.imageUrl;
+      }
+    }
+  }
+
   async list(params: OrderListParams): Promise<{ orders: IOrderDocument[]; total: number }> {
     const query: Record<string, unknown> = {};
 
@@ -376,7 +446,10 @@ class OrderService {
 
   async getById(id: string): Promise<IOrderDocument | null> {
     if (!isValidObjectId(id)) return null;
-    return Order.findById(id);
+    const order = await Order.findById(id);
+    if (!order) return null;
+    await this.hydrateOrderItemsForRead(order);
+    return order;
   }
 
   async getByOrderNumber(orderNumber: string): Promise<IOrderDocument | null> {
@@ -413,7 +486,8 @@ class OrderService {
       }
     }
 
-    const items = (input.items || []).map((item) => ({
+    const resolvedItems = await this.resolveItemsWithCatalog(input.items || []);
+    const items = resolvedItems.map((item) => ({
       snapshot: {
         productId:
           item.snapshot.productId && isValidObjectId(item.snapshot.productId)
@@ -523,7 +597,8 @@ class OrderService {
     }
 
     if (Array.isArray(input.items)) {
-      order.items = input.items.map((item) => ({
+      const resolvedItems = await this.resolveItemsWithCatalog(input.items);
+      order.items = resolvedItems.map((item) => ({
         snapshot: {
           productId:
             item.snapshot.productId && isValidObjectId(item.snapshot.productId)
