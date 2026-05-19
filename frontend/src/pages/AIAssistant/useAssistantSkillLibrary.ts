@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import YAML from "yaml";
 import { assistantsApi, skillsApi } from "../../lib/api";
+import {
+  mergeSkillToolOptionsWithCatalog,
+  normalizeSkillToolOption,
+  parseRequiredTools,
+  type SkillToolOption,
+} from "../../lib/skillToolOptions";
 import type { Assistant, Skill } from "../../lib/types";
 
 /** Top-level YAML keys not mirrored on Skill API — read from frontmatter inner text. */
@@ -27,10 +33,13 @@ function parseSkillFrontmatterTopLevel(inner: string): {
 
 export type SkillEditorTabId =
   | "basic"
+  | "tools"
   | "content"
   | "reference"
   | "assets"
   | "scripts";
+
+export { parseRequiredTools, toggleRequiredTool } from "../../lib/skillToolOptions";
 
 export function useAssistantSkillLibrary(
   assistantId: string | undefined,
@@ -106,10 +115,13 @@ export function useAssistantSkillLibrary(
   const assetUploadRef = useRef<HTMLInputElement>(null);
   const refUploadRef = useRef<HTMLInputElement>(null);
 
-  const [skillToolOptions, setSkillToolOptions] = useState<
-    { id: string; label: string }[]
-  >([]);
+  const [skillToolOptions, setSkillToolOptions] = useState<SkillToolOption[]>(
+    [],
+  );
   const [skillToolOptionsLoading, setSkillToolOptionsLoading] = useState(false);
+  const [selectedSkillToolId, setSelectedSkillToolId] = useState<string | null>(
+    null,
+  );
 
   const managerStaffId = useMemo(
     () => assistant?.staff?.find((s) => s.isManager)?._id,
@@ -143,13 +155,18 @@ export function useAssistantSkillLibrary(
   }, [assistantId, fetchSkills]);
 
   useEffect(() => {
-    if (!assistantId) return;
     let cancelled = false;
     (async () => {
       setSkillToolOptionsLoading(true);
       try {
         const tools = await assistantsApi.getSkillToolOptions();
-        if (!cancelled) setSkillToolOptions(tools);
+        if (!cancelled) {
+          setSkillToolOptions(
+            mergeSkillToolOptionsWithCatalog(
+              tools.map((tool) => normalizeSkillToolOption(tool)),
+            ),
+          );
+        }
       } catch (e) {
         console.error("Failed to fetch skill tool options:", e);
       } finally {
@@ -159,7 +176,19 @@ export function useAssistantSkillLibrary(
     return () => {
       cancelled = true;
     };
-  }, [assistantId]);
+  }, []);
+
+  useEffect(() => {
+    if (skillToolOptions.length === 0) return;
+    setSelectedSkillToolId((prev) => {
+      if (prev && skillToolOptions.some((tool) => tool.id === prev)) return prev;
+      const selected = parseRequiredTools(skillForm.requiredTools);
+      const firstSelected = skillToolOptions.find((tool) =>
+        selected.includes(tool.id),
+      );
+      return firstSelected?.id ?? skillToolOptions[0]?.id ?? null;
+    });
+  }, [skillToolOptions, skillForm.requiredTools]);
 
   const isSkillBoundToStaff = (
     skillId: string,
@@ -842,6 +871,8 @@ ${skillForm.instructions}
     handleDeleteSkill,
     skillToolOptions,
     skillToolOptionsLoading,
+    selectedSkillToolId,
+    setSelectedSkillToolId,
   };
 }
 

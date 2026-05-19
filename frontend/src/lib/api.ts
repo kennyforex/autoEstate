@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 import type { InternalAxiosRequestConfig } from "axios";
+import type { SkillToolOption } from "./skillToolOptions";
 import type {
   User,
   Company,
@@ -529,8 +530,8 @@ async function streamAgentChat(
 
 export const assistantsApi = {
   /** Tool ids allowed for skill `requiredTools` — from backend registry (excludes execute_skill, ask_clarification). */
-  getSkillToolOptions: async (): Promise<{ id: string; label: string }[]> => {
-    const { data } = await api.get<{ tools: { id: string; label: string }[] }>(
+  getSkillToolOptions: async (): Promise<SkillToolOption[]> => {
+    const { data } = await api.get<{ tools: SkillToolOption[] }>(
       "/assistants/skill-tool-options",
     );
     return data.tools ?? [];

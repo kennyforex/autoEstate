@@ -53,6 +53,8 @@ import { SearchOrdersTool } from './searchOrders.tool.js';
 import { UpdateOrderPaymentTool } from './updateOrderPayment.tool.js';
 import { AddOrderActivityTool } from './addOrderActivity.tool.js';
 import { SendWhatsAppTool } from './sendWhatsApp.tool.js';
+import { getToolUiCatalogEntry } from './toolUiCatalog.js';
+import { buildExampleFromParameters } from '../../utils/toolUiExample.js';
 
 export function createDefaultRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
@@ -94,6 +96,11 @@ const SKILL_PERMISSION_EXCLUDED = new Set(['execute_skill', 'ask_clarification']
 export interface SkillPermissionToolOption {
   id: string;
   label: string;
+  description: string;
+  usage: string;
+  parametersHelp: string;
+  parameters: Record<string, unknown>;
+  example: string;
 }
 
 /**
@@ -105,9 +112,23 @@ export function getSkillPermissionToolOptions(): SkillPermissionToolOption[] {
   return registry
     .list()
     .filter((t) => !SKILL_PERMISSION_EXCLUDED.has(t.name))
-    .map((t) => ({
-      id: t.name,
-      label: t.name.replace(/_/g, ' '),
-    }))
+    .map((t) => {
+      const catalog = getToolUiCatalogEntry(t.name);
+      if (!catalog) {
+        console.warn(
+          `[getSkillPermissionToolOptions] Missing toolUiCatalog entry for "${t.name}"`,
+        );
+      }
+      return {
+        id: t.name,
+        label: t.name.replace(/_/g, ' '),
+        description: catalog?.description ?? t.description,
+        usage: catalog?.usage ?? '',
+        parametersHelp: catalog?.parametersHelp ?? '',
+        parameters: t.parameters,
+        example:
+          catalog?.example ?? buildExampleFromParameters(t.parameters),
+      };
+    })
     .sort((a, b) => a.id.localeCompare(b.id));
 }

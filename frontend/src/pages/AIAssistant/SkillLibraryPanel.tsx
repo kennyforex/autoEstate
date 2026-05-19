@@ -22,7 +22,9 @@ import {
   Toggle,
 } from "../../components/common";
 import type { AssistantSkillLibrary } from "./useAssistantSkillLibrary";
+import { parseRequiredTools } from "../../lib/skillToolOptions";
 import type { Skill } from "../../lib/types";
+import { SkillToolsTab } from "./SkillToolsTab";
 
 function formatAssetSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -114,6 +116,8 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
     handleDeleteSkill,
     skillToolOptions,
     skillToolOptionsLoading,
+    selectedSkillToolId,
+    setSelectedSkillToolId,
   } = lib;
 
   useEffect(() => {
@@ -435,57 +439,9 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                 }
                 placeholder="e.g. hello, greet, welcome, 你好"
               />
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Tools Access (select tools this skill can use)
-                </label>
-                {skillToolOptionsLoading ? (
-                  <p className="text-xs text-gray-400">{t("common.loading")}</p>
-                ) : skillToolOptions.length === 0 ? (
-                  <p className="text-xs text-amber-600">
-                    {t("assistants.playground.skillToolOptionsLoadFailed")}
-                  </p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {skillToolOptions.map((tool) => {
-                      const selected = skillForm.requiredTools
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean)
-                        .includes(tool.id);
-                      return (
-                        <button
-                          key={tool.id}
-                          type="button"
-                          onClick={() => {
-                            const current = skillForm.requiredTools
-                              .split(",")
-                              .map((s) => s.trim())
-                              .filter(Boolean);
-                            const next = selected
-                              ? current.filter((x) => x !== tool.id)
-                              : [...current, tool.id];
-                            setSkillForm({
-                              ...skillForm,
-                              requiredTools: next.join(", "),
-                            });
-                          }}
-                          className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                            selected
-                              ? "border-blue-300 bg-blue-50 text-blue-700"
-                              : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
-                          }`}
-                        >
-                          {tool.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <p className="mt-1 text-xs text-gray-400">
-                  Optional. These tools will be available inside skill execution.
-                </p>
-              </div>
+              <p className="text-xs text-text-secondary">
+                {t("assistants.playground.skillCreateToolsHint")}
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -597,6 +553,39 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
             {(() => {
               const skillRo = editingSkill.isBuiltIn;
               const sid = editingSkill._id;
+              const requiredToolsCount = parseRequiredTools(
+                skillForm.requiredTools,
+              ).length;
+              const toolsTabLabel =
+                requiredToolsCount > 0
+                  ? `${t("assistants.playground.skillEditorTabTools")} (${requiredToolsCount})`
+                  : t("assistants.playground.skillEditorTabTools");
+              const editorTabs: {
+                id: typeof skillEditorTab;
+                label: string;
+              }[] = [
+                {
+                  id: "basic",
+                  label: t("assistants.playground.skillEditorTabBasic"),
+                },
+                { id: "tools", label: toolsTabLabel },
+                {
+                  id: "content",
+                  label: t("assistants.playground.skillEditorTabSkillContent"),
+                },
+                {
+                  id: "reference",
+                  label: `${t("assistants.playground.skillEditorTabReference")} (${refFiles.length})`,
+                },
+                {
+                  id: "assets",
+                  label: `${t("assistants.playground.skillEditorTabAssets")} (${assetList.length})`,
+                },
+                {
+                  id: "scripts",
+                  label: `${t("assistants.playground.skillEditorTabScripts")} (${scriptList.length})`,
+                },
+              ];
               return (
                 <div className="flex min-h-0 flex-1 flex-col gap-4">
                   <p className="shrink-0 font-mono text-xs text-text-secondary">
@@ -612,30 +601,7 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                     className="flex shrink-0 flex-wrap gap-0.5 border-b border-gray-200"
                     role="tablist"
                   >
-                    {(
-                      [
-                        [
-                          "basic",
-                          t("assistants.playground.skillEditorTabBasic"),
-                        ],
-                        [
-                          "content",
-                          t("assistants.playground.skillEditorTabSkillContent"),
-                        ],
-                        [
-                          "reference",
-                          `${t("assistants.playground.skillEditorTabReference")} (${refFiles.length})`,
-                        ],
-                        [
-                          "assets",
-                          `${t("assistants.playground.skillEditorTabAssets")} (${assetList.length})`,
-                        ],
-                        [
-                          "scripts",
-                          `${t("assistants.playground.skillEditorTabScripts")} (${scriptList.length})`,
-                        ],
-                      ] as const
-                    ).map(([tabId, tabLabel]) => (
+                    {editorTabs.map(({ id: tabId, label: tabLabel }) => (
                       <button
                         key={tabId}
                         type="button"
@@ -851,62 +817,24 @@ export const SkillLibraryPanel: React.FC<SkillLibraryPanelProps> = ({ lib }) => 
                             </div>
                           </section>
 
-                          <section className="space-y-3 border-t border-gray-100 pt-4">
-                            <h3 className="text-sm font-semibold text-gray-900">
-                              {t("assistants.playground.skillYamlSectionRequiredTools")}
-                            </h3>
-                            <p className="text-xs text-text-secondary">
-                              {t("assistants.playground.skillYamlRequiredToolsHint")}
-                            </p>
-                            {skillToolOptionsLoading ? (
-                              <p className="text-xs text-gray-400">
-                                {t("common.loading")}
-                              </p>
-                            ) : skillToolOptions.length === 0 ? (
-                              <p className="text-xs text-amber-600">
-                                {t("assistants.playground.skillToolOptionsLoadFailed")}
-                              </p>
-                            ) : (
-                              <div className="flex flex-wrap gap-2">
-                                {skillToolOptions.map((tool) => {
-                                  const selected = skillForm.requiredTools
-                                    .split(",")
-                                    .map((s) => s.trim())
-                                    .filter(Boolean)
-                                    .includes(tool.id);
-                                  return (
-                                    <button
-                                      key={tool.id}
-                                      type="button"
-                                      disabled={skillRo}
-                                      onClick={() => {
-                                        if (skillRo) return;
-                                        const current = skillForm.requiredTools
-                                          .split(",")
-                                          .map((s) => s.trim())
-                                          .filter(Boolean);
-                                        const next = selected
-                                          ? current.filter((x) => x !== tool.id)
-                                          : [...current, tool.id];
-                                        setSkillForm({
-                                          ...skillForm,
-                                          requiredTools: next.join(", "),
-                                        });
-                                      }}
-                                      className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                                        selected
-                                          ? "border-blue-300 bg-blue-50 text-blue-700"
-                                          : "border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300"
-                                      } ${skillRo ? "cursor-not-allowed opacity-60" : ""}`}
-                                    >
-                                      {tool.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </section>
                         </div>
+                      </div>
+                    )}
+
+                    {skillEditorTab === "tools" && (
+                      <div className="flex min-h-[280px] min-w-0 flex-1 flex-col overflow-hidden">
+                        <SkillToolsTab
+                          tools={skillToolOptions}
+                          loading={skillToolOptionsLoading}
+                          requiredToolsCsv={skillForm.requiredTools}
+                          onRequiredToolsChange={(csv) =>
+                            setSkillForm({ ...skillForm, requiredTools: csv })
+                          }
+                          readOnly={skillRo}
+                          selectedToolId={selectedSkillToolId}
+                          onSelectToolId={setSelectedSkillToolId}
+                          t={t}
+                        />
                       </div>
                     )}
 
