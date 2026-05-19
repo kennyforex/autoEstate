@@ -205,8 +205,8 @@ export const Orders: React.FC = () => {
                       <th className="p-3">{t("ordersPage.columns.createdAt")}</th>
                       <th className="p-3">{t("ordersPage.columns.customer")}</th>
                       <th className="p-3">{t("ordersPage.columns.pickup")}</th>
-                      <th className="p-3">{t("ordersPage.columns.payment")}</th>
-                      <th className="p-3">{t("ordersPage.columns.fulfillment")}</th>
+                      <th className="p-3 whitespace-nowrap">{t("ordersPage.columns.payment")}</th>
+                      <th className="p-3 whitespace-nowrap">{t("ordersPage.columns.fulfillment")}</th>
                       <th className="p-3 text-right">{t("ordersPage.columns.total")}</th>
                     </tr>
                   </thead>
@@ -264,8 +264,8 @@ export const Orders: React.FC = () => {
                             </div>
                           </div>
                         </td>
-                        <td className="p-3">{paymentBadge(order)}</td>
-                        <td className="p-3">{statusBadge(order)}</td>
+                        <td className="p-3 whitespace-nowrap">{paymentBadge(order)}</td>
+                        <td className="p-3 whitespace-nowrap">{statusBadge(order)}</td>
                         <td className="p-3 text-right font-medium text-gray-900">
                           {formatMoney(order.currency, order.total)}
                         </td>
