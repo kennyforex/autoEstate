@@ -8,7 +8,15 @@ import { aiLogger } from "./aiLogger.service.js";
 import { conversationStateService } from "./conversationState.service.js";
 import { Conversation, Channel, Contact, Message, Assistant } from "../models/index.js";
 import { AgentSession } from "../models/AgentSession.js";
-import { delay, recipientJidForEvolutionSend } from "../utils/helpers.js";
+import { delay, formatPhoneToJid, recipientJidForEvolutionSend } from "../utils/helpers.js";
+import { companyService } from "./company.service.js";
+import { moderationService } from "./moderation.service.js";
+import type {
+  IModerationSettings,
+  ModerationMatchResult,
+} from "../types/moderation.js";
+import type { IChannelDocument } from "../models/Channel.js";
+import type { IContactDocument } from "../models/Contact.js";
 import {
   extractHttpsImageUrls,
   scrubImageUrlsFromText,
@@ -85,7 +93,7 @@ class ConversationQueue {
   }
 }
 
-class AIService {
+export class AIService {
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
   private queue = new ConversationQueue();
 
@@ -970,9 +978,18 @@ IMPORTANT RULES:
           );
         }
 
-        // Check for bad wording/profanity and use custom response if enabled
-        const detectBadWording = channel.aiSettings.detectBadWording !== false; // Default to true
-        const hasBadWording = this.detectBadWording(effectiveContent);
+        const company = await companyService.getCompany();
+        const moderationSettings = company.moderationSettings!;
+        const detectBadWording = channel.aiSettings.detectBadWording !== false;
+        const companyModerationEnabled = moderationSettings.enabled;
+
+        let moderationMatch: ModerationMatchResult | null = null;
+        if (companyModerationEnabled && detectBadWording) {
+          moderationMatch = moderationService.match(
+            effectiveContent,
+            moderationSettings,
+          );
+        }
 
         let aiResponseContent = "";
         let citations: any[] = [];
@@ -1043,8 +1060,16 @@ IMPORTANT RULES:
                 }
               : undefined,
           });
-        } else if (detectBadWording && hasBadWording) {
-          // Use custom bad wording response
+        } else if (detectBadWording && moderationMatch) {
+          await this.applyModerationEffects(
+            conversationId,
+            channel,
+            contact,
+            effectiveContent,
+            moderationSettings,
+            moderationMatch,
+          );
+
           aiResponseContent =
             channel.aiSettings.badWordingResponse ||
             "We will help you as best as possible. Please let us know how we can assist you.";
@@ -1053,6 +1078,10 @@ IMPORTANT RULES:
           aiLogger.logInfo({
             conversationId,
             message: "Bad wording detected, using custom response",
+            metadata: {
+              categoryId: moderationMatch.category.id,
+              matchedPhrase: moderationMatch.matchedPhrase,
+            },
           });
         } else {
           const goalStackForRouting =
@@ -1206,21 +1235,27 @@ IMPORTANT RULES:
           });
         }
 
-        // Analyze sentiment from effective content
-        const sentiment = this.analyzeSentiment(effectiveContent);
+        let sentiment = this.analyzeSentiment(effectiveContent);
+        let priority = sentiment === "negative" ? 7 : 3;
 
-        // Update AI signals
+        if (moderationMatch) {
+          sentiment = "negative";
+          const folder = moderationMatch.category.inboxFolder;
+          if (folder === "priority" || folder === "slaRisk") {
+            priority = 8;
+          }
+        }
+
         await conversationService.updateAISignals(conversationId, {
           confidence: classification === "SIMPLE" ? 0.95 : 0.85,
           sentiment,
-          priority: sentiment === "negative" ? 7 : 3,
+          priority,
         });
 
-        // Flag SLA risk on negative sentiment, but do NOT stop AI response.
-        // AI continues responding until the per-chat AI toggle is explicitly switched off.
         if (
           sentiment === "negative" &&
-          channel.aiSettings.escalateOnNegativeSentiment
+          channel.aiSettings.escalateOnNegativeSentiment &&
+          moderationMatch?.category.inboxFolder !== "slaRisk"
         ) {
           await conversationService.updateAISignals(conversationId, {
             slaRisk: true,
@@ -1287,6 +1322,64 @@ IMPORTANT RULES:
         await conversationService.setAIHandling(conversationId, false);
       }
     });
+  }
+
+  private async applyModerationEffects(
+    conversationId: string,
+    channel: IChannelDocument,
+    contact: IContactDocument,
+    effectiveContent: string,
+    moderationSettings: IModerationSettings,
+    moderationMatch: ModerationMatchResult,
+  ): Promise<void> {
+    await moderationService.applyFolderActions(
+      conversationId,
+      moderationMatch.category.inboxFolder,
+    );
+    await conversationService.recordModerationMatch(conversationId, {
+      categoryId: moderationMatch.category.id,
+      categoryName: moderationMatch.category.name,
+    });
+
+    if (
+      moderationSettings.notifyEnabled &&
+      moderationSettings.notifyPhoneNumber
+    ) {
+      const conv = await Conversation.findById(conversationId)
+        .select("moderationAlertsSent")
+        .lean();
+      if (
+        moderationService.shouldNotify(
+          conv?.moderationAlertsSent,
+          moderationMatch.category.id,
+        )
+      ) {
+        try {
+          const contactLabel =
+            contact.name ||
+            contact.phoneNumber ||
+            contact.whatsappId ||
+            "Unknown";
+          const notifyText = moderationService.buildNotifyText({
+            categoryName: moderationMatch.category.name,
+            contactLabel,
+            channelName: channel.name,
+            messageContent: effectiveContent,
+          });
+          await messageService.sendViaWhatsApp(
+            channel.evolutionInstanceName,
+            formatPhoneToJid(moderationSettings.notifyPhoneNumber),
+            notifyText,
+          );
+          await conversationService.markModerationAlertSent(
+            conversationId,
+            moderationMatch.category.id,
+          );
+        } catch (err) {
+          console.error("[AI:Moderation] Manager notify failed:", err);
+        }
+      }
+    }
   }
 
   /**
@@ -1398,83 +1491,6 @@ IMPORTANT RULES:
     }
 
     return "neutral";
-  }
-
-  /**
-   * Detect bad wording/profanity in message (multi-language support)
-   */
-  private detectBadWording(text: string): boolean {
-    const lowerText = text.toLowerCase();
-
-    // English profanity
-    const englishProfanity = [
-      "fuck",
-      "fucking",
-      "fucked",
-      "fucker",
-      "shit",
-      "shitting",
-      "shitted",
-      "damn",
-      "damned",
-      "dammit",
-      "hell",
-      "crap",
-      "ass",
-      "asshole",
-      "bitch",
-      "bastard",
-      "piss",
-      "pissed",
-      "cunt",
-      "dick",
-      "cock",
-      "pussy",
-      "motherfucker",
-      "motherfucking",
-    ];
-
-    // Chinese/Cantonese profanity (common ones)
-    const chineseProfanity = [
-      "屌",
-      "屌你",
-      "屌你老母",
-      "屌你媽",
-      "屌你媽咪",
-      "操",
-      "操你",
-      "操你媽",
-      "操你媽的",
-      "死",
-      "死開",
-      "死仆街",
-      "死全家",
-      "冚家",
-      "冚家鏟",
-      "冚家富貴",
-      "廢物",
-      "廢柴",
-      "垃圾",
-      "白癡",
-      "智障",
-      "弱智",
-    ];
-
-    // Check English profanity
-    for (const word of englishProfanity) {
-      if (lowerText.includes(word)) {
-        return true;
-      }
-    }
-
-    // Check Chinese/Cantonese profanity (exact match in original text)
-    for (const word of chineseProfanity) {
-      if (text.includes(word)) {
-        return true;
-      }
-    }
-
-    return false;
   }
 
   /**

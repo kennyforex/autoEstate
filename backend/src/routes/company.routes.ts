@@ -3,6 +3,7 @@ import { body } from "express-validator";
 import { validate } from "../middleware/validation.middleware.js";
 import { authMiddleware, requireRole } from "../middleware/auth.middleware.js";
 import * as companyController from "../controllers/company.controller.js";
+import { MODERATION_INBOX_FOLDERS } from "../types/moderation.js";
 
 const router = Router();
 
@@ -55,6 +56,37 @@ router.put(
     body("smtpPass").optional().isString(),
     body("emailFrom").optional().trim().isString(),
     body("appUrl").optional().trim().isString(),
+    body("moderationSettings").optional().isObject(),
+    body("moderationSettings.enabled").optional().isBoolean(),
+    body("moderationSettings.notifyEnabled").optional().isBoolean(),
+    body("moderationSettings.notifyPhoneNumber").optional().isString(),
+    body("moderationSettings.categories")
+      .optional()
+      .isArray({ max: 20 }),
+    body("moderationSettings.categories.*.id").optional().isString(),
+    body("moderationSettings.categories.*.name").optional().isString(),
+    body("moderationSettings.categories.*.enabled").optional().isBoolean(),
+    body("moderationSettings.categories.*.phrases")
+      .optional()
+      .isArray({ max: 200 }),
+    body("moderationSettings.categories.*.phrases.*")
+      .optional()
+      .isString()
+      .isLength({ max: 120 }),
+    body("moderationSettings.categories.*.inboxFolder")
+      .optional()
+      .isIn([...MODERATION_INBOX_FOLDERS]),
+    body("moderationSettings")
+      .optional()
+      .custom((value) => {
+        if (!value || typeof value !== "object") return true;
+        if (value.notifyEnabled && !String(value.notifyPhoneNumber ?? "").trim()) {
+          throw new Error(
+            "Manager notify phone is required when alerts are enabled",
+          );
+        }
+        return true;
+      }),
   ]),
   companyController.updateCompany,
 );

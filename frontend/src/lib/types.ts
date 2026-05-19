@@ -45,6 +45,29 @@ export interface User {
   updatedAt: string;
 }
 
+// Moderation / bad wording (Settings > AI Behavior)
+export type ModerationInboxFolder =
+  | "attention"
+  | "negative"
+  | "priority"
+  | "slaRisk"
+  | "spam";
+
+export interface BadWordingCategory {
+  id: string;
+  name: string;
+  enabled: boolean;
+  phrases: string[];
+  inboxFolder: ModerationInboxFolder;
+}
+
+export interface ModerationSettings {
+  enabled: boolean;
+  categories: BadWordingCategory[];
+  notifyEnabled: boolean;
+  notifyPhoneNumber: string;
+}
+
 // Company types
 export interface Company {
   _id: string;
@@ -55,6 +78,7 @@ export interface Company {
   address?: string;
   website?: string;
   timezone?: string;
+  moderationSettings?: ModerationSettings;
   /** SMTP for team invite emails (stored in Settings > General > Email) */
   smtpHost?: string;
   smtpPort?: number;
@@ -413,6 +437,12 @@ export interface Conversation {
   aiHandling: boolean;
   aiSignals: AISignals;
   dismissedInsights?: DismissedInsights;
+  moderationAlertsSent?: string[];
+  lastModerationMatch?: {
+    categoryId: string;
+    categoryName: string;
+    at: string;
+  };
   needsAttention: boolean;
   isArchived: boolean;
   tags?: Tag[];

@@ -4,5 +4,6 @@ export { TeamSettings } from './TeamSettings';
 export { APIKeysSettings } from './APIKeysSettings';
 export { RolesSettings } from './RolesSettings';
 export { GeneralSettings } from './GeneralSettings';
+export { AIBehaviorSettings } from './AIBehaviorSettings';
 export { SMTPSettings } from './SMTPSettings';
 export { ShippingSettings } from './ShippingSettings';

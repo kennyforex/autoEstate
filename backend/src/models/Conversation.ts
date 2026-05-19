@@ -13,6 +13,12 @@ export interface IDismissedInsights {
   priority?: boolean;
 }
 
+export interface ILastModerationMatch {
+  categoryId: string;
+  categoryName: string;
+  at: Date;
+}
+
 export interface IConversationDocument extends Document {
   _id: mongoose.Types.ObjectId;
   contactId: mongoose.Types.ObjectId;
@@ -25,6 +31,8 @@ export interface IConversationDocument extends Document {
   aiHandling: boolean;
   aiSignals: IAISignals;
   dismissedInsights?: IDismissedInsights;
+  moderationAlertsSent?: string[];
+  lastModerationMatch?: ILastModerationMatch;
   needsAttention: boolean;
   isArchived: boolean;
   tags: mongoose.Types.ObjectId[];
@@ -112,6 +120,19 @@ const conversationSchema = new Schema<IConversationDocument>(
         priority: { type: Boolean, default: false },
       },
       default: () => ({ negativeSentiment: false, slaRisk: false, priority: false }),
+      _id: false,
+    },
+    moderationAlertsSent: {
+      type: [String],
+      default: () => [],
+    },
+    lastModerationMatch: {
+      type: {
+        categoryId: { type: String, required: true },
+        categoryName: { type: String, required: true },
+        at: { type: Date, required: true },
+      },
+      required: false,
       _id: false,
     },
     needsAttention: {

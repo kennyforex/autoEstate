@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "lint": "eslint src/**/*.ts",
+    "test": "tsx --test src/**/*.test.ts",
     "migrate:lid": "tsx src/scripts/migrate-lid-contacts.ts",
     "migrate:countries": "tsx src/scripts/migrate-contact-countries.ts",
     "migrate:department": "tsx src/scripts/migrate-assistant-department.ts",

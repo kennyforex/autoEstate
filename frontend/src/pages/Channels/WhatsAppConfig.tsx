@@ -504,6 +504,15 @@ export const WhatsAppConfig: React.FC = () => {
                     <h3 className="text-sm font-semibold text-gray-900 mb-4">
                       {t('channels.badWordingDetection')}
                     </h3>
+                    <p className="text-xs text-gray-500 mb-3">
+                      {t('settings.aiBehavior.phraseListHint')}{' '}
+                      <a
+                        href="/settings/ai-behavior"
+                        className="text-primary hover:underline"
+                      >
+                        {t('settings.aiConfiguration.aiBehavior')}
+                      </a>
+                    </p>
                     <Toggle
                       checked={detectBadWording}
                       onChange={setDetectBadWording}

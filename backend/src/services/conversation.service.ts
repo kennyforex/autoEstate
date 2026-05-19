@@ -296,6 +296,40 @@ class ConversationService {
   }
 
   /**
+   * Record which moderation category matched on this conversation.
+   */
+  async recordModerationMatch(
+    id: string,
+    payload: { categoryId: string; categoryName: string },
+  ): Promise<IConversationDocument | null> {
+    return Conversation.findByIdAndUpdate(
+      id,
+      {
+        lastModerationMatch: {
+          categoryId: payload.categoryId,
+          categoryName: payload.categoryName,
+          at: new Date(),
+        },
+      },
+      { new: true },
+    );
+  }
+
+  /**
+   * Mark a one-time manager alert as sent for this category on this conversation.
+   */
+  async markModerationAlertSent(
+    id: string,
+    categoryId: string,
+  ): Promise<IConversationDocument | null> {
+    return Conversation.findByIdAndUpdate(
+      id,
+      { $addToSet: { moderationAlertsSent: categoryId } },
+      { new: true },
+    );
+  }
+
+  /**
    * Update AI signals for conversation
    */
   async updateAISignals(

@@ -27,6 +27,7 @@ import {
   APIKeysSettings,
   RolesSettings,
   GeneralSettings,
+  AIBehaviorSettings,
   SMTPSettings,
   ShippingSettings,
 } from "./pages/Settings";
@@ -106,10 +107,7 @@ function App() {
               <Route path="team" element={<TeamSettings />} />
               <Route path="roles" element={<RolesSettings />} />
               <Route path="shipping" element={<ShippingSettings />} />
-              <Route
-                path="ai-behavior"
-                element={<PlaceholderPage title="AI Behavior" />}
-              />
+              <Route path="ai-behavior" element={<AIBehaviorSettings />} />
               <Route
                 path="knowledge-base"
                 element={<PlaceholderPage title="Knowledge Base" />}

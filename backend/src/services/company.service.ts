@@ -1,4 +1,9 @@
 import { Company, type ICompanyDocument } from "../models/index.js";
+import type { IModerationSettings } from "../types/moderation.js";
+import {
+  mergeModerationSettings,
+  normalizeModerationSettings,
+} from "./moderation.service.js";
 
 class CompanyService {
   /**
@@ -16,6 +21,9 @@ class CompanyService {
       await company.save();
     }
 
+    company.moderationSettings = mergeModerationSettings(
+      company.moderationSettings,
+    );
     return company;
   }
 
@@ -39,6 +47,7 @@ class CompanyService {
         | "smtpPass"
         | "emailFrom"
         | "appUrl"
+        | "moderationSettings"
       >
     >,
   ): Promise<ICompanyDocument | null> {
@@ -54,10 +63,33 @@ class CompanyService {
       return company;
     }
     
-    // Update existing company
-    Object.assign(company, updates);
+    if (updates.moderationSettings !== undefined) {
+      company.moderationSettings = normalizeModerationSettings(
+        updates.moderationSettings as IModerationSettings,
+      );
+    }
+
+    const { moderationSettings: _moderation, ...rest } = updates;
+    Object.assign(company, rest);
     await company.save();
+
+    company.moderationSettings = mergeModerationSettings(company.moderationSettings);
     return company;
+  }
+
+  /**
+   * Validate moderation payload before persist (throws on invalid notify config).
+   */
+  validateModerationSettings(input: unknown): IModerationSettings {
+    const normalized = normalizeModerationSettings(
+      (input ?? {}) as Partial<IModerationSettings>,
+    );
+    if (normalized.notifyEnabled && !normalized.notifyPhoneNumber) {
+      throw new Error(
+        "Manager notify phone is required when alerts are enabled",
+      );
+    }
+    return normalized;
   }
 }
 

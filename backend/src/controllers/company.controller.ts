@@ -98,6 +98,7 @@ export async function updateCompany(
       smtpPass,
       emailFrom,
       appUrl,
+      moderationSettings,
     } = req.body;
 
     const updates: Partial<{
@@ -114,6 +115,7 @@ export async function updateCompany(
       smtpPass: string;
       emailFrom: string;
       appUrl: string;
+      moderationSettings: import("../types/moderation.js").IModerationSettings;
     }> = {};
     if (name !== undefined) updates.name = name;
     if (logo !== undefined) {
@@ -131,6 +133,10 @@ export async function updateCompany(
     if (smtpPass !== undefined && smtpPass !== "") updates.smtpPass = smtpPass;
     if (emailFrom !== undefined) updates.emailFrom = emailFrom;
     if (appUrl !== undefined) updates.appUrl = appUrl;
+    if (moderationSettings !== undefined) {
+      updates.moderationSettings =
+        companyService.validateModerationSettings(moderationSettings);
+    }
 
     const company = await companyService.updateCompany(updates);
 

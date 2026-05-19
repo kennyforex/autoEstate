@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import type { IModerationSettings } from "../types/moderation.js";
 
 export interface ICompanyDocument extends Document {
   _id: mongoose.Types.ObjectId;
@@ -16,6 +17,7 @@ export interface ICompanyDocument extends Document {
   smtpPass?: string;
   emailFrom?: string;
   appUrl?: string;
+  moderationSettings?: IModerationSettings;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +59,10 @@ const companySchema = new Schema<ICompanyDocument>(
     smtpPass: { type: String },
     emailFrom: { type: String, trim: true },
     appUrl: { type: String, trim: true },
+    moderationSettings: {
+      type: Schema.Types.Mixed,
+      default: undefined,
+    },
   },
   {
     timestamps: true,
