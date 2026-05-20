@@ -34,6 +34,19 @@ function normalizeText(v: unknown): string | undefined {
   return s ? s : undefined;
 }
 
+export function normalizeShippingLabel(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
+    .replace(/[（）()\[\]{}]/g, " ")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
+    .replace(/\s+(?=[\p{Letter}\p{Number}]*[\p{Script=Han}])/gu, "")
+    .replace(/(?<=[\p{Script=Han}])\s+/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function toSummary(doc: IShippingMethodDocument): ShippingMethodSummary {
   return {
     id: doc._id.toString(),
@@ -46,12 +59,17 @@ function toSummary(doc: IShippingMethodDocument): ShippingMethodSummary {
 }
 
 function labelMatches(doc: ShippingMethodSummary, input: string): boolean {
-  const raw = input.trim().toLowerCase();
+  const raw = normalizeShippingLabel(input);
   if (!raw) return false;
   if (doc.id === input.trim()) return true;
-  const zh = (doc.labelZh || "").trim().toLowerCase();
-  const en = (doc.labelEn || "").trim().toLowerCase();
-  return (zh.length > 0 && zh === raw) || (en.length > 0 && en === raw);
+  const candidates = [doc.labelZh, doc.labelEn]
+    .map((label) => normalizeShippingLabel(label || ""))
+    .filter(Boolean);
+  if (candidates.some((label) => label === raw)) return true;
+  const containsMatches = candidates.filter(
+    (label) => label.includes(raw) || raw.includes(label),
+  );
+  return containsMatches.length === 1;
 }
 
 export class ShippingService {

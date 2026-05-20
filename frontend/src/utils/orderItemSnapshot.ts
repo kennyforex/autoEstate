@@ -9,6 +9,24 @@ function normalizeComparable(text: string): string {
   return text.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function normalizeVariantComparable(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[（(][^）)]*[）)]/g, " ")
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
+    .replace(/[^\p{Letter}\p{Number}/]+/gu, " ")
+    .replace(/\s*\/\s*/g, " / ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function variantFlavorPart(text: string): string {
+  const normalized = normalizeVariantComparable(text);
+  const parts = normalized.split("/").map((part) => part.trim()).filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1] : normalized;
+}
+
 function isMongoObjectId(value: string): boolean {
   return /^[a-f\d]{24}$/i.test(value);
 }
@@ -20,7 +38,36 @@ function findVariantById(product: Product, variantId: string) {
 function findVariantByLabel(product: Product, variantLabel?: string) {
   if (!variantLabel?.trim()) return undefined;
   const target = normalizeComparable(variantLabel);
-  return (product.variants || []).find((v) => normalizeComparable(v.label) === target);
+  const variants = product.variants || [];
+  const exact = variants.find((v) => normalizeComparable(v.label) === target);
+  if (exact) return exact;
+
+  const normalizedTarget = normalizeVariantComparable(variantLabel);
+  const normalized = variants
+    .map((variant) => ({
+      variant,
+      label: normalizeVariantComparable(variant.label),
+    }))
+    .filter((entry) => entry.label);
+
+  const normalizedExact = normalized.filter((entry) => entry.label === normalizedTarget);
+  if (normalizedExact.length === 1) return normalizedExact[0].variant;
+
+  const targetFlavor = variantFlavorPart(variantLabel);
+  if (targetFlavor) {
+    const flavorMatches = normalized.filter((entry) => {
+      const flavor = variantFlavorPart(entry.variant.label);
+      return flavor === targetFlavor || flavor.includes(targetFlavor) || targetFlavor.includes(flavor);
+    });
+    if (flavorMatches.length === 1) return flavorMatches[0].variant;
+  }
+
+  const containsMatches = normalized.filter(
+    (entry) => entry.label.includes(normalizedTarget) || normalizedTarget.includes(entry.label),
+  );
+  if (containsMatches.length === 1) return containsMatches[0].variant;
+
+  return undefined;
 }
 
 function findProductByName(products: Product[], productName: string): Product | undefined {
@@ -53,6 +100,7 @@ function enrichSnapshot(
     snapshot: {
       ...snapshot,
       productId: product._id,
+      variantId: variant?.id ?? snapshot.variantId,
       productName: product.name,
       variantLabel: variant?.label ?? snapshot.variantLabel,
       imageUrl: snapshot.imageUrl || product.primaryImageUrl || product.images?.[0],
@@ -71,7 +119,10 @@ export function resolveOrderItemSnapshot(
   if (candidateId && isMongoObjectId(candidateId)) {
     const product = products.find((p) => p._id === candidateId);
     if (product) {
-      const variant = findVariantByLabel(product, snapshot.variantLabel);
+      const variant =
+        snapshot.variantId?.trim()
+          ? findVariantById(product, snapshot.variantId.trim())
+          : findVariantByLabel(product, snapshot.variantLabel);
       return enrichSnapshot(snapshot, product, variant);
     }
   }
@@ -85,7 +136,10 @@ export function resolveOrderItemSnapshot(
 
   const byName = findProductByName(products, snapshot.productName);
   if (byName) {
-    const variant = findVariantByLabel(byName, snapshot.variantLabel);
+    const variant =
+      snapshot.variantId?.trim()
+        ? findVariantById(byName, snapshot.variantId.trim())
+        : findVariantByLabel(byName, snapshot.variantLabel);
     return enrichSnapshot(snapshot, byName, variant);
   }
 

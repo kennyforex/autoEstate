@@ -53,6 +53,19 @@ function shippingDisplayLabel(m: ShippingMethod, lang: string): string {
   return (m.labelEn || m.labelZh).trim() || m.labelZh;
 }
 
+function normalizeShippingLabel(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
+    .replace(/[（）()\[\]{}]/g, " ")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
+    .replace(/\s+(?=[\p{Letter}\p{Number}]*[\p{Script=Han}])/gu, "")
+    .replace(/(?<=[\p{Script=Han}])\s+/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function findShippingMethodId(
   methods: ShippingMethod[],
   saved: string | undefined,
@@ -60,12 +73,19 @@ function findShippingMethodId(
 ): string {
   if (savedId && methods.some((m) => m._id === savedId)) return savedId;
   if (!saved?.trim()) return "";
-  const s = saved.trim();
-  for (const m of methods) {
-    if (m.labelZh?.trim() === s) return m._id;
-    if (m.labelEn?.trim() === s) return m._id;
-  }
-  return "";
+  const s = normalizeShippingLabel(saved);
+  const exact = methods.find((m) =>
+    [m.labelZh, m.labelEn].some((label) => normalizeShippingLabel(label || "") === s),
+  );
+  if (exact) return exact._id;
+
+  const fuzzy = methods.filter((m) =>
+    [m.labelZh, m.labelEn].some((label) => {
+      const normalized = normalizeShippingLabel(label || "");
+      return normalized && (normalized.includes(s) || s.includes(normalized));
+    }),
+  );
+  return fuzzy.length === 1 ? fuzzy[0]._id : "";
 }
 
 function paymentBadgeVariant(status: OrderPaymentStatus | undefined): "success" | "warning" | "default" {
@@ -270,7 +290,7 @@ export const OrderForm: React.FC = () => {
               snapshot: resolved.snapshot,
               quantity: it.quantity || 1,
               unitPrice: it.unitPrice || 0,
-              selectedVariantId: resolved.variantId,
+              selectedVariantId: resolved.snapshot.variantId || resolved.variantId,
               selectedOptionValueIds: [],
               isManualUnitPrice: false,
             };
@@ -368,7 +388,7 @@ export const OrderForm: React.FC = () => {
       productId?: string;
       selectedVariantId?: string;
       selectedOptionValueIds?: string[];
-    }): { unitPrice: number; optionSummary?: string; variantLabel?: string } => {
+    }): { unitPrice: number; optionSummary?: string; variantId?: string; variantLabel?: string } => {
       if (!args.productId) return { unitPrice: 0 };
       const product = products.find((p) => p._id === args.productId);
       if (!product) return { unitPrice: 0 };
@@ -381,7 +401,7 @@ export const OrderForm: React.FC = () => {
           selectedGroupSlug,
           defaultGroupSlug,
         );
-        return { unitPrice: price, variantLabel: chosen?.label };
+        return { unitPrice: price, variantId: chosen?.id, variantLabel: chosen?.label };
       }
 
       const selectedValueIds = Array.isArray(args.selectedOptionValueIds)
@@ -490,6 +510,10 @@ export const OrderForm: React.FC = () => {
         const productId = it.snapshot.productId;
         if (!productId) return it;
         if (it.isManualUnitPrice) return it;
+        const product = products.find((p) => p._id === productId);
+        const variants = (product?.variants || []).filter((v) => v.isActive !== false);
+        if (variants.length > 0 && !it.selectedVariantId) return it;
+        if (variants.length > 0 && !variants.some((v) => v.id === it.selectedVariantId)) return it;
         const resolved = resolveAutoUnitPrice({
           productId,
           selectedVariantId: it.selectedVariantId,
@@ -502,6 +526,7 @@ export const OrderForm: React.FC = () => {
           unitPrice,
           snapshot: {
             ...it.snapshot,
+            variantId: resolved.variantId ?? it.snapshot.variantId,
             optionSummary: resolved.optionSummary ?? it.snapshot.optionSummary,
             variantLabel: resolved.variantLabel ?? it.snapshot.variantLabel,
           },
@@ -729,6 +754,7 @@ export const OrderForm: React.FC = () => {
                               snapshot: {
                                 ...item.snapshot,
                                 productId: value,
+                                variantId: nextVariantId || "",
                                 productName: p?.name || item.snapshot.productName || "",
                                 imageUrl: p?.primaryImageUrl || p?.images?.[0] || item.snapshot.imageUrl,
                                 variantLabel: resolved.variantLabel,
@@ -778,7 +804,7 @@ export const OrderForm: React.FC = () => {
                             return (
                               <Select
                                 label={t("ordersPage.item.variant")}
-                                value={item.selectedVariantId || variants[0].id}
+                                value={item.selectedVariantId || ""}
                                 onChange={(variantId) => {
                                   const chosen =
                                     variants.find((v) => v.id === variantId) || variants[0];
@@ -794,16 +820,29 @@ export const OrderForm: React.FC = () => {
                                     snapshot: {
                                       ...item.snapshot,
                                       productId: p._id,
+                                      variantId: chosen.id,
                                       productName: p.name,
                                       variantLabel: resolved.variantLabel ?? chosen.label,
                                       optionSummary: undefined,
                                     },
                                   });
                                 }}
-                                options={variants.map((v) => ({
-                                  value: v.id,
-                                  label: v.label,
-                                }))}
+                                options={[
+                                  ...(item.selectedVariantId
+                                    ? []
+                                    : [
+                                        {
+                                          value: "",
+                                          label: item.snapshot.variantLabel
+                                            ? `Unmatched: ${item.snapshot.variantLabel}`
+                                            : t("ordersPage.item.productSelectPlaceholder"),
+                                        },
+                                      ]),
+                                  ...variants.map((v) => ({
+                                    value: v.id,
+                                    label: v.label,
+                                  })),
+                                ]}
                               />
                             );
                           }
@@ -862,6 +901,7 @@ export const OrderForm: React.FC = () => {
                                                     snapshot: {
                                                       ...item.snapshot,
                                                       productId: p._id,
+                                                      variantId: "",
                                                       productName: p.name,
                                                       variantLabel: undefined,
                                                       optionSummary: resolved.optionSummary,
@@ -908,6 +948,7 @@ export const OrderForm: React.FC = () => {
                                         snapshot: {
                                           ...item.snapshot,
                                           productId: p._id,
+                                          variantId: "",
                                           productName: p.name,
                                           variantLabel: undefined,
                                           optionSummary: resolved.optionSummary,

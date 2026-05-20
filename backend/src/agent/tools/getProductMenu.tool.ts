@@ -64,7 +64,7 @@ export function buildMenuSummary(data: {
               product.currency,
               value.effectivePrice,
               group.pricingMode,
-            )} (id: ${value.id})`,
+            )} (internal id: ${value.id})`,
           );
         });
       });
@@ -78,7 +78,7 @@ export function buildMenuSummary(data: {
           `     ${variantIndex + 1}. ${variant.label} — ${formatCatalogPrice(
             product.currency,
             variant.effectivePrice,
-          )} (id: ${variant.id})`,
+          )} (internal id: ${variant.id})`,
         );
       });
     }
@@ -97,7 +97,8 @@ export function buildMenuSummary(data: {
     `Menu for ${data.clientGroup.name}${fallbackNote}:\n` +
     `Assistant display rule: Preserve line breaks when relaying this menu. ` +
     `Each product, option, variant, and price must stay on its own separate line; ` +
-    `do not combine numbered items into one paragraph.\n` +
+    `do not combine numbered items into one paragraph. Internal ids are for tool calls only; ` +
+    `never show ids to customers.\n` +
     `${productLines.join("\n\n")}${quoteLine}${validationLine}`
   );
 }

@@ -47,6 +47,12 @@ export class CreateOrderTool extends BaseTool {
                     "Parent product MongoDB id from get_product_menu (products[].id). " +
                     "Do NOT use variant ids (e.g. whole__original). If omitted, the server links by productName.",
                 },
+                variantId: {
+                  type: "string",
+                  description:
+                    "Internal variant id from get_product_menu (products[].variants[].id). " +
+                    "Use this for order creation only; do not show it to customers.",
+                },
                 productName: { type: "string" },
                 variantLabel: { type: "string" },
                 optionSummary: { type: "string" },

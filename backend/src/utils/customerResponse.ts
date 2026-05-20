@@ -28,6 +28,12 @@ const LEAKAGE_PATTERNS: RegExp[] = [
   /tool\s*call/i,
 ];
 
+/** Inline internal ids that should be removed without dropping the whole customer-facing line. */
+const INTERNAL_ID_PATTERNS: RegExp[] = [
+  /\s*\((?:internal\s+)?id:\s*[^)]+\)/gi,
+  /\b(?:productId|variantId|shippingMethodId|optionValueIds)\s*[:=]\s*["']?[\w,:[\]\-\s]+["']?/gi,
+];
+
 /** Lines containing these are dropped by stripObviousLeakage. */
 const LEAKAGE_LINE_PATTERNS: RegExp[] = [
   ...LEAKAGE_PATTERNS,
@@ -36,7 +42,13 @@ const LEAKAGE_LINE_PATTERNS: RegExp[] = [
 
 export function detectInternalLeakage(text: string): boolean {
   if (!text || !text.trim()) return false;
-  return LEAKAGE_PATTERNS.some((pattern) => pattern.test(text));
+  for (const pattern of [...LEAKAGE_PATTERNS, ...INTERNAL_ID_PATTERNS]) {
+    pattern.lastIndex = 0;
+  }
+  return (
+    LEAKAGE_PATTERNS.some((pattern) => pattern.test(text)) ||
+    INTERNAL_ID_PATTERNS.some((pattern) => pattern.test(text))
+  );
 }
 
 export function stripObviousLeakage(text: string): string {
@@ -50,6 +62,9 @@ export function stripObviousLeakage(text: string): string {
   let result = kept.join("\n").trim();
 
   for (const pattern of LEAKAGE_PATTERNS) {
+    result = result.replace(pattern, "");
+  }
+  for (const pattern of INTERNAL_ID_PATTERNS) {
     result = result.replace(pattern, "");
   }
 

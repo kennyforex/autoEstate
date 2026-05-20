@@ -48,6 +48,25 @@ describe("customerResponse.service", () => {
       assert.equal(llmCalls, 0);
     });
 
+    it("strips leaked internal ids without calling LLM when heuristic is enough", async () => {
+      const draft =
+        "原條 / 岩鹽焦糖味 — HKD 380 (internal id: whole__salted)\n" +
+        "配送方式：代call車送貨 shippingMethodId: 665f28bcb6a9f986d7bbf123";
+      let llmCalls = 0;
+      const result = await prepareCustomerFacingResponse({
+        draft,
+        createChatCompletionFn: async () => {
+          llmCalls += 1;
+          throw new Error("should not call LLM");
+        },
+      });
+      assert.equal(llmCalls, 0);
+      assert.match(result, /原條 \/ 岩鹽焦糖味 — HKD 380/);
+      assert.match(result, /配送方式：代call車送貨/);
+      assert.doesNotMatch(result, /whole__salted|shippingMethodId|665f28/);
+      assert.equal(detectInternalLeakage(result), false);
+    });
+
     it("rewrites leaky draft via fast LLM", async () => {
       const leaky =
         "所有 tools 已 call，資料核對無誤。訂單 ORD-20260520-DC0UMI 已落好。";

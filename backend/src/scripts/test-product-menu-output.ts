@@ -134,14 +134,15 @@ function runProductMenuOutputTests() {
 
   assert.match(summary, /1\. 合桃千層餅 \[千層餅\]/);
   assert.match(summary, /Option group 1: Size/);
-  assert.match(summary, /1\. 原條 — HKD 350 \(id: whole\)/);
-  assert.match(summary, /2\. 半條 — HKD 180 \(id: half\)/);
-  assert.match(summary, /3\. 14x14cm正方形size — HKD 150 \(id: square-14\)/);
+  assert.match(summary, /1\. 原條 — HKD 350 \(internal id: whole\)/);
+  assert.match(summary, /2\. 半條 — HKD 180 \(internal id: half\)/);
+  assert.match(summary, /3\. 14x14cm正方形size — HKD 150 \(internal id: square-14\)/);
   assert.match(summary, /Variants \(exact final prices\):/);
-  assert.match(summary, /1\. 原條 \/ 原味 — HKD 350 \(id: whole__original\)/);
+  assert.match(summary, /1\. 原條 \/ 原味 — HKD 350 \(internal id: whole__original\)/);
+  assert.match(summary, /never show ids to customers/i);
   assert.match(summary, /Preserve line breaks when relaying this menu/i);
   assert.ok(
-    summary.includes("1. 原條 — HKD 350 (id: whole)\n     2. 半條 — HKD 180 (id: half)"),
+    summary.includes("1. 原條 — HKD 350 (internal id: whole)\n     2. 半條 — HKD 180 (internal id: half)"),
     "menu options should remain on separate lines",
   );
 

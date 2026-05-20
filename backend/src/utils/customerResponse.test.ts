@@ -29,6 +29,12 @@ describe("customerResponse utils", () => {
       assert.equal(detectInternalLeakage("google_sheets append_row done"), true);
     });
 
+    it("detects internal product and shipping ids", () => {
+      assert.equal(detectInternalLeakage("原條 / 原味 — HKD 350 (internal id: whole__original)"), true);
+      assert.equal(detectInternalLeakage("variantId: whole__salted"), true);
+      assert.equal(detectInternalLeakage("shippingMethodId: 665f28bcb6a9f986d7bbf123"), true);
+    });
+
     it("detects skill internal markers if leaked", () => {
       assert.equal(detectInternalLeakage("Done SKILL_COMPLETE"), true);
       assert.equal(detectInternalLeakage("SKILL_OBSERVATIONS block"), true);
@@ -70,6 +76,19 @@ describe("customerResponse utils", () => {
       const stripped = stripObviousLeakage(leaky);
       assert.match(stripped, /訂單已收到/);
       assert.equal(/update_order_payment/i.test(stripped), false);
+    });
+
+    it("removes internal ids without dropping menu labels and prices", () => {
+      const leaky =
+        "原條 / 原味 — HKD 350 (internal id: whole__original)\n" +
+        "原條 / 岩鹽焦糖味 — HKD 380 (id: whole__salted)\n" +
+        "配送方式：代call車送貨 shippingMethodId: 665f28bcb6a9f986d7bbf123";
+      const stripped = stripObviousLeakage(leaky);
+      assert.match(stripped, /原條 \/ 原味 — HKD 350/);
+      assert.match(stripped, /原條 \/ 岩鹽焦糖味 — HKD 380/);
+      assert.match(stripped, /配送方式：代call車送貨/);
+      assert.doesNotMatch(stripped, /whole__original|whole__salted|shippingMethodId|665f28/);
+      assert.equal(detectInternalLeakage(stripped), false);
     });
 
     it("returns empty string when all lines are leaky", () => {

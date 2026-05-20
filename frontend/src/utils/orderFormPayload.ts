@@ -75,6 +75,9 @@ function optionalSnapshot(snapshot: OrderItemSnapshot, mode: "create" | "update"
     ...(optionalOrBlank(snapshot.productId, mode) !== undefined
       ? { productId: optionalOrBlank(snapshot.productId, mode) }
       : {}),
+    ...(optionalOrBlank(snapshot.variantId, mode) !== undefined
+      ? { variantId: optionalOrBlank(snapshot.variantId, mode) }
+      : {}),
     productName: snapshot.productName,
     ...(optionalOrBlank(snapshot.variantLabel, mode) !== undefined
       ? { variantLabel: optionalOrBlank(snapshot.variantLabel, mode) }

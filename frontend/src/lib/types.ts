@@ -310,6 +310,7 @@ export type OrderSource = "manual" | "skill";
 
 export interface OrderItemSnapshot {
   productId?: string;
+  variantId?: string;
   productName: string;
   variantLabel?: string;
   optionSummary?: string;

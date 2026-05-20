@@ -37,6 +37,7 @@ export interface OrderListParams {
 export interface OrderItemInput {
   snapshot: {
     productId?: string;
+    variantId?: string;
     productName: string;
     variantLabel?: string;
     optionSummary?: string;
@@ -229,12 +230,13 @@ function makeOrderUpdateSummary(args: {
   const itemKey = (it: IOrderDocument["items"][number] | undefined): string => {
     if (!it) return "";
     const productId = it.snapshot?.productId ? String(it.snapshot.productId) : "";
+    const variantId = normalizeText(it.snapshot?.variantId) ?? "";
     const productName = normalizeText(it.snapshot?.productName) ?? "";
     const variantLabel = normalizeText(it.snapshot?.variantLabel) ?? "";
     const optionSummary = normalizeText(it.snapshot?.optionSummary) ?? "";
     const sku = normalizeText(it.snapshot?.sku) ?? "";
-    const core = [productId, productName, variantLabel, optionSummary, sku].filter(Boolean).join("|");
-    return core || JSON.stringify({ productName, variantLabel, optionSummary, sku });
+    const core = [productId, variantId, productName, variantLabel, optionSummary, sku].filter(Boolean).join("|");
+    return core || JSON.stringify({ productName, variantId, variantLabel, optionSummary, sku });
   };
 
   const beforeItems = Array.isArray(args.before.items) ? args.before.items : [];
@@ -325,6 +327,7 @@ function parseDateRange(from?: string, to?: string): Record<string, Date> | unde
 
 function toSnapshotInput(snapshot: {
   productId?: mongoose.Types.ObjectId | string;
+  variantId?: string;
   productName: string;
   variantLabel?: string;
   optionSummary?: string;
@@ -340,6 +343,7 @@ function toSnapshotInput(snapshot: {
         : undefined;
   return {
     productId,
+    variantId: snapshot.variantId,
     productName: snapshot.productName,
     variantLabel: snapshot.variantLabel,
     optionSummary: snapshot.optionSummary,
@@ -381,6 +385,7 @@ class OrderService {
       if (resolved.snapshot.productId && isValidObjectId(resolved.snapshot.productId)) {
         item.snapshot.productId = new mongoose.Types.ObjectId(resolved.snapshot.productId);
       }
+      if (resolved.snapshot.variantId) item.snapshot.variantId = resolved.snapshot.variantId;
       if (resolved.snapshot.productName) item.snapshot.productName = resolved.snapshot.productName;
       if (resolved.snapshot.variantLabel) item.snapshot.variantLabel = resolved.snapshot.variantLabel;
       if (resolved.snapshot.imageUrl && !before.imageUrl) {
@@ -466,11 +471,11 @@ class OrderService {
       contact = await Contact.findById(input.contactId).lean();
     }
 
-    // Default shipping behavior for agent-created orders:
+    // Default shipping behavior for configured methods:
     // - If shippingMethod matches a configured method and shippingFee is omitted, auto-fill configured fee.
     // - Always normalize matched methods to the configured label.
     // - Preserve explicit custom overrides when shippingFee is provided.
-    if (input.source === "skill" && (input.shippingMethodId || input.shippingMethod)) {
+    if (input.shippingMethodId || input.shippingMethod) {
       const resolved = await shippingService.resolveShipping({
         shippingMethodId: input.shippingMethodId,
         shippingMethod: input.shippingMethod,
@@ -493,6 +498,7 @@ class OrderService {
           item.snapshot.productId && isValidObjectId(item.snapshot.productId)
             ? item.snapshot.productId
             : undefined,
+        variantId: item.snapshot.variantId,
         productName: item.snapshot.productName,
         variantLabel: item.snapshot.variantLabel,
         optionSummary: item.snapshot.optionSummary,
@@ -576,6 +582,22 @@ class OrderService {
     if (typeof input.phoneNumber === "string") order.phoneNumber = input.phoneNumber;
     if (typeof input.email === "string") order.email = input.email;
 
+    if (input.shippingMethodId || input.shippingMethod) {
+      const resolved = await shippingService.resolveShipping({
+        shippingMethodId: input.shippingMethodId,
+        shippingMethod: input.shippingMethod,
+        shippingFee: input.shippingFee,
+        includeInactive: false,
+      });
+      if (resolved.kind === "configured") {
+        input.shippingMethodId = resolved.method.id;
+        input.shippingMethod = resolved.normalizedLabel;
+        if (input.shippingFee === undefined) {
+          input.shippingFee = resolved.normalizedFee;
+        }
+      }
+    }
+
     if (typeof input.shippingAddress === "string") order.shippingAddress = input.shippingAddress;
     if (typeof input.shippingMethodId === "string") {
       order.shippingMethodId = input.shippingMethodId && isValidObjectId(input.shippingMethodId)
@@ -604,6 +626,7 @@ class OrderService {
             item.snapshot.productId && isValidObjectId(item.snapshot.productId)
               ? (item.snapshot.productId as unknown as never)
               : undefined,
+          variantId: item.snapshot.variantId,
           productName: item.snapshot.productName,
           variantLabel: item.snapshot.variantLabel,
           optionSummary: item.snapshot.optionSummary,

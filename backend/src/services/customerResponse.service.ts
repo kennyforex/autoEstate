@@ -37,7 +37,7 @@ function buildRewriteSystemPrompt(params: {
     "Rules:",
     "- Output ONLY the customer message — no preamble, quotes, or explanation.",
     "- Keep order IDs, amounts, dates, and pickup details exactly as in the draft when present.",
-    "- Remove all mentions of tools, skills, agents, workflows, function calls, verification steps, and internal statuses.",
+    "- Remove all mentions of tools, skills, agents, workflows, function calls, verification steps, internal statuses, and internal product/variant/shipping ids.",
     '- Translate internal statuses naturally (e.g. "verifying" → 核對緊 / payment being checked).',
     "- Warm, concise, professional tone.",
     "- Plain text only — no Markdown.",
@@ -142,6 +142,11 @@ export async function prepareCustomerFacingResponse(params: {
 
   if (!detectInternalLeakage(cleaned)) {
     return cleaned;
+  }
+
+  const stripped = stripObviousLeakage(cleaned);
+  if (stripped && !detectInternalLeakage(stripped)) {
+    return stripped;
   }
 
   console.log(

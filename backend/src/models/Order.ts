@@ -7,6 +7,7 @@ export type OrderSource = "manual" | "skill";
 
 export interface IOrderItemSnapshot {
   productId?: mongoose.Types.ObjectId;
+  variantId?: string;
   productName: string;
   variantLabel?: string;
   optionSummary?: string;
@@ -76,6 +77,7 @@ export interface IOrderDocument extends Document {
 const orderItemSnapshotSchema = new Schema<IOrderItemSnapshot>(
   {
     productId: { type: Schema.Types.ObjectId, ref: "Product" },
+    variantId: { type: String, trim: true },
     productName: { type: String, required: true, trim: true },
     variantLabel: { type: String, trim: true },
     optionSummary: { type: String, trim: true },
