@@ -8,6 +8,7 @@ import {
 } from "./moderation.service.js";
 import { conversationService } from "./conversation.service.js";
 import { messageService } from "./message.service.js";
+import { customerResponseService } from "./customerResponse.service.js";
 import { Conversation } from "../models/index.js";
 
 describe("ai.service moderation", () => {
@@ -152,5 +153,98 @@ describe("ai.service moderation", () => {
         ),
       );
     });
+  });
+});
+
+describe("ai.service sendWhatsAppAIContent", () => {
+  const svc = new AIService();
+  const sendWhatsApp = (
+    svc as unknown as {
+      sendWhatsAppAIContent: (params: {
+        conversationId: string;
+        channel: {
+          evolutionInstanceName: string;
+          assistantId?: { toString(): string };
+          _id: { toString(): string };
+        };
+        senderId: string;
+        aiResponseContent: string;
+        citations: undefined;
+      }) => Promise<void>;
+    }
+  ).sendWhatsAppAIContent.bind(svc);
+
+  let sendViaWhatsAppMock: ReturnType<typeof mock.fn>;
+  let createMessageMock: ReturnType<typeof mock.fn>;
+  let prepareMock: ReturnType<typeof mock.fn>;
+
+  beforeEach(() => {
+    sendViaWhatsAppMock = mock.fn(async () => "evo-msg-id");
+    createMessageMock = mock.fn(async () => ({ _id: "db-msg-id" }));
+    prepareMock = mock.fn(async ({ draft }: { draft: string }) => draft);
+
+    mock.method(messageService, "sendViaWhatsApp", sendViaWhatsAppMock);
+    mock.method(messageService, "create", createMessageMock);
+    mock.method(
+      customerResponseService,
+      "prepareCustomerFacingResponse",
+      prepareMock,
+    );
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it("sanitizes content via prepareCustomerFacingResponse before WhatsApp send", async () => {
+    const leaky =
+      "所有 tools 已 call。訂單 ORD-1 已落好。";
+    prepareMock = mock.fn(async () => "已收到，訂單 ORD-1 已落好。");
+    mock.method(
+      customerResponseService,
+      "prepareCustomerFacingResponse",
+      prepareMock,
+    );
+
+    await sendWhatsApp({
+      conversationId: "conv-leak",
+      channel: {
+        evolutionInstanceName: "inst",
+        assistantId: { toString: () => "asst-1" },
+        _id: { toString: () => "ch-1" },
+      },
+      senderId: "85261234567",
+      aiResponseContent: leaky,
+      citations: undefined,
+    });
+
+    assert.equal(prepareMock.mock.calls.length, 1);
+    const prepArgs = prepareMock.mock.calls[0]!.arguments[0] as {
+      draft: string;
+      assistantId?: string;
+    };
+    assert.equal(prepArgs.draft, leaky);
+    assert.equal(prepArgs.assistantId, "asst-1");
+    assert.equal(sendViaWhatsAppMock.mock.calls.length, 1);
+    assert.equal(sendViaWhatsAppMock.mock.calls[0]!.arguments[2], "已收到，訂單 ORD-1 已落好。");
+    const savedArgs = createMessageMock.mock.calls[0]!.arguments[0] as { content: string };
+    assert.equal(savedArgs.content, "已收到，訂單 ORD-1 已落好。");
+  });
+
+  it("passes clean content through unchanged when sanitizer returns as-is", async () => {
+    const clean = "你好！有咩可以幫到你？";
+
+    await sendWhatsApp({
+      conversationId: "conv-clean",
+      channel: {
+        evolutionInstanceName: "inst",
+        _id: { toString: () => "ch-1" },
+      },
+      senderId: "85261234567",
+      aiResponseContent: clean,
+      citations: undefined,
+    });
+
+    assert.equal(sendViaWhatsAppMock.mock.calls[0]!.arguments[2], clean);
   });
 });

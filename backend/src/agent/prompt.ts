@@ -202,6 +202,17 @@ export function buildSystemPrompt(context: AgentContext): string {
     }
   }
 
+  // ── Customer-facing output (WhatsApp) ──
+  parts.push('');
+  parts.push('## Customer-facing output');
+  parts.push(
+    'Every message you send goes directly to the customer on WhatsApp.\n' +
+    '- Speak only as the shop assistant — never mention tools, skills, agents, function calls, workflows, backend systems, or that you "verified" anything.\n' +
+    '- Never use internal status names (e.g. verifying, unpaid, paymentStatus). Use natural language instead (e.g. 核對緊, 待付款).\n' +
+    '- Do not narrate your reasoning, checklist, or processing steps. Confirm outcomes only.\n' +
+    '- When a skill returns a result, relay the useful facts (order ID, amounts, dates) in warm, natural language.',
+  );
+
   // ── Agent behaviour guidelines ──
   parts.push('');
   parts.push('## Agent Guidelines');
@@ -226,11 +237,11 @@ export function buildSystemPrompt(context: AgentContext): string {
     '- Prefer concise tool queries to stay within context limits.\n' +
     '- If a tool fails, try an alternative approach or inform the user.\n' +
     '- When you have enough information, respond directly without unnecessary tool calls.\n' +
-    '- Before your **final** reply to the customer, briefly verify: (1) Did you use tools/skills the question required? (2) Are prices/dates/facts from tools or skills, not guessed? (3) If you promised follow-up actions, are they consistent with tool results?\n' +
+    '- Before your **final** reply, silently verify facts and tool results — do NOT describe this verification to the customer.\n' +
     '- Never fabricate information. If you don\'t know, say so or search the knowledge base.\n' +
     '- When using media_analysis, use ONLY the actual media URL provided in the message (e.g., "Image URL: https://..." or "Image URL: data:image/...;base64,..."). ' +
     'Do NOT use image descriptions or any other text as the mediaDataUrl.\n' +
-    '- When using document_data_capture, use ONLY the real sourceUrl from the message: lines starting with "Image URL:" (images) or "PDF URL:" (PDFs), including full data: URLs from Playground uploads. ' +
+    '- When using document_data_capture, use ONLY the real sourceUrl from the message: lines starting with "Image URL:" (images) or "PDF URL:" (PDFs), including full data: URLs from Playground uploads. For WhatsApp/inbox, also pass messageId from the "Message ID:" line. ' +
     'Pass outputSchema as a JSON string of the OpenRouter json_schema object: {"name","strict","schema"} (see OpenRouter structured outputs), ' +
     'or legacy: stringified inner schema only. Requirements text must align with schema property descriptions.',
   );

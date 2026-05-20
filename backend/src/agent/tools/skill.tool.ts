@@ -380,7 +380,10 @@ export class SkillExecutionTool extends BaseTool {
       '      → ONLY if the other part requires a genuinely DIFFERENT skill (e.g., booking vs pricing), ' +
       'add on a new line: UNHANDLED_INTENT: <describe the OTHER action the user wants>\n' +
       '   IMPORTANT: Do NOT signal UNHANDLED_INTENT for requests that ARE your skill\'s purpose. ' +
-      'If the user asks about pricing and you ARE the pricing skill, handle it — do NOT flag it as unhandled.\n';
+      'If the user asks about pricing and you ARE the pricing skill, handle it — do NOT flag it as unhandled.\n' +
+      '8. CUSTOMER-FACING OUTPUT: Your visible reply is sent directly to the customer on WhatsApp. ' +
+      'Never mention tool names, "已 call tools", workflow steps, internal payment statuses (verifying/unpaid), or that processing is "complete". ' +
+      'Confirm outcomes in natural language only (e.g. 已收到入數紙，同事會核對 — not "payment updated to verifying").\n';
 
     systemPrompt +=
       '\n## SKILL COMPLETION\n' +

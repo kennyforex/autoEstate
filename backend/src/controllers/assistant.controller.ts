@@ -14,6 +14,7 @@ import {
   transcribeAudioWithFallback,
 } from '../services/audioTranscription.service.js';
 import { playgroundSessionService } from '../services/playgroundSession.service.js';
+import { prepareCustomerFacingResponse } from '../services/customerResponse.service.js';
 import { AgentSession } from '../models/index.js';
 import type { AuthRequest } from '../types/index.js';
 import type { ChatMessage, AgentEvent } from '../agent/types.js';
@@ -942,9 +943,14 @@ export async function agentChat(
     if (result.type === 'clarification' && result.session) {
       await AgentSession.create(result.session);
     }
+    const customerFacingContent = await prepareCustomerFacingResponse({
+      draft: result.content || '',
+      assistantId: id,
+      conversationId: playgroundSession._id.toString(),
+    });
     await playgroundSessionService.appendMessage(playgroundSession._id.toString(), {
       role: 'assistant',
-      content: result.content || '',
+      content: customerFacingContent,
       contentType: 'text',
     });
 
@@ -952,7 +958,7 @@ export async function agentChat(
       conversationId: playgroundSession._id.toString(),
       assistantId: id,
       input: effectiveContent,
-      output: result.content,
+      output: customerFacingContent,
       duration: agentDuration,
       citations: result.citations || [],
       model: result.model,
@@ -975,7 +981,10 @@ export async function agentChat(
 
     const donePayload: Record<string, unknown> = {
       type: 'done',
-      message: { role: 'assistant', content: result.content },
+      message: {
+        role: 'assistant',
+        content: customerFacingContent,
+      },
       resultType: result.type,
       citations: result.citations,
       model: result.model,
