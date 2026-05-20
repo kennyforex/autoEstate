@@ -39,7 +39,7 @@ export function normalizeShippingLabel(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
-    .replace(/[（）()\[\]{}]/g, " ")
+    .replace(/[（）()[\]{}]/g, " ")
     .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
     .replace(/\s+(?=[\p{Letter}\p{Number}]*[\p{Script=Han}])/gu, "")
     .replace(/(?<=[\p{Script=Han}])\s+/gu, "")
@@ -65,11 +65,16 @@ function labelMatches(doc: ShippingMethodSummary, input: string): boolean {
   const candidates = [doc.labelZh, doc.labelEn]
     .map((label) => normalizeShippingLabel(label || ""))
     .filter(Boolean);
-  if (candidates.some((label) => label === raw)) return true;
-  const containsMatches = candidates.filter(
-    (label) => label.includes(raw) || raw.includes(label),
-  );
-  return containsMatches.length === 1;
+  return candidates.some((label) => label === raw);
+}
+
+function labelFuzzyMatches(doc: ShippingMethodSummary, input: string): boolean {
+  const raw = normalizeShippingLabel(input);
+  if (!raw) return false;
+  const candidates = [doc.labelZh, doc.labelEn]
+    .map((label) => normalizeShippingLabel(label || ""))
+    .filter(Boolean);
+  return candidates.some((label) => label.includes(raw) || raw.includes(label));
 }
 
 export class ShippingService {
@@ -102,7 +107,16 @@ export class ShippingService {
     }
 
     const methods = await this.list({ includeInactive: args.includeInactive === true });
-    const matched = methods.find((m) => (methodId ? m.id === methodId : false) || (methodText ? labelMatches(m, methodText) : false));
+    let matched = methodId ? methods.find((m) => m.id === methodId) : undefined;
+    if (!matched && methodText) {
+      const exactMatches = methods.filter((m) => labelMatches(m, methodText));
+      if (exactMatches.length === 1) {
+        matched = exactMatches[0];
+      } else if (exactMatches.length === 0) {
+        const fuzzyMatches = methods.filter((m) => labelFuzzyMatches(m, methodText));
+        if (fuzzyMatches.length === 1) matched = fuzzyMatches[0];
+      }
+    }
     if (!matched) {
       return {
         kind: "custom",

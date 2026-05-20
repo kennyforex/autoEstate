@@ -32,6 +32,8 @@ describe("customerResponse utils", () => {
     it("detects internal product and shipping ids", () => {
       assert.equal(detectInternalLeakage("原條 / 原味 — HKD 350 (internal id: whole__original)"), true);
       assert.equal(detectInternalLeakage("variantId: whole__salted"), true);
+      assert.equal(detectInternalLeakage("selectedOptionValueIds: [whole,salted]"), true);
+      assert.equal(detectInternalLeakage("id: 665f28bcb6a9f986d7bbf123"), true);
       assert.equal(detectInternalLeakage("shippingMethodId: 665f28bcb6a9f986d7bbf123"), true);
     });
 
@@ -82,12 +84,14 @@ describe("customerResponse utils", () => {
       const leaky =
         "原條 / 原味 — HKD 350 (internal id: whole__original)\n" +
         "原條 / 岩鹽焦糖味 — HKD 380 (id: whole__salted)\n" +
-        "配送方式：代call車送貨 shippingMethodId: 665f28bcb6a9f986d7bbf123";
+        "配送方式：代call車送貨 shippingMethodId: 665f28bcb6a9f986d7bbf123\n" +
+        "internal record id: 665f28bcb6a9f986d7bbf123\n" +
+        "selectedOptionValueIds: [whole,salted]";
       const stripped = stripObviousLeakage(leaky);
       assert.match(stripped, /原條 \/ 原味 — HKD 350/);
       assert.match(stripped, /原條 \/ 岩鹽焦糖味 — HKD 380/);
       assert.match(stripped, /配送方式：代call車送貨/);
-      assert.doesNotMatch(stripped, /whole__original|whole__salted|shippingMethodId|665f28/);
+      assert.doesNotMatch(stripped, /whole__original|whole__salted|shippingMethodId|selectedOptionValueIds|665f28/);
       assert.equal(detectInternalLeakage(stripped), false);
     });
 

@@ -31,7 +31,10 @@ const LEAKAGE_PATTERNS: RegExp[] = [
 /** Inline internal ids that should be removed without dropping the whole customer-facing line. */
 const INTERNAL_ID_PATTERNS: RegExp[] = [
   /\s*\((?:internal\s+)?id:\s*[^)]+\)/gi,
-  /\b(?:productId|variantId|shippingMethodId|optionValueIds)\s*[:=]\s*["']?[\w,:[\]\-\s]+["']?/gi,
+  /\b(?:productId|variantId|shippingMethodId|optionValueIds|selectedOptionValueIds)\s*[:=]\s*["']?[\w,:[\]\-\s]+["']?/gi,
+  /\binternal\s+(?:record\s+)?id\s*[:=]\s*["']?(?!ORD-)[\w_\-]+["']?/gi,
+  /(?:^|[,{]\s*)id\s*[:=]\s*["']?(?!ORD-)[a-f\d]{24}["']?/gim,
+  /(?:^|[,{]\s*)id\s*[:=]\s*["']?[a-z0-9]+(?:__[a-z0-9_-]+)+["']?/gim,
 ];
 
 /** Lines containing these are dropped by stripObviousLeakage. */

@@ -58,7 +58,7 @@ function normalizeShippingLabel(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, " ")
-    .replace(/[（）()\[\]{}]/g, " ")
+    .replace(/[（）()[\]{}]/g, " ")
     .replace(/[^\p{Letter}\p{Number}]+/gu, " ")
     .replace(/\s+(?=[\p{Letter}\p{Number}]*[\p{Script=Han}])/gu, "")
     .replace(/(?<=[\p{Script=Han}])\s+/gu, "")
@@ -534,7 +534,7 @@ export const OrderForm: React.FC = () => {
         };
       }),
     );
-  }, [resolveAutoUnitPrice]);
+  }, [products, resolveAutoUnitPrice]);
 
   const addItem = () => {
     setItems((cur) => [
