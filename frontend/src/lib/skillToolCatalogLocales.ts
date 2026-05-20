@@ -322,7 +322,7 @@ const ZH_CN: Record<string, SkillToolCatalogEntry> = {
     description: "附上付款凭证并将 paymentStatus 设为 verifying（须人工标为已付）。",
     usage: "document_data_capture 提取收据后使用。",
     parametersHelp:
-      "• paymentStatus（必填）verifying。\n• receiptUrl（必填）。\n• orderId 或 orderNumber。",
+      "• paymentStatus（必填）verifying。\n• receiptUrl（必填）— 客人訊息中的 Image URL。\n• messageId（建議）— 同一則訊息的 Message ID，用於保存可預覽收據。\n• orderId 或 orderNumber。",
     example: JSON.stringify(
       {
         orderNumber: "ORD-001",
@@ -442,7 +442,7 @@ const ZH_TW: Record<string, SkillToolCatalogEntry> = {
     description: "附上付款凭证并将 paymentStatus 设为 verifying（须人工标为已付）。",
     usage: "document_data_capture 提取收据后使用。",
     parametersHelp:
-      "• paymentStatus（必填）verifying。\n• receiptUrl（必填）。\n• orderId 或 orderNumber。",
+      "• paymentStatus（必填）verifying。\n• receiptUrl（必填）— 客人訊息中的 Image URL。\n• messageId（建議）— 同一則訊息的 Message ID，用於保存可預覽收據。\n• orderId 或 orderNumber。",
     example: JSON.stringify(
       {
         orderNumber: "ORD-001",

@@ -383,7 +383,8 @@ export const TOOL_UI_CATALOG: Record<string, ToolUiCatalogEntry> = {
       'Use after document_data_capture extracts receipt fields. Never marks an order paid automatically.',
     parametersHelp:
       '• paymentStatus (required) — must be verifying.\n' +
-      '• receiptUrl (required) — image/PDF URL from the customer or Drive.\n' +
+      '• receiptUrl (required) — Image URL / PDF URL from the customer message or Drive.\n' +
+      '• messageId (recommended) — Message ID from the same WhatsApp message; persists a previewable receipt file.\n' +
       '• orderId or orderNumber (one required).\n' +
       '• receiptFileName, extracted (object from capture), reviewNotes (optional).',
     example: JSON.stringify(

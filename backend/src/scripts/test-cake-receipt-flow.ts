@@ -60,6 +60,7 @@ function testPaymentToolShape() {
 
   assert.deepEqual(paymentStatus.enum, ["verifying"]);
   assert.equal(tool.parameters.required.includes("receiptUrl"), true);
+  assert.ok(tool.parameters.properties.messageId);
 }
 
 function testPaymentProofNormalization() {

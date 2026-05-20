@@ -11,6 +11,7 @@ import {
   fromDatetimeLocalValue,
   toDatetimeLocalValue,
 } from "../utils/hongKongDateTime";
+import { isReceiptImagePreviewable, resolveReceiptUrl } from "../lib/resolveReceiptUrl";
 import type {
   ClientGroup,
   Order,
@@ -228,6 +229,16 @@ export const OrderForm: React.FC = () => {
       taxTotal: Number(draft.taxTotal || 0),
     });
   }, [items, draft.discountTotal, draft.shippingFee, draft.taxTotal]);
+
+  const receiptPreview = useMemo(() => {
+    const raw = draft.paymentProof?.receiptUrl;
+    if (!raw) return { displayUrl: undefined as string | undefined, showImage: false };
+    const displayUrl = resolveReceiptUrl(raw);
+    return {
+      displayUrl,
+      showImage: Boolean(displayUrl && isReceiptImagePreviewable(raw)),
+    };
+  }, [draft.paymentProof?.receiptUrl]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1068,7 +1079,7 @@ export const OrderForm: React.FC = () => {
                       ) : null}
                     </div>
                     <a
-                      href={draft.paymentProof.receiptUrl}
+                      href={receiptPreview.displayUrl ?? draft.paymentProof.receiptUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="text-sm font-medium text-blue-600 hover:text-blue-700"
@@ -1076,9 +1087,9 @@ export const OrderForm: React.FC = () => {
                       {t("ordersPage.payment.openReceipt")}
                     </a>
                   </div>
-                  {/\.(png|jpe?g|webp|gif)(?:$|\?)/i.test(draft.paymentProof.receiptUrl) ? (
+                  {receiptPreview.showImage && receiptPreview.displayUrl ? (
                     <img
-                      src={draft.paymentProof.receiptUrl}
+                      src={receiptPreview.displayUrl}
                       alt={t("ordersPage.payment.receiptProof")}
                       className="max-h-64 rounded-lg border border-gray-200 bg-white object-contain"
                     />

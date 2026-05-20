@@ -6,6 +6,12 @@ import { openRouterHeaders } from '../../config/httpAttribution.js';
 import { openRouterConfig } from '../../config/openrouter.js';
 import type { AgentContext, ToolResult } from '../types.js';
 import { getUploadsRoot } from '../../utils/uploadsPath.js';
+import {
+  bufferToDataUrl,
+  fetchDecryptedMediaByMessageId,
+  isWhatsAppCdnUrl,
+  parseMessageIdFromMediaUrl,
+} from '../../services/whatsappMedia.service.js';
 
 /**
  * OpenRouter cannot fetch localhost URLs. When the agent passes our Playground/inbox
@@ -75,6 +81,41 @@ async function hydrateLocalUploadsUrlForOpenRouter(sourceUrl: string): Promise<
   else if (ext === '.gif') mime = 'image/gif';
   else if (ext === '.pdf') mime = 'application/pdf';
   return { ok: true, url: `data:${mime};base64,${buf.toString('base64')}` };
+}
+
+/**
+ * WhatsApp CDN and /api/media/ URLs are encrypted or private — decrypt via Evolution before OpenRouter.
+ */
+async function hydrateWhatsAppMediaUrlForOpenRouter(
+  sourceUrl: string,
+  messageIdArg?: string,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const trimmed = sourceUrl.trim();
+  let messageId = messageIdArg?.trim();
+  if (!messageId) {
+    messageId = parseMessageIdFromMediaUrl(trimmed);
+  }
+
+  const needsDecrypt =
+    Boolean(messageId) &&
+    (isWhatsAppCdnUrl(trimmed) || Boolean(parseMessageIdFromMediaUrl(trimmed)));
+
+  if (!needsDecrypt || !messageId) {
+    return { ok: true, url: trimmed };
+  }
+
+  const media = await fetchDecryptedMediaByMessageId(messageId, {
+    logPrefix: '[DocumentCapture]',
+  });
+  if (!media) {
+    return {
+      ok: false,
+      error:
+        `Could not decrypt WhatsApp media for message ${messageId}. Ensure Message ID matches the receipt image.`,
+    };
+  }
+
+  return { ok: true, url: bufferToDataUrl(media.buffer, media.mimetype) };
 }
 
 const PDF_ENGINES = new Set(['native', 'cloudflare-ai', 'mistral-ocr']);
@@ -225,7 +266,13 @@ export class DocumentDataCaptureTool extends BaseTool {
       },
       sourceUrl: {
         type: 'string',
-        description: 'Base64 data URL or public URL of the image or PDF',
+        description:
+          'Base64 data URL, /uploads/ URL, /api/media/ proxy URL, or Image URL / PDF URL from the customer message',
+      },
+      messageId: {
+        type: 'string',
+        description:
+          'MongoDB Message id (Message ID line) when sourceUrl is a WhatsApp CDN or /api/media/ link — required for decryption',
       },
       requirements: {
         type: 'string',
@@ -277,15 +324,30 @@ export class DocumentDataCaptureTool extends BaseTool {
       };
     }
 
-    const hydrated = await hydrateLocalUploadsUrlForOpenRouter(sourceUrl.trim());
-    if (!hydrated.ok) {
+    const messageId =
+      typeof args.messageId === 'string' ? args.messageId.trim() : undefined;
+
+    const localHydrated = await hydrateLocalUploadsUrlForOpenRouter(sourceUrl.trim());
+    if (!localHydrated.ok) {
       return {
         success: false,
         data: null,
-        summary: toolJsonSummary({ success: false, error: hydrated.error }),
+        summary: toolJsonSummary({ success: false, error: localHydrated.error }),
       };
     }
-    const effectiveSourceUrl = hydrated.url;
+
+    const waHydrated = await hydrateWhatsAppMediaUrlForOpenRouter(
+      localHydrated.url,
+      messageId,
+    );
+    if (!waHydrated.ok) {
+      return {
+        success: false,
+        data: null,
+        summary: toolJsonSummary({ success: false, error: waHydrated.error }),
+      };
+    }
+    const effectiveSourceUrl = waHydrated.url;
 
     const parsedSchema = parseOutputSchema(outputSchemaRaw);
     if ('error' in parsedSchema) {

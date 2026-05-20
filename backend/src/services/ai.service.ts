@@ -27,7 +27,8 @@ import {
 import { openRouterHeaders } from "../config/httpAttribution.js";
 import { openRouterConfig } from "../config/openrouter.js";
 import { aiChatProvider, createChatCompletion } from "../config/aiChatProvider.js";
-import { getEvolutionClient } from "../config/evolution.js";
+import { customerResponseService } from "./customerResponse.service.js";
+import { fetchMediaBase64ByMessageId } from "./whatsappMedia.service.js";
 import { agentEngine } from "../agent/index.js";
 import { buildAgentContext } from "../agent/context.js";
 import { reminderService } from "./reminder.service.js";
@@ -185,6 +186,7 @@ export class AIService {
     conversationId: string;
     channel: {
       evolutionInstanceName: string;
+      assistantId?: { toString(): string };
       _id: { toString(): string };
     };
     senderId: string;
@@ -199,8 +201,14 @@ export class AIService {
       citations,
     } = params;
 
-    const imageUrls = extractHttpsImageUrls(aiResponseContent);
-    const textBody = scrubImageUrlsFromText(aiResponseContent, imageUrls);
+    const customerFacingContent = await customerResponseService.prepareCustomerFacingResponse({
+      draft: aiResponseContent,
+      assistantId: channel.assistantId?.toString(),
+      conversationId,
+    });
+
+    const imageUrls = extractHttpsImageUrls(customerFacingContent);
+    const textBody = scrubImageUrlsFromText(customerFacingContent, imageUrls);
 
     console.log(
       `[AI:SEND] Outbound: ${imageUrls.length} image URL(s), scrubbed text length=${textBody.length}`,
@@ -210,14 +218,14 @@ export class AIService {
       const evolutionMessageId = await messageService.sendViaWhatsApp(
         channel.evolutionInstanceName,
         senderId,
-        aiResponseContent,
+        customerFacingContent,
         "text",
       );
       const savedMessage = await messageService.create({
         conversationId,
         channelId: channel._id.toString(),
         sender: "ai",
-        content: aiResponseContent,
+        content: customerFacingContent,
         contentType: "text",
         evolutionMessageId: evolutionMessageId || undefined,
         aiGenerated: true,
@@ -292,114 +300,13 @@ export class AIService {
   }
 
   /**
-   * Fetch base64 media from Evolution API
-   * WhatsApp media URLs are encrypted and require decryption via Evolution API
+   * Fetch base64 media from Evolution API (delegates to whatsappMedia.service).
    */
   private async fetchMediaBase64(
     messageId: string,
     conversationId: string,
   ): Promise<{ base64: string; mimetype: string } | null> {
-    try {
-      // Find the message to get evolutionMessageId and channelId
-      const message = await Message.findById(messageId);
-      if (!message || !message.evolutionMessageId) {
-        console.log(
-          `[AI:Media] Message ${messageId} not found or has no evolutionMessageId`,
-        );
-        return null;
-      }
-
-      // Get the conversation to find the contact
-      const conversation = await Conversation.findById(conversationId);
-      if (!conversation) {
-        console.log(`[AI:Media] Conversation ${conversationId} not found`);
-        return null;
-      }
-
-      // Get the contact to find the phone number (remoteJid)
-      const contact = await Contact.findById(conversation.contactId);
-      if (!contact) {
-        console.log(
-          `[AI:Media] Contact not found for conversation ${conversationId}`,
-        );
-        return null;
-      }
-
-      // Get the channel to find the Evolution instance name
-      const channel = await Channel.findById(message.channelId);
-      if (!channel || !channel.evolutionInstanceName) {
-        console.log(
-          `[AI:Media] Channel not found or has no evolutionInstanceName`,
-        );
-        return null;
-      }
-
-      // Construct the remoteJid - prefer whatsappId (LID) for LID contacts
-      const senderId = contact.whatsappId || contact.phoneNumber;
-      if (!senderId) {
-        console.log(`[AI:Media] Contact has no phone number or WhatsApp ID`);
-        return null;
-      }
-
-      // If contact has whatsappId, it's a LID contact - use @lid suffix
-      // Otherwise use @s.whatsapp.net for regular phone numbers
-      const remoteJid = contact.whatsappId
-        ? `${contact.whatsappId}@lid`
-        : `${senderId}@s.whatsapp.net`;
-
-      const requestPayload = {
-        message: {
-          key: {
-            remoteJid,
-            fromMe: false,
-            id: message.evolutionMessageId,
-          },
-        },
-      };
-
-      console.log(
-        `[AI:Media] Fetching base64 for message ${message.evolutionMessageId} from ${remoteJid}`,
-      );
-      console.log(
-        `[AI:Media] Request payload:`,
-        JSON.stringify(requestPayload, null, 2),
-      );
-
-      // Use Evolution API to get the base64 media (with 30s timeout)
-      const evolutionClient = getEvolutionClient();
-      const response = await evolutionClient.post(
-        `/chat/getBase64FromMediaMessage/${channel.evolutionInstanceName}`,
-        requestPayload,
-        { timeout: 30000 },
-      );
-
-      console.log(
-        `[AI:Media] Evolution API response status: ${response.status}`,
-      );
-      const { base64, mimetype } = response.data;
-
-      if (!base64) {
-        console.log(
-          `[AI:Media] No base64 returned from Evolution API. Response data:`,
-          JSON.stringify(response.data, null, 2),
-        );
-        return null;
-      }
-
-      console.log(
-        `[AI:Media] Successfully fetched base64 (${base64.length} chars), mimetype: ${mimetype}`,
-      );
-      return { base64, mimetype: mimetype || "audio/ogg" };
-    } catch (error: any) {
-      console.error(`[AI:Media] Failed to fetch base64 from Evolution API`);
-      console.error(`[AI:Media] Error status:`, error.response?.status);
-      console.error(
-        `[AI:Media] Error data:`,
-        JSON.stringify(error.response?.data, null, 2),
-      );
-      console.error(`[AI:Media] Error message:`, error.message);
-      return null;
-    }
+    return fetchMediaBase64ByMessageId(messageId, conversationId);
   }
 
   /**
@@ -779,6 +686,9 @@ IMPORTANT RULES:
       }
 
       parts.push("Reply in plain text only. Do not use Markdown (no **, ###, ```, bullet lists, or other formatting).");
+      parts.push(
+        "Never mention tools, skills, agents, workflows, or internal system statuses. Speak naturally as a shop assistant only.",
+      );
 
       if (assistant.instructions) {
         parts.push(assistant.instructions.substring(0, 2000));

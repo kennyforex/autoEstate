@@ -1,5 +1,6 @@
 import { BaseTool } from "./base.js";
 import { orderService } from "../../services/order.service.js";
+import { resolvePaymentProofReceiptUrl } from "../../services/whatsappMedia.service.js";
 import type { AgentContext, ToolResult } from "../types.js";
 import type { IOrderPaymentProof } from "../../models/index.js";
 
@@ -33,7 +34,8 @@ export class UpdateOrderPaymentTool extends BaseTool {
   readonly name = "update_order_payment";
   readonly description =
     "Attach a payment receipt/proof to an existing internal order and set payment status to verifying. " +
-    "Use after document_data_capture processes a receipt. This tool never marks orders paid; staff review and mark paid in the UI.";
+    "Use after document_data_capture processes a receipt. This tool never marks orders paid; staff review and mark paid in the UI. " +
+    "For WhatsApp images, pass messageId from the customer message so the server saves a previewable receipt file.";
 
   readonly parameters = {
     type: "object",
@@ -53,7 +55,13 @@ export class UpdateOrderPaymentTool extends BaseTool {
       },
       receiptUrl: {
         type: "string",
-        description: "Receipt image/PDF URL from the customer message or uploaded Drive/public link.",
+        description:
+          "Receipt image/PDF URL from the customer message (Image URL line), Drive link, or /uploads/ path. WhatsApp CDN URLs are persisted server-side when messageId is provided.",
+      },
+      messageId: {
+        type: "string",
+        description:
+          "MongoDB Message id from the same customer message (Message ID line). Required to persist WhatsApp receipts for staff preview.",
       },
       receiptFileName: {
         type: "string",
@@ -95,7 +103,28 @@ export class UpdateOrderPaymentTool extends BaseTool {
         };
       }
 
-      const paymentProof = normalizePaymentProofInput(args);
+      const existingOrder =
+        orderId
+          ? await orderService.getById(orderId)
+          : orderNumber
+            ? await orderService.getByOrderNumber(orderNumber)
+            : null;
+      const persistOrderNumber =
+        existingOrder?.orderNumber ?? orderNumber ?? orderId ?? "order";
+
+      let paymentProof = normalizePaymentProofInput(args);
+      const resolved = await resolvePaymentProofReceiptUrl({
+        receiptUrl: paymentProof.receiptUrl,
+        receiptFileName: paymentProof.receiptFileName,
+        messageId: normalizeText(args.messageId),
+        orderNumber: persistOrderNumber,
+      });
+      paymentProof = {
+        ...paymentProof,
+        receiptUrl: resolved.receiptUrl,
+        receiptFileName: resolved.receiptFileName,
+      };
+
       const order = await orderService.updatePaymentByIdentifier({
         orderId,
         orderNumber,

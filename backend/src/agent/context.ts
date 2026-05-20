@@ -1,4 +1,5 @@
 import { Assistant, Contact, Conversation, Message, Skill } from '../models/index.js';
+import { buildMediaProxyUrl } from '../services/whatsappMedia.service.js';
 import { conversationStateService } from '../services/conversationState.service.js';
 import { playgroundSessionService } from '../services/playgroundSession.service.js';
 import { skillStorage } from '../services/skillStorage.service.js';
@@ -225,21 +226,39 @@ export async function buildAgentContext(
     )
     .map((msg: Record<string, unknown>) => {
       let content = String(msg.content || '');
+      const msgId = (msg._id as { toString(): string } | undefined)?.toString();
       if (msg.mediaUrl || msg.mediaDescription) {
         if (msg.contentType === 'image') {
           const hasCaption = msg.content && msg.content !== '[Image]';
           const caption = hasCaption ? ` User's message: "${msg.content}"` : '';
-          const mediaInfo = msg.mediaUrl ? ` Image URL: ${msg.mediaUrl}` : '';
+          const mediaInfo = msgId && msg.evolutionMessageId
+            ? ` Image URL: ${buildMediaProxyUrl(msgId)}`
+            : msg.mediaUrl
+              ? ` Image URL: ${msg.mediaUrl}`
+              : '';
+          const messageIdInfo = msgId ? ` Message ID: ${msgId}` : '';
           const descriptionInfo = msg.mediaDescription
             ? ` Image description: ${msg.mediaDescription}`
             : '';
-          content = `The user shared an image.${caption}${mediaInfo}${descriptionInfo}`;
+          content = `The user shared an image.${caption}${mediaInfo}${messageIdInfo}${descriptionInfo}`;
+        } else if (msg.contentType === 'document') {
+          const hasCaption =
+            msg.content && msg.content !== '[Document]' && !String(msg.content).startsWith('[');
+          const caption = hasCaption ? ` User's message: "${msg.content}"` : '';
+          const mediaInfo = msgId && msg.evolutionMessageId
+            ? ` PDF URL: ${buildMediaProxyUrl(msgId)}`
+            : msg.mediaUrl
+              ? ` PDF URL: ${msg.mediaUrl}`
+              : '';
+          const messageIdInfo = msgId ? ` Message ID: ${msgId}` : '';
+          content = `The user shared a document.${caption}${mediaInfo}${messageIdInfo}`;
         } else if (msg.contentType === 'audio') {
           const mediaInfo = msg.mediaUrl ? ` Audio URL: ${msg.mediaUrl}` : '';
+          const messageIdInfo = msgId ? ` Message ID: ${msgId}` : '';
           const transcriptionInfo = msg.mediaDescription
             ? ` Transcription: ${msg.mediaDescription}`
             : '';
-          content = `The user sent an audio message.${mediaInfo}${transcriptionInfo}`;
+          content = `The user sent an audio message.${mediaInfo}${messageIdInfo}${transcriptionInfo}`;
         }
       }
       return {
