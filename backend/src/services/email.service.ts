@@ -124,6 +124,33 @@ Please change your password after your first login. If you didn't expect this in
   return true;
 }
 
+/** Send a moderation alert email. Returns true if sent, false if SMTP not configured. Throws on send failure. */
+export async function sendModerationAlertEmail(
+  to: string,
+  notifyText: string,
+): Promise<boolean> {
+  const config = await getSmtpConfig();
+  if (!config) {
+    console.warn(
+      "[Email] Skipping moderation alert to",
+      to,
+      "(SMTP not configured in Settings → Integrations → SMTP)",
+    );
+    return false;
+  }
+
+  const transport = createTransporter(config);
+  const emailFrom = config.emailFrom || config.smtpUser || "noreply@localhost";
+
+  await transport.sendMail({
+    from: emailFrom,
+    to,
+    subject: "Foodflow – Bad wording alert",
+    text: notifyText,
+  });
+  return true;
+}
+
 /** Send a simple test email. Returns true if sent, false if SMTP not configured. Throws on failure. */
 export async function sendTestEmail(to: string): Promise<boolean> {
   const config = await getSmtpConfig();

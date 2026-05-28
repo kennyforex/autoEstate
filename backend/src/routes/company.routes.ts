@@ -59,6 +59,10 @@ router.put(
     body("moderationSettings").optional().isObject(),
     body("moderationSettings.enabled").optional().isBoolean(),
     body("moderationSettings.notifyEnabled").optional().isBoolean(),
+    body("moderationSettings.notifyPhoneNumbers").optional().isArray(),
+    body("moderationSettings.notifyPhoneNumbers.*").optional().isString(),
+    body("moderationSettings.notifyEmails").optional().isArray(),
+    body("moderationSettings.notifyEmails.*").optional().isString(),
     body("moderationSettings.notifyPhoneNumber").optional().isString(),
     body("moderationSettings.categories")
       .optional()
@@ -80,9 +84,24 @@ router.put(
       .optional()
       .custom((value) => {
         if (!value || typeof value !== "object") return true;
-        if (value.notifyEnabled && !String(value.notifyPhoneNumber ?? "").trim()) {
+        if (!value?.notifyEnabled) return true;
+        const phones = Array.isArray(value?.notifyPhoneNumbers)
+          ? value.notifyPhoneNumbers
+          : value?.notifyPhoneNumber
+            ? [value.notifyPhoneNumber]
+            : [];
+        const emails = Array.isArray(value?.notifyEmails)
+          ? value.notifyEmails
+          : [];
+        const hasPhone = phones.some((p: unknown) =>
+          String(p ?? "").trim(),
+        );
+        const hasEmail = emails.some((e: unknown) =>
+          String(e ?? "").trim(),
+        );
+        if (!hasPhone && !hasEmail) {
           throw new Error(
-            "Manager notify phone is required when alerts are enabled",
+            "At least one notify recipient is required when alerts are enabled",
           );
         }
         return true;

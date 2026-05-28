@@ -3,6 +3,7 @@ import type { IModerationSettings } from "../types/moderation.js";
 import {
   mergeModerationSettings,
   normalizeModerationSettings,
+  validateModerationSettings as validateModerationSettingsPayload,
 } from "./moderation.service.js";
 
 class CompanyService {
@@ -84,10 +85,9 @@ class CompanyService {
     const normalized = normalizeModerationSettings(
       (input ?? {}) as Partial<IModerationSettings>,
     );
-    if (normalized.notifyEnabled && !normalized.notifyPhoneNumber) {
-      throw new Error(
-        "Manager notify phone is required when alerts are enabled",
-      );
+    const error = validateModerationSettingsPayload(normalized);
+    if (error) {
+      throw new Error(error);
     }
     return normalized;
   }

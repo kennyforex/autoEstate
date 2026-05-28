@@ -10,24 +10,26 @@ describe("company.service moderation", () => {
     assert.equal(merged.enabled, true);
   });
 
-  it("validateModerationSettings rejects notify without phone", () => {
+  it("validateModerationSettings rejects notify without recipients", () => {
     assert.throws(
       () =>
         companyService.validateModerationSettings({
           enabled: true,
           notifyEnabled: true,
-          notifyPhoneNumber: "",
+          notifyPhoneNumbers: [],
+          notifyEmails: [],
           categories: [],
         }),
-      /Manager notify phone is required/,
+      /at least one notify recipient/i,
     );
   });
 
-  it("validateModerationSettings accepts valid payload", () => {
+  it("validateModerationSettings accepts phone-only notify", () => {
     const result = companyService.validateModerationSettings({
       enabled: true,
       notifyEnabled: true,
-      notifyPhoneNumber: "85212345678",
+      notifyPhoneNumbers: ["85212345678"],
+      notifyEmails: [],
       categories: [
         {
           id: "custom",
@@ -38,15 +40,37 @@ describe("company.service moderation", () => {
         },
       ],
     });
-    assert.equal(result.notifyPhoneNumber, "85212345678");
+    assert.deepEqual(result.notifyPhoneNumbers, ["85212345678"]);
     assert.equal(result.categories[0]!.inboxFolder, "slaRisk");
+  });
+
+  it("validateModerationSettings accepts email-only notify", () => {
+    const result = companyService.validateModerationSettings({
+      enabled: true,
+      notifyEnabled: true,
+      notifyPhoneNumbers: [],
+      notifyEmails: ["ops@example.com"],
+      categories: [],
+    });
+    assert.deepEqual(result.notifyEmails, ["ops@example.com"]);
+  });
+
+  it("validateModerationSettings migrates legacy notifyPhoneNumber", () => {
+    const result = companyService.validateModerationSettings({
+      enabled: true,
+      notifyEnabled: true,
+      notifyPhoneNumber: "85212345678",
+      categories: [],
+    });
+    assert.deepEqual(result.notifyPhoneNumbers, ["85212345678"]);
   });
 
   it("validateModerationSettings rejects invalid inbox folder via normalize fallback", () => {
     const result = companyService.validateModerationSettings({
       enabled: true,
       notifyEnabled: false,
-      notifyPhoneNumber: "",
+      notifyPhoneNumbers: [],
+      notifyEmails: [],
       categories: [
         {
           id: "x",

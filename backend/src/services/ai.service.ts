@@ -1253,7 +1253,8 @@ IMPORTANT RULES:
 
     if (
       moderationSettings.notifyEnabled &&
-      moderationSettings.notifyPhoneNumber
+      (moderationSettings.notifyPhoneNumbers.length > 0 ||
+        moderationSettings.notifyEmails.length > 0)
     ) {
       const conv = await Conversation.findById(conversationId)
         .select("moderationAlertsSent")
@@ -1264,29 +1265,32 @@ IMPORTANT RULES:
           moderationMatch.category.id,
         )
       ) {
-        try {
-          const contactLabel =
-            contact.name ||
-            contact.phoneNumber ||
-            contact.whatsappId ||
-            "Unknown";
-          const notifyText = moderationService.buildNotifyText({
-            categoryName: moderationMatch.category.name,
-            contactLabel,
-            channelName: channel.name,
-            messageContent: effectiveContent,
-          });
-          await messageService.sendViaWhatsApp(
-            channel.evolutionInstanceName,
-            formatPhoneToJid(moderationSettings.notifyPhoneNumber),
+        const contactLabel =
+          contact.name ||
+          contact.phoneNumber ||
+          contact.whatsappId ||
+          "Unknown";
+        const notifyText = moderationService.buildNotifyText({
+          categoryName: moderationMatch.category.name,
+          contactLabel,
+          channelName: channel.name,
+          messageContent: effectiveContent,
+        });
+        const anySent = await moderationService.dispatchModerationNotifications(
+          {
+            evolutionInstanceName: channel.evolutionInstanceName,
+            phoneNumbers: moderationSettings.notifyPhoneNumbers,
+            emails: moderationSettings.notifyEmails,
             notifyText,
-          );
+            onError: (ctx, err) =>
+              console.error(`[AI:Moderation] ${ctx}:`, err),
+          },
+        );
+        if (anySent) {
           await conversationService.markModerationAlertSent(
             conversationId,
             moderationMatch.category.id,
           );
-        } catch (err) {
-          console.error("[AI:Moderation] Manager notify failed:", err);
         }
       }
     }

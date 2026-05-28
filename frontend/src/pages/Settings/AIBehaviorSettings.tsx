@@ -19,6 +19,21 @@ const FOLDER_OPTIONS: ModerationInboxFolder[] = [
   "spam",
 ];
 
+function splitCommaSeparated(value: string): string[] {
+  return value
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function joinCommaSeparated(items: string[]): string {
+  return items.join(", ");
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 function newCategory(): BadWordingCategory {
   return {
     id: `cat-${crypto.randomUUID().slice(0, 8)}`,
@@ -40,9 +55,12 @@ export const AIBehaviorSettings: React.FC = () => {
   const [settings, setSettings] = useState<ModerationSettings>({
     enabled: true,
     notifyEnabled: false,
-    notifyPhoneNumber: "",
+    notifyPhoneNumbers: [],
+    notifyEmails: [],
     categories: [],
   });
+  const [notifyPhoneNumbersText, setNotifyPhoneNumbersText] = useState("");
+  const [notifyEmailsText, setNotifyEmailsText] = useState("");
 
   const loadSettings = useCallback(async () => {
     try {
@@ -52,12 +70,17 @@ export const AIBehaviorSettings: React.FC = () => {
         setSettings({
           enabled: ms.enabled !== false,
           notifyEnabled: Boolean(ms.notifyEnabled),
-          notifyPhoneNumber: ms.notifyPhoneNumber ?? "",
+          notifyPhoneNumbers: ms.notifyPhoneNumbers ?? [],
+          notifyEmails: ms.notifyEmails ?? [],
           categories: (ms.categories ?? []).map((c) => ({
             ...c,
             phrases: [...(c.phrases ?? [])],
           })),
         });
+        setNotifyPhoneNumbersText(
+          joinCommaSeparated(ms.notifyPhoneNumbers ?? []),
+        );
+        setNotifyEmailsText(joinCommaSeparated(ms.notifyEmails ?? []));
       }
     } catch (error) {
       console.error("Failed to load moderation settings:", error);
@@ -83,8 +106,14 @@ export const AIBehaviorSettings: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (settings.notifyEnabled && !settings.notifyPhoneNumber.trim()) {
-      alert(t("settings.aiBehavior.notifyPhoneRequired"));
+    const phones = splitCommaSeparated(notifyPhoneNumbersText);
+    const emails = splitCommaSeparated(notifyEmailsText);
+    if (settings.notifyEnabled && phones.length === 0 && emails.length === 0) {
+      alert(t("settings.aiBehavior.notifyRecipientsRequired"));
+      return;
+    }
+    if (emails.some((email) => !isValidEmail(email))) {
+      alert(t("settings.aiBehavior.notifyEmailInvalid"));
       return;
     }
 
@@ -94,7 +123,8 @@ export const AIBehaviorSettings: React.FC = () => {
         moderationSettings: {
           enabled: settings.enabled,
           notifyEnabled: settings.notifyEnabled,
-          notifyPhoneNumber: settings.notifyPhoneNumber.replace(/\D/g, ""),
+          notifyPhoneNumbers: phones,
+          notifyEmails: emails,
           categories: settings.categories.map((c) => ({
             ...c,
             name: c.name.trim() || t("settings.aiBehavior.unnamedCategory"),
@@ -266,31 +296,44 @@ export const AIBehaviorSettings: React.FC = () => {
           {t("settings.aiBehavior.notifyTitle")}
         </h2>
         <p className="text-sm text-gray-500">
-          {t("settings.aiBehavior.notifyPrivacy")}
+          {t("settings.aiBehavior.notifyDesc")}
         </p>
         <Toggle
           checked={settings.notifyEnabled}
           onChange={(notifyEnabled) =>
             setSettings((s) => ({ ...s, notifyEnabled }))
           }
-          label={t("settings.aiBehavior.notifyEnable")}
-          description={t("settings.aiBehavior.notifyEnableDesc")}
+          label={t("settings.aiBehavior.notifyEnabled")}
+          description={t("settings.aiBehavior.notifyEnabledDesc")}
           disabled={!isAdmin}
         />
         {settings.notifyEnabled && (
-          <Input
-            label={t("settings.aiBehavior.notifyPhone")}
-            value={settings.notifyPhoneNumber}
-            onChange={(e) =>
-              setSettings((s) => ({
-                ...s,
-                notifyPhoneNumber: e.target.value,
-              }))
-            }
-            placeholder="85291234567"
-            disabled={!isAdmin}
-          />
+          <>
+            <Input
+              label={t("settings.aiBehavior.notifyPhone")}
+              value={notifyPhoneNumbersText}
+              onChange={(e) => setNotifyPhoneNumbersText(e.target.value)}
+              placeholder="85261218051, 85266881111"
+              disabled={!isAdmin}
+            />
+            <p className="text-xs text-gray-500 -mt-2">
+              {t("settings.aiBehavior.notifyPhoneHint")}
+            </p>
+            <Input
+              label={t("settings.aiBehavior.notifyEmails")}
+              value={notifyEmailsText}
+              onChange={(e) => setNotifyEmailsText(e.target.value)}
+              placeholder="manager@example.com, ops@example.com"
+              disabled={!isAdmin}
+            />
+            <p className="text-xs text-gray-500 -mt-2">
+              {t("settings.aiBehavior.notifyEmailsHint")}
+            </p>
+          </>
         )}
+        <p className="text-xs text-amber-700">
+          {t("settings.aiBehavior.notifyPrivacy")}
+        </p>
       </div>
 
       {isAdmin && (

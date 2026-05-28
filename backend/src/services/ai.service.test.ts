@@ -85,7 +85,8 @@ describe("ai.service moderation", () => {
       const settings = {
         ...defaults,
         notifyEnabled: true,
-        notifyPhoneNumber: "85291234567",
+        notifyPhoneNumbers: ["85291234567"],
+        notifyEmails: [],
       };
       await apply(
         "conv1",
@@ -96,7 +97,27 @@ describe("ai.service moderation", () => {
         moderationMatch,
       );
       assert.equal(sendMock.mock.calls.length, 1);
-      assert.match(String(sendMock.mock.calls[0]!.arguments[1]), /85291234567/);
+      assert.equal(sendMock.mock.calls[0]!.arguments[1], "85291234567");
+      assert.equal(markAlertMock.mock.calls.length, 1);
+    });
+
+    it("sends notify to multiple WhatsApp numbers and emails", async () => {
+      const moderationMatch = match("fuck", defaults)!;
+      const settings = {
+        ...defaults,
+        notifyEnabled: true,
+        notifyPhoneNumbers: ["85291111111", "85292222222"],
+        notifyEmails: ["manager@example.com", "ops@example.com"],
+      };
+      await apply(
+        "conv1",
+        { name: "WA", evolutionInstanceName: "inst" },
+        { name: "Bob" },
+        "fuck off",
+        settings,
+        moderationMatch,
+      );
+      assert.equal(sendMock.mock.calls.length, 2);
       assert.equal(markAlertMock.mock.calls.length, 1);
     });
 
@@ -124,18 +145,25 @@ describe("ai.service moderation", () => {
         {
           ...defaults,
           notifyEnabled: true,
-          notifyPhoneNumber: "85291234567",
+          notifyPhoneNumbers: ["85291234567"],
+          notifyEmails: [],
         },
         moderationMatch,
       );
       assert.equal(sendMock.mock.calls.length, 0);
     });
 
-    it("notify failure does not throw", async () => {
+    it("notify failure does not throw when all channels fail", async () => {
       sendMock = mock.fn(async () => {
         throw new Error("wa down");
       });
+      const dispatchMock = mock.fn(async () => false);
       mock.method(messageService, "sendViaWhatsApp", sendMock);
+      mock.method(
+        moderationService,
+        "dispatchModerationNotifications",
+        dispatchMock,
+      );
 
       const moderationMatch = match("fuck", defaults)!;
       await assert.doesNotReject(() =>
@@ -147,11 +175,39 @@ describe("ai.service moderation", () => {
           {
             ...defaults,
             notifyEnabled: true,
-            notifyPhoneNumber: "85291234567",
+            notifyPhoneNumbers: ["85291234567"],
+            notifyEmails: ["ops@example.com"],
           },
           moderationMatch,
         ),
       );
+      assert.equal(markAlertMock.mock.calls.length, 0);
+    });
+
+    it("marks alert sent when dispatch reports success", async () => {
+      const dispatchMock = mock.fn(async () => true);
+      mock.method(
+        moderationService,
+        "dispatchModerationNotifications",
+        dispatchMock,
+      );
+
+      const moderationMatch = match("fuck", defaults)!;
+      await apply(
+        "conv1",
+        { name: "WA", evolutionInstanceName: "inst" },
+        { name: "Bob" },
+        "fuck",
+        {
+          ...defaults,
+          notifyEnabled: true,
+          notifyPhoneNumbers: ["85291234567"],
+          notifyEmails: ["ops@example.com"],
+        },
+        moderationMatch,
+      );
+      assert.equal(dispatchMock.mock.calls.length, 1);
+      assert.equal(markAlertMock.mock.calls.length, 1);
     });
   });
 });

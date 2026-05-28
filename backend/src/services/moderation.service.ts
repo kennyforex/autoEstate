@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
 import { conversationService } from "./conversation.service.js";
+import { messageService } from "./message.service.js";
+import { sendModerationAlertEmail } from "./email.service.js";
 import type {
   IBadWordingCategory,
   IModerationSettings,
@@ -8,10 +10,7 @@ import type {
 } from "../types/moderation.js";
 import {
   MODERATION_INBOX_FOLDERS,
-  MODERATION_MAX_CATEGORIES,
-  MODERATION_MAX_PHRASE_LENGTH,
-  MODERATION_MAX_PHRASES_PER_CATEGORY,
-  MODERATION_NOTIFY_MAX_LENGTH,
+  MODERATION_LIMITS,
 } from "../types/moderation.js";
 
 const DEFAULT_ENGLISH_PROFANITY = [
@@ -95,11 +94,74 @@ function phraseMatches(text: string, phrase: string): boolean {
   return text.toLowerCase().includes(trimmed.toLowerCase());
 }
 
+function normalizePhoneDigits(input: string | undefined): string {
+  return input?.replace(/\D/g, "") ?? "";
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function parseNotifyPhoneNumbers(
+  input: Partial<IModerationSettings> | IModerationSettings,
+): string[] {
+  if (Array.isArray(input.notifyPhoneNumbers)) {
+    return input.notifyPhoneNumbers;
+  }
+  const legacy = (input as { notifyPhoneNumber?: string }).notifyPhoneNumber;
+  if (legacy?.trim()) {
+    return [legacy.trim()];
+  }
+  return [];
+}
+
+function parseNotifyEmails(
+  input: Partial<IModerationSettings> | IModerationSettings,
+): string[] {
+  if (Array.isArray(input.notifyEmails)) {
+    return input.notifyEmails;
+  }
+  return [];
+}
+
+function normalizeNotifyPhoneNumbers(
+  input: Partial<IModerationSettings> | IModerationSettings,
+): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of parseNotifyPhoneNumbers(input)) {
+    const normalized = normalizePhoneDigits(String(raw));
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      result.push(normalized);
+    }
+    if (result.length >= MODERATION_LIMITS.maxNotifyPhoneNumbers) break;
+  }
+  return result;
+}
+
+function normalizeNotifyEmails(
+  input: Partial<IModerationSettings> | IModerationSettings,
+): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of parseNotifyEmails(input)) {
+    const normalized = String(raw).trim().toLowerCase();
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      result.push(normalized);
+    }
+    if (result.length >= MODERATION_LIMITS.maxNotifyEmails) break;
+  }
+  return result;
+}
+
 export function getDefaultModerationSettings(): IModerationSettings {
   return {
     enabled: true,
     notifyEnabled: false,
-    notifyPhoneNumber: "",
+    notifyPhoneNumbers: [],
+    notifyEmails: [],
     categories: [
       {
         id: "english-profanity",
@@ -136,7 +198,9 @@ export function mergeModerationSettings(
   return normalizeModerationSettings({
     enabled: stored.enabled ?? defaults.enabled,
     notifyEnabled: stored.notifyEnabled ?? defaults.notifyEnabled,
-    notifyPhoneNumber: stored.notifyPhoneNumber ?? defaults.notifyPhoneNumber,
+    notifyPhoneNumbers: stored.notifyPhoneNumbers,
+    notifyEmails: stored.notifyEmails,
+    notifyPhoneNumber: stored.notifyPhoneNumber,
     categories:
       Array.isArray(stored.categories) && stored.categories.length > 0
         ? stored.categories
@@ -149,7 +213,7 @@ export function normalizeModerationSettings(
 ): IModerationSettings {
   const defaults = getDefaultModerationSettings();
   const categoriesInput = Array.isArray(input.categories)
-    ? input.categories.slice(0, MODERATION_MAX_CATEGORIES)
+    ? input.categories.slice(0, MODERATION_LIMITS.maxCategories)
     : defaults.categories;
 
   const categories: IBadWordingCategory[] = categoriesInput.map((cat, index) => {
@@ -157,11 +221,11 @@ export function normalizeModerationSettings(
     const phrases = (Array.isArray(raw.phrases) ? raw.phrases : [])
       .map((p) =>
         typeof p === "string"
-          ? p.trim().slice(0, MODERATION_MAX_PHRASE_LENGTH)
+          ? p.trim().slice(0, MODERATION_LIMITS.maxPhraseLength)
           : "",
       )
       .filter((p) => p.length > 0)
-      .slice(0, MODERATION_MAX_PHRASES_PER_CATEGORY);
+      .slice(0, MODERATION_LIMITS.maxPhrasesPerCategory);
 
     const inboxFolder = MODERATION_INBOX_FOLDERS.includes(
       raw.inboxFolder as ModerationInboxFolder,
@@ -187,13 +251,51 @@ export function normalizeModerationSettings(
   return {
     enabled: input.enabled !== false,
     notifyEnabled: Boolean(input.notifyEnabled),
-    notifyPhoneNumber:
-      typeof input.notifyPhoneNumber === "string"
-        ? input.notifyPhoneNumber.replace(/\D/g, "").slice(0, 20)
-        : "",
+    notifyPhoneNumbers: normalizeNotifyPhoneNumbers(input),
+    notifyEmails: normalizeNotifyEmails(input),
     categories:
       categories.length > 0 ? categories : defaults.categories,
   };
+}
+
+export function validateModerationSettings(
+  input: Partial<IModerationSettings> | IModerationSettings,
+): string | null {
+  const normalized = normalizeModerationSettings(input);
+
+  if (
+    normalized.notifyEnabled &&
+    normalized.notifyPhoneNumbers.length === 0 &&
+    normalized.notifyEmails.length === 0
+  ) {
+    return "At least one notify recipient is required when alerts are enabled";
+  }
+
+  for (const email of normalized.notifyEmails) {
+    if (!isValidEmail(email)) {
+      return `Invalid email address: ${email}`;
+    }
+  }
+
+  for (const cat of normalized.categories) {
+    if (!MODERATION_INBOX_FOLDERS.includes(cat.inboxFolder)) {
+      return `Invalid inbox folder for category "${cat.name}"`;
+    }
+  }
+
+  if ((input.categories?.length ?? 0) > MODERATION_LIMITS.maxCategories) {
+    return `Maximum ${MODERATION_LIMITS.maxCategories} categories allowed`;
+  }
+
+  for (const cat of input.categories ?? []) {
+    if (
+      (cat.phrases?.length ?? 0) > MODERATION_LIMITS.maxPhrasesPerCategory
+    ) {
+      return `Maximum ${MODERATION_LIMITS.maxPhrasesPerCategory} phrases per category`;
+    }
+  }
+
+  return null;
 }
 
 export function match(
@@ -229,7 +331,7 @@ export function buildNotifyText(params: {
 }): string {
   const body = truncateForNotify(
     params.messageContent,
-    MODERATION_NOTIFY_MAX_LENGTH,
+    MODERATION_LIMITS.notifyTruncateLength,
   );
   return [
     `[Moderation] ${params.categoryName}`,
@@ -246,6 +348,47 @@ export function shouldNotify(
 ): boolean {
   const sent = moderationAlertsSent ?? [];
   return !sent.includes(categoryId);
+}
+
+export async function dispatchModerationNotifications(params: {
+  evolutionInstanceName: string;
+  notifyText: string;
+  phoneNumbers: string[];
+  emails: string[];
+  onError: (context: string, error: unknown) => void;
+}): Promise<boolean> {
+  const sendTasks: Promise<boolean>[] = [];
+
+  for (const phone of params.phoneNumbers) {
+    sendTasks.push(
+      messageService
+        .sendViaWhatsApp(
+          params.evolutionInstanceName,
+          phone,
+          params.notifyText,
+          "text",
+        )
+        .then(() => true)
+        .catch((err: unknown) => {
+          params.onError(`badWordingNotifyWhatsApp:${phone}`, err);
+          return false;
+        }),
+    );
+  }
+
+  for (const email of params.emails) {
+    sendTasks.push(
+      sendModerationAlertEmail(email, params.notifyText).catch(
+        (err: unknown) => {
+          params.onError(`badWordingNotifyEmail:${email}`, err);
+          return false;
+        },
+      ),
+    );
+  }
+
+  const results = await Promise.all(sendTasks);
+  return results.some((ok) => ok);
 }
 
 export async function applyFolderActions(
@@ -285,9 +428,11 @@ export const moderationService = {
   getDefaultModerationSettings,
   mergeModerationSettings,
   normalizeModerationSettings,
+  validateModerationSettings,
   match,
   truncateForNotify,
   buildNotifyText,
   shouldNotify,
+  dispatchModerationNotifications,
   applyFolderActions,
 };

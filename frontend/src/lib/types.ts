@@ -65,7 +65,8 @@ export interface ModerationSettings {
   enabled: boolean;
   categories: BadWordingCategory[];
   notifyEnabled: boolean;
-  notifyPhoneNumber: string;
+  notifyPhoneNumbers: string[];
+  notifyEmails: string[];
 }
 
 // Company types
